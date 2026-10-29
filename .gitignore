@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Builds
+dist/
+server/dist/
+.next/
+client/.next/
+out/
+client/out/
+
+# Environment
+.env
+server/.env
+*.env.local
+
+# Generated Data / Projects
+server/data/sessions/*.json
+!server/data/sessions/.gitkeep
+server/data/projects/*/
+!server/data/projects/.gitkeep
+
+# Logs & Temp
+*.log
+_backup/
+_cache/
+_temp/
+_trash/
+
+# OS
+.DS_Store
+Thumbs.db

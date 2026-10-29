@@ -1,0 +1,68 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "🚀 启动服务端 (Server API)",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "build:server",
+      "program": "${workspaceFolder}/server/dist/index.js",
+      "cwd": "${workspaceFolder}/server",
+      "outFiles": [
+        "${workspaceFolder}/server/dist/**/*.js"
+      ],
+      "sourceMaps": true,
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "🎬 运行 CLI 导演测试 (端到端成片)",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "build:server",
+      "program": "${workspaceFolder}/server/dist/cli.js",
+      "cwd": "${workspaceFolder}/server",
+      "outFiles": [
+        "${workspaceFolder}/server/dist/**/*.js"
+      ],
+      "sourceMaps": true,
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "💻 启动客户端 (Next.js WebUI)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:client"
+      ],
+      "cwd": "${workspaceFolder}",
+      "sourceMaps": false,
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**",
+        "**/.next/**"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "🌟 全栈联调 (Server + Client)",
+      "configurations": [
+        "🚀 启动服务端 (Server API)",
+        "💻 启动客户端 (Next.js WebUI)"
+      ],
+      "stopAll": true
+    }
+  ]
+}

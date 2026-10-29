@@ -1,0 +1,19 @@
+{
+  "folders": [
+    {
+      "name": "🏠 Root (Workspace)",
+      "path": "."
+    },
+    {
+      "name": "💻 Client (Next.js WebUI)",
+      "path": "client"
+    },
+    {
+      "name": "⚙️ Server (AI Director Agent)",
+      "path": "server"
+    }
+  ],
+  "settings": {
+    "typescript.tsdk": "server/node_modules/typescript/lib"
+  }
+}

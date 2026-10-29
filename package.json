@@ -1,0 +1,30 @@
+{
+  "name": "makeMv",
+  "version": "1.0.0",
+  "description": "makeMv - AI 互动影视与影游导演系统 (Interactive FMV & AI Director Monorepo)",
+  "private": true,
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix server run build && npm --prefix client run build",
+    "build:server": "npm --prefix server run build",
+    "build:client": "npm --prefix client run build",
+    "start:server": "npm --prefix server run start",
+    "start:client": "npm --prefix client run start",
+    "cli": "npm --prefix server run cli",
+    "clean:port": "npx -y kill-port 8000 3000"
+  },
+  "keywords": [
+    "fmv",
+    "videoclaw",
+    "ai-director",
+    "interactive-film",
+    "game-engine"
+  ],
+  "author": "",
+  "license": "MIT"
+}
