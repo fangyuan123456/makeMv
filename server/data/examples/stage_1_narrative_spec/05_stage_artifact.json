@@ -1,0 +1,514 @@
+{
+  "stage": "narrative_design",
+  "title": "记忆灰域",
+  "theme": "赛博朋克悬疑 × 意识犯罪 × 多阵营博弈",
+  "style": "realistic",
+  "logline": "在2077年新东京，失忆的前脑神经接口工程师‘零号’被匿名委托潜入全球意识科技巨头NEXUS集团总部，调查一起大规模非授权记忆覆写事件——受害者皆为底层义体劳工，却无一具尸体、无一份电子证言。随着潜入深入，零号发现自己的记忆碎片正与受害者脑波残痕同步共振；而每一次关键抉择都将撕裂信任网络、重写身份真相，并最终导向多重不可逆终局。",
+  "sellingPoints": [
+    "看点1：全景场景点触搜证——冷冻舱与暗网后巷支持点击热点探查细节，亲手搜集血字芯片与记忆残片。",
+    "看点2：拟真脑机通讯与态度轮盘——逃亡中实时接收未注册频段语音通话，三秒态度轮盘塑造主角性格。",
+    "看点3：关键时刻甩证物对质——在审讯中从背包拖拽证物当面砸向全息屏幕，当众戳穿财阀谎言！",
+    "看点4：莫比乌斯轮回双周目——支持彻底格式化自我达成时间回溯，携带上一轮线索道具开启新循环。"
+  ],
+  "goldenSpine": [
+    {
+      "act": 1,
+      "name": "第 1 幕·苏醒与覆写疑云",
+      "summary": "失忆工程师零号在废弃冷冻舱苏醒，发现自身接口被物理熔毁。玩家通过场景搜查点找到阿哲的血字芯片，发现这起非授权覆写案背后隐藏着代号为‘灰蛾’的致命病毒。"
+    },
+    {
+      "act": 2,
+      "name": "第 2 幕·回声巷与信任分水岭",
+      "summary": "零号接收莱拉的加密通信指引逃入地下黑市‘回声巷’接头。莱拉持有能唤醒底层劳工的反覆写固件，但要求读取零号未注册的记忆核；零号面临生死与信任的第一次考验。"
+    },
+    {
+      "act": 3,
+      "name": "第 3 幕·造物主反噬与惊天秘密",
+      "summary": "潜入主干网甩出芯片对质总监凯恩，惊天真相揭晓：零号根本不是受害者，而是当年一手主导意识清洗的首席架构师！神秘虚影‘茧’正是他三年前自愿格式化前剥离的良知备份。"
+    },
+    {
+      "act": 4,
+      "name": "第 4 幕·中枢对决与终局破局",
+      "summary": "在液氮中枢，凯恩启动全球意识清洗协议，零号与‘茧’跨维度共振。零号启动反向时序注入，在拯救全城受害者、登顶数字新神或彻底格式化自身之间，完成最终命运收束。"
+    }
+  ],
+  "interactionMechanisms": {
+    "microInteractions": [
+      {
+        "type": "hotspot_inspection",
+        "name": "全景场景点触搜证",
+        "description": "第1幕冷冻舱支持点击光点搜查后颈接口、死者工服与受损监控，亲手获取【阿哲的血字芯片】。"
+      },
+      {
+        "type": "comm_incoming",
+        "name": "拟真脑机通话/短信",
+        "description": "第2幕雨夜逃跑中接听莱拉加密通话，支持 3 秒快捷情绪回复。"
+      },
+      {
+        "type": "evidence_present",
+        "name": "背包证物对质戳穿谎言",
+        "description": "第3幕面对凯恩审查，打开背包拖拽血字芯片甩上大屏，破坏凯恩全息投影。"
+      }
+    ],
+    "macroDecisions": [
+      {
+        "id": "pivot_1",
+        "title": "回声巷信任抉择",
+        "type": "binary_branch",
+        "outcomes": [
+          "地下同盟线 (莱拉好感+25, 获固件密钥)",
+          "孤狼黑市线 (强攻潜入, 失去掩护)"
+        ]
+      },
+      {
+        "id": "pivot_2",
+        "title": "凯恩审查生死QTE",
+        "type": "qte_timeout",
+        "outcomes": [
+          "假意顺从暗中植入木马",
+          "屈服格式化 -> 沦为清道夫 (Bad End)"
+        ]
+      },
+      {
+        "id": "pivot_3",
+        "title": "终幕神明与自我牺牲",
+        "type": "multi_ending",
+        "outcomes": [
+          "意识解放革命 (True End)",
+          "升维新神 (Secret End)",
+          "莫比乌斯回溯 (Time Loop)"
+        ]
+      }
+    ]
+  },
+  "characters": [
+    {
+      "id": "char_01",
+      "name": "零号",
+      "role": "主角 / 第一视角失忆调查员 / 灰蛾前首席架构师",
+      "gender": "男",
+      "age": 29,
+      "personality": "极度克制、技术理性偏执、习惯用计算机逻辑解构人际情感，伴随创伤后应激导致的神经性眼跳。",
+      "visualPrompt": "A 29-year-old East Asian male cyberpunk engineer, sharp tired jawline, charred cybernetic neural port on the back of his neck emitting faint sparks, wearing a worn dark waterproof techwear trench coat, realistic cinematic lighting, 8k, moody neon reflection.",
+      "motivation": "找回被物理熔毁的真实身份记忆，阻止灰蛾病毒覆写无辜者；在得知自己是造物主后，承担终极救赎责任。",
+      "affinityTrigger": "对逻辑自洽的理性决策有天然亲和力；厌恶被动哀怨，对果断自救者持有敬意。"
+    },
+    {
+      "id": "char_02",
+      "name": "莱拉·V-7",
+      "role": "盟友 / NEXUS前首席伦理审查官 / 回声巷地下情报贩子",
+      "gender": "女",
+      "age": 32,
+      "personality": "言辞冷峻辛辣、防备心极重，但对底层苦难怀有隐秘的悲悯；习惯在紧张时抚摸左臂的未注册机械义肢。",
+      "visualPrompt": "A 32-year-old fierce cyberpunk woman, half-shaved sleek undercut dark hair, glowing amber bionic left arm with exposed circuits and holographic scanner, smoky eye makeup, wearing a distressed modular tactical harness, volumetric rainy alley atmosphere, hyper-realistic, 8k.",
+      "motivation": "查明丈夫被合规性‘意识修剪’的绝密真相，利用反覆写固件唤醒所有被奴役的底层劳工。",
+      "affinityTrigger": "重守信诺（尤其是微小承诺）；反感任何形式的背叛与试探。唯有玩家两次选择与她共同承担风险，好感才会爆发式增长。"
+    },
+    {
+      "id": "char_03",
+      "name": "总监凯恩",
+      "role": "反派 / NEXUS意识安全总署署长 / 意识纯化工程主谋",
+      "gender": "男",
+      "age": 55,
+      "personality": "语调平缓无起伏、瞳孔无反光、每句话结尾精确停顿1.3秒；认为肉身痛苦与情绪是人类进化的低效冗余。",
+      "visualPrompt": "A 55-year-old immaculate corporate executive in high-collar charcoal cybernetic tailored suit, cold calculating silver eyes, slicked-back platinum hair, semi-transparent holographic glitch overlay indicating telepresence, cold fluorescent lighting, cinematic film still.",
+      "motivation": "完成全球意识升维工程，将全人类的记忆统一提纯为可标准分发的稳定无痛模组，视零号为唯一的校准基底。",
+      "affinityTrigger": "仅对展现绝对认知服从的行为产生临时信用；任何对秩序的辩驳都会被他视作算法异常直接拉响最高安保警报。"
+    },
+    {
+      "id": "char_04",
+      "name": "茧 (Cocoon)",
+      "role": "神秘虚影 / 劳工自治会信使 / 零号剥离封印的原始良知备份",
+      "gender": "非二元 / 少年态",
+      "age": 18,
+      "personality": "无声瞬移、声音经12层变调处理，举手投足带有0.4秒的时空残影，不直视他人面部。",
+      "visualPrompt": "A mysterious ethereal teenage cyberpunk entity, translucent glitching silhouette wearing an oversized tattered digital cloak, wearing a smooth mirrored porcelain mask with a single glowing cyan vertical line, floating particulate dust in neon rain, surreal hyper-realistic.",
+      "motivation": "在现实与数字维度的夹缝中守护最后一份未受污染的情感模块，等待零号在终局重新认领自己。",
+      "affinityTrigger": "仅通过非功利性停留（如在危机中主动救助受害者）积累好感；一切工具型交易与欺瞒都会导致其信标隐匿。"
+    }
+  ],
+  "episodes": [
+    {
+      "episodeNumber": 1,
+      "title": "第 1 幕·苏醒与覆写疑云",
+      "logline": "失忆工程师零号在冷冻舱苏醒，通过点触搜证获取阿哲血字芯片，锁定灰蛾病毒线索。",
+      "cliffhanger": "义眼捕捉到0.4秒瞬移残影，神秘代号‘灰蛾’浮出水面。"
+    },
+    {
+      "episodeNumber": 2,
+      "title": "第 2 幕·回声巷与信任分水岭",
+      "logline": "潜入暗网回声巷接头前审查官莱拉，面临开放神经核还是单打独斗的抉择。",
+      "cliffhanger": "清道夫无人机红外光斑锁死后巷，倒计时逼迫生死二选一。"
+    },
+    {
+      "episodeNumber": 3,
+      "title": "第 3 幕·造物主反噬与惊天秘密",
+      "logline": "甩出芯片对质总监凯恩，揭晓零号才是灰蛾总架构师，‘茧’是良知备份。",
+      "cliffhanger": "凯恩按下全城记忆清除倒计时，最后防爆闸门正急速坠落。"
+    },
+    {
+      "episodeNumber": 4,
+      "title": "第 4 幕·中枢对决与终局破局",
+      "logline": "在液氮中枢启动反向时序注入，在解放劳工、飞升新神与重置轮回中决胜。",
+      "cliffhanger": "意识波形冲破天际，全城霓虹骤灭，终局命运彻底定格。"
+    }
+  ],
+  "storyGraphRef": "./03_story_graph.json",
+  "isLocked": false,
+  "characterNames": [
+    "零号",
+    "莱拉·V-7",
+    "总监凯恩",
+    "茧 (Cocoon)"
+  ],
+  "locations": [
+    "NEXUS B7层废弃意识校准室",
+    "回声巷·锈钉咖啡馆后巷",
+    "回声巷地下隐蔽所",
+    "NEXUS通风管井",
+    "意识安全总署中控台",
+    "NEXUS液氮核心机房",
+    "NEXUS液氮中枢",
+    "新东京黎明地平线",
+    "源代码纯白维度",
+    "时间循环起点"
+  ],
+  "storyGraph": {
+    "startNodeId": "node_01",
+    "systems": {
+      "affinity": {
+        "莱拉·V-7": 0,
+        "总监凯恩": 0,
+        "茧": 0
+      },
+      "inventory": [],
+      "flags": {
+        "leila_ally": false,
+        "leila_betrayed": false,
+        "kain_infected": false,
+        "gray_moth_sealed": false,
+        "inspected_neck_port": false,
+        "found_blood_chip": false
+      }
+    },
+    "nodes": [
+      {
+        "id": "node_01",
+        "type": "investigation",
+        "interactionMode": "hotspot_inspection",
+        "title": "第1幕: 液氮舱苏醒与点触搜证",
+        "summary": "失忆工程师零号在冷冻舱惊醒。玩家通过点击场景中 3 处发光点搜寻证物，解锁后颈焦痕真相与阿哲的血字芯片。",
+        "location": "NEXUS B7层废弃意识校准室",
+        "characters": [
+          "零号"
+        ],
+        "estimatedDurationSec": 20,
+        "hotspots": [
+          {
+            "id": "spot_neck",
+            "label": "检查后颈接口",
+            "clueReward": "焦黑接口数据",
+            "narration": "物理熔断痕迹...有人故意毁掉了我的记忆槽。"
+          },
+          {
+            "id": "spot_victim",
+            "label": "搜查劳工阿哲口袋",
+            "itemReward": "阿哲的血字芯片",
+            "narration": "在工服口袋翻出一枚烧焦芯片，上面刻着‘你也在遗忘我’。"
+          },
+          {
+            "id": "spot_monitor",
+            "label": "破损监控终端",
+            "clueReward": "0.4秒虚影残影",
+            "narration": "捕捉到一个违反惯性瞬移的少年残影，代号‘茧’。"
+          }
+        ]
+      },
+      {
+        "id": "node_02",
+        "type": "decision",
+        "interactionMode": "comm_call_and_choice",
+        "title": "第2幕: 回声巷生死抉择",
+        "summary": "雨夜逃亡中收到莱拉加密脑机通信，随后在锈钉后巷碰头，面临分水岭1：是否允许对方读取自身记忆核？",
+        "location": "回声巷·锈钉咖啡馆后巷",
+        "characters": [
+          "零号",
+          "莱拉·V-7"
+        ],
+        "estimatedDurationSec": 22,
+        "commMessage": {
+          "sender": "莱拉·V-7 (未注册频段)",
+          "audioSnippet": "别走主路，清道夫无人机已经锁定了B出口！",
+          "quickReaction": [
+            "回怼: 凭什么信你?",
+            "求助: 逃生路线在哪?"
+          ]
+        }
+      },
+      {
+        "id": "node_03",
+        "type": "story",
+        "interactionMode": "cinematic",
+        "title": "地下同盟线: 双轨潜入",
+        "summary": "信任莱拉，获得反覆写固件密钥，两人协同瘫痪B7安保雷达。",
+        "location": "回声巷地下隐蔽所",
+        "characters": [
+          "零号",
+          "莱拉·V-7"
+        ],
+        "estimatedDurationSec": 15
+      },
+      {
+        "id": "node_04",
+        "type": "story",
+        "interactionMode": "cinematic",
+        "title": "孤狼黑市线: 强攻渗透",
+        "summary": "拒绝莱拉并强夺破解设备，孤身一人在警报声中突围深入。",
+        "location": "NEXUS通风管井",
+        "characters": [
+          "零号"
+        ],
+        "estimatedDurationSec": 15
+      },
+      {
+        "id": "node_05",
+        "type": "decision",
+        "interactionMode": "evidence_present_qte",
+        "title": "第3幕: 审查交锋与证物对质",
+        "summary": "面对凯恩全息审查，玩家从背包甩出【阿哲的血字芯片】戳穿谎言！随后面临分水岭2：假意顺从植入木马还是被洗脑？",
+        "location": "意识安全总署中控台",
+        "characters": [
+          "零号",
+          "总监凯恩"
+        ],
+        "estimatedDurationSec": 25,
+        "evidencePresent": {
+          "requiredItem": "阿哲的血字芯片",
+          "promptText": "从背包拖拽证物戳穿凯恩‘自愿修剪’的谎言！",
+          "successFeedback": "阿哲惨叫指控录音公开广播，凯恩全息投影发生剧烈雪花抖动！"
+        }
+      },
+      {
+        "id": "node_06",
+        "type": "decision",
+        "interactionMode": "climax_decision",
+        "title": "第4幕: 液氮中枢终极抉择",
+        "summary": "凯恩启动全城清洗，零号与良知备份‘茧’跨维合流，面临分水岭3的三重终极抉择！",
+        "location": "NEXUS液氮核心机房",
+        "characters": [
+          "零号",
+          "茧",
+          "总监凯恩"
+        ],
+        "estimatedDurationSec": 25
+      },
+      {
+        "id": "node_07",
+        "type": "bad_end",
+        "interactionMode": "ending",
+        "title": "💀 结局1: 清道夫傀儡 (Bad End)",
+        "summary": "意识被全盘覆写格式化，成为NEXUS最冷酷的底层清道夫。",
+        "location": "NEXUS液氮中枢",
+        "characters": [
+          "总监凯恩"
+        ],
+        "estimatedDurationSec": 10
+      },
+      {
+        "id": "node_08",
+        "type": "true_end",
+        "interactionMode": "ending",
+        "title": "🏆 结局2: 意识解放革命 (True End)",
+        "summary": "反覆写固件注入全城网络，数万劳工意识苏醒，财阀暴政瓦解。",
+        "location": "新东京黎明地平线",
+        "characters": [
+          "零号",
+          "莱拉·V-7"
+        ],
+        "estimatedDurationSec": 15
+      },
+      {
+        "id": "node_09",
+        "type": "true_end",
+        "interactionMode": "ending",
+        "title": "🌟 结局3: 升维新神 (Secret End)",
+        "summary": "零号与‘茧’融为一体接管全球潜意识层，成为无形的新神。",
+        "location": "源代码纯白维度",
+        "characters": [
+          "零号",
+          "茧"
+        ],
+        "estimatedDurationSec": 15
+      },
+      {
+        "id": "node_10",
+        "type": "true_end",
+        "interactionMode": "ending",
+        "title": "🔁 结局4: 莫比乌斯回溯 (Time Loop)",
+        "summary": "零号彻底格式化自我封印病毒，留下带血怀表跳回开局液氮舱！",
+        "location": "时间循环起点",
+        "characters": [
+          "零号"
+        ],
+        "estimatedDurationSec": 12
+      }
+    ],
+    "choices": [
+      {
+        "id": "c_01_02",
+        "fromNodeId": "node_01",
+        "toNodeId": "node_02",
+        "choiceText": "搜证完毕，循着旧频段信号逃往回声巷接头",
+        "timeoutSeconds": 8,
+        "isTimeoutDefault": true,
+        "conditions": {},
+        "effects": {}
+      },
+      {
+        "id": "c_02_03",
+        "fromNodeId": "node_02",
+        "toNodeId": "node_03",
+        "choiceText": "【信任同盟】允许莱拉读取未注册记忆核",
+        "timeoutSeconds": 7,
+        "isTimeoutDefault": false,
+        "conditions": {},
+        "effects": {
+          "affinityDelta": {
+            "莱拉·V-7": 25
+          },
+          "gainItems": [
+            "反覆写固件密钥"
+          ],
+          "setFlags": {
+            "leila_ally": true
+          }
+        }
+      },
+      {
+        "id": "c_02_04",
+        "fromNodeId": "node_02",
+        "toNodeId": "node_04",
+        "choiceText": "【孤狼独行】拒绝读取，强行夺取黑市破解器",
+        "timeoutSeconds": 5,
+        "isTimeoutDefault": true,
+        "conditions": {},
+        "effects": {
+          "affinityDelta": {
+            "莱拉·V-7": -20
+          },
+          "gainItems": [
+            "黑市破解器"
+          ],
+          "setFlags": {
+            "leila_betrayed": true
+          }
+        }
+      },
+      {
+        "id": "c_03_05",
+        "fromNodeId": "node_03",
+        "toNodeId": "node_05",
+        "choiceText": "借助莱拉提供的安全通路潜入安全署",
+        "timeoutSeconds": 8,
+        "isTimeoutDefault": true,
+        "conditions": {},
+        "effects": {}
+      },
+      {
+        "id": "c_04_05",
+        "fromNodeId": "node_04",
+        "toNodeId": "node_05",
+        "choiceText": "过载通风管井安保强行突入中控台",
+        "timeoutSeconds": 6,
+        "isTimeoutDefault": true,
+        "conditions": {},
+        "effects": {}
+      },
+      {
+        "id": "c_05_06",
+        "fromNodeId": "node_05",
+        "toNodeId": "node_06",
+        "choiceText": "【智斗反抗】假意顺从扫描，暗中向凯恩注入逻辑木马",
+        "timeoutSeconds": 6,
+        "isTimeoutDefault": false,
+        "conditions": {},
+        "effects": {
+          "setFlags": {
+            "kain_infected": true
+          }
+        }
+      },
+      {
+        "id": "c_05_07",
+        "fromNodeId": "node_05",
+        "toNodeId": "node_07",
+        "choiceText": "【全盘屈服】彻底交出脑机控制权，任由凯恩格式化",
+        "timeoutSeconds": 5,
+        "isTimeoutDefault": true,
+        "conditions": {},
+        "effects": {}
+      },
+      {
+        "id": "c_06_08",
+        "fromNodeId": "node_06",
+        "toNodeId": "node_08",
+        "choiceText": "【解放劳工】启动反向时序注入，全城唤醒！",
+        "timeoutSeconds": 10,
+        "isTimeoutDefault": false,
+        "conditions": {
+          "requiredClues": [
+            "反覆写固件密钥"
+          ]
+        },
+        "effects": {
+          "setFlags": {
+            "gray_moth_sealed": true
+          }
+        }
+      },
+      {
+        "id": "c_06_09",
+        "fromNodeId": "node_06",
+        "toNodeId": "node_09",
+        "choiceText": "【飞升成神】解构凡人之躯，与‘茧’合体升维！",
+        "timeoutSeconds": 10,
+        "isTimeoutDefault": false,
+        "conditions": {
+          "minAffinity": {
+            "茧": 30
+          }
+        },
+        "effects": {}
+      },
+      {
+        "id": "c_06_10",
+        "fromNodeId": "node_06",
+        "toNodeId": "node_10",
+        "choiceText": "【重置轮回】销毁全部记忆核，重启莫比乌斯封印",
+        "timeoutSeconds": 8,
+        "isTimeoutDefault": true,
+        "conditions": {},
+        "effects": {
+          "gainItems": [
+            "带血怀表"
+          ]
+        }
+      }
+    ],
+    "validation": {
+      "isPass": true,
+      "unreachableNodes": [],
+      "deadlockPaths": [],
+      "leafNodes": [
+        "node_07",
+        "node_08",
+        "node_09",
+        "node_10"
+      ],
+      "convergenceRate": 0.5,
+      "totalEstimatedDurationSec": 172,
+      "issues": [],
+      "warnings": []
+    }
+  }
+}

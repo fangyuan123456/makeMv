@@ -441,7 +441,7 @@ function CharacterCard({
               <AutoResizeTextarea
                 value={asset.imagePrompt || ''}
                 onChange={(val) => onUpdate({ imagePrompt: val })}
-                placeholder="输入或微调该角色生图所用的详细英文 Prompt..."
+                placeholder="输入或微调该角色生图所用的详细提示词 (Prompt)..."
                 className="w-full text-xs text-gray-800 bg-white border border-violet-200 rounded-lg p-2.5 outline-none focus:ring-1 focus:ring-violet-400 font-mono leading-relaxed"
               />
             </div>
@@ -562,13 +562,47 @@ export default function CharacterStage({
   }, [sessionId, onUpdateArtifact]);
 
   // 单项重新生成
-  const handleRegenerate = (id: string) => {
+  const handleRegenerate = async (id: string) => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    const currentChar = charactersDraftRef.current.find((c) => c.id === id);
+    try {
+      await fetch(`/api/project/${sessionId}/artifact/character_design`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ characters: charactersDraftRef.current }),
+      });
+      setAutoSaveStatus('saved');
+    } catch (e) {
+      console.warn('立即同步角色档案失败:', e);
+    }
+
     setRegeneratingIds((prev) => new Set(prev).add(id));
-    onIntervene({ regenerate_characters: [id] });
+    onIntervene({
+      regenerate_characters: [id],
+      edited_prompt: currentChar?.imagePrompt,
+    });
   };
 
   // 一键生成全部未完成角色定妆
-  const handleGenerateAllMissingCharacters = () => {
+  const handleGenerateAllMissingCharacters = async () => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    try {
+      await fetch(`/api/project/${sessionId}/artifact/character_design`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ characters: charactersDraftRef.current }),
+      });
+      setAutoSaveStatus('saved');
+    } catch (e) {
+      console.warn('立即同步角色档案失败:', e);
+    }
+
     const missingIds = charactersDraft.filter((c) => !c.selected).map((c) => c.id);
     if (!missingIds.length) {
       // 若都已生成，则全部重新生成

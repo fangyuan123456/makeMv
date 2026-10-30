@@ -33,7 +33,6 @@ export interface ProjectParams {
   expand_idea?: boolean;
   enable_concurrency?: boolean;
   web_search?: boolean;
-  episodes?: number;
 }
 
 interface HistoryItem {
@@ -84,8 +83,6 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
   const [configError, setConfigError] = useState('');
   const [enableConcurrency, setEnableConcurrency] = useState(true);
   const [webSearch, setWebSearch] = useState(false);
-  const [episodes, setEpisodes] = useState(4);
-  const [showEpisodesPanel, setShowEpisodesPanel] = useState(false);
 
   // 上传相关状态
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -233,7 +230,6 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
       video_model: activeVideoModel,
       enable_concurrency: enableConcurrency,
       web_search: webSearch,
-      episodes,
     }, auto);
   };
 
@@ -317,72 +313,6 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
 
           <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
             <div className="flex items-center gap-3">
-              <div className="relative">
-                <button
-                  onClick={() => setShowEpisodesPanel(!showEpisodesPanel)}
-                  className={clsx(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
-                    showEpisodesPanel
-                      ? 'bg-blue-50 text-blue-600'
-                      : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
-                  )}
-                >
-                  <ListOrdered className="w-3.5 h-3.5" />
-                  剧集: {episodes}集
-                </button>
-
-                {showEpisodesPanel && (
-                  <>
-                    <div 
-                      className="fixed inset-0 z-10" 
-                      onClick={() => setShowEpisodesPanel(false)}
-                    />
-                    <div className="absolute bottom-full left-0 mb-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 p-4 z-20 animate-in fade-in slide-in-from-bottom-2">
-                      <div className="flex flex-col gap-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-semibold text-gray-700">设置总集数</span>
-                          <span className="text-[10px] text-blue-500 font-bold bg-blue-50 px-1.5 py-0.5 rounded-full">
-                            {episodes} 集
-                          </span>
-                        </div>
-                        
-                        <div className="flex items-center gap-2">
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); setEpisodes(Math.max(1, episodes - 1)); }}
-                            className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-50 text-gray-600 hover:bg-gray-100 active:scale-95 transition-all text-sm font-bold"
-                          >
-                            -
-                          </button>
-                          <input
-                            type="range"
-                            min={1}
-                            max={10}
-                            value={episodes}
-                            onChange={(e) => setEpisodes(parseInt(e.target.value))}
-                            className="flex-1 h-1.5 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                          />
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); setEpisodes(Math.min(10, episodes + 1)); }}
-                            className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-50 text-gray-600 hover:bg-gray-100 active:scale-95 transition-all text-sm font-bold"
-                          >
-                            +
-                          </button>
-                        </div>
-
-                        <div className="space-y-1 border-t border-gray-50 pt-2">
-                          <p className="text-[10px] text-gray-400 leading-tight">
-                            • 每集预估时长约 1-2 分钟
-                          </p>
-                          <p className="text-[10px] text-blue-400/80 leading-tight">
-                            • 推荐设置 4-6 集
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-
               <button
                 onClick={() => setShowSettings(!showSettings)}
                 className={clsx(

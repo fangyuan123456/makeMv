@@ -8,15 +8,54 @@
       "preLaunchTask": "build:server",
       "program": "${workspaceFolder}/server/dist/index.js",
       "cwd": "${workspaceFolder}/server",
+      "runtimeArgs": [
+        "--enable-source-maps"
+      ],
       "outFiles": [
         "${workspaceFolder}/server/dist/**/*.js"
       ],
       "sourceMaps": true,
+      "resolveSourceMapLocations": [
+        "${workspaceFolder}/server/dist/**",
+        "!**/node_modules/**"
+      ],
+      "sourceMapPathOverrides": {
+        "../../../src/*": "${workspaceFolder}/server/src/*",
+        "../../src/*": "${workspaceFolder}/server/src/*",
+        "../src/*": "${workspaceFolder}/server/src/*",
+        "./src/*": "${workspaceFolder}/server/src/*"
+      },
+      "smartStep": true,
+      "restart": true,
       "skipFiles": [
         "<node_internals>/**"
       ],
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "🔗 附加到已有服务 (Attach to Process: 9229)",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "restart": true,
+      "sourceMaps": true,
+      "outFiles": [
+        "${workspaceFolder}/server/dist/**/*.js"
+      ],
+      "resolveSourceMapLocations": [
+        "${workspaceFolder}/server/dist/**",
+        "!**/node_modules/**"
+      ],
+      "sourceMapPathOverrides": {
+        "../../../src/*": "${workspaceFolder}/server/src/*",
+        "../../src/*": "${workspaceFolder}/server/src/*",
+        "../src/*": "${workspaceFolder}/server/src/*",
+        "./src/*": "${workspaceFolder}/server/src/*"
+      },
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
     },
     {
       "name": "🎬 运行 CLI 导演测试 (端到端成片)",
@@ -25,10 +64,23 @@
       "preLaunchTask": "build:server",
       "program": "${workspaceFolder}/server/dist/cli.js",
       "cwd": "${workspaceFolder}/server",
+      "runtimeArgs": [
+        "--enable-source-maps"
+      ],
       "outFiles": [
         "${workspaceFolder}/server/dist/**/*.js"
       ],
       "sourceMaps": true,
+      "resolveSourceMapLocations": [
+        "${workspaceFolder}/server/dist/**",
+        "!**/node_modules/**"
+      ],
+      "sourceMapPathOverrides": {
+        "../../../src/*": "${workspaceFolder}/server/src/*",
+        "../../src/*": "${workspaceFolder}/server/src/*",
+        "../src/*": "${workspaceFolder}/server/src/*",
+        "./src/*": "${workspaceFolder}/server/src/*"
+      },
       "skipFiles": [
         "<node_internals>/**"
       ],

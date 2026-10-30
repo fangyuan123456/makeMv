@@ -28,6 +28,7 @@ import {
 import type { StageViewProps } from './types';
 import StageProgress from './StageProgress';
 import StageActions from './StageActions';
+import StoryGraphViewer from './StoryGraphViewer';
 
 import { uploadArtifactImage } from '@/lib/workflowApi';
 
@@ -773,6 +774,24 @@ export default function ScriptStage({
               <span>确认大纲与各集规划后，点击右下方「确认并继续」，进入【角色】定妆工坊；定妆完成后将在【分集】阶段展开详写长文本剧本与钩子。</span>
             </div>
           </div>
+        </div>
+
+        {/* 模块 C：网状互动叙事拓扑图 (Story Graph) */}
+        <div className="border border-indigo-200 bg-white rounded-2xl p-5 shadow-xs space-y-4">
+          <div className="flex items-center gap-2.5">
+            <span className="flex items-center justify-center w-6 h-6 rounded-md bg-indigo-100 text-indigo-700 text-xs font-bold">3</span>
+            <h3 className="text-base font-bold text-gray-900">网状互动拓扑图谱 (Narrative Graph)</h3>
+            <span className="text-xs text-indigo-600 font-medium bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+              影游分支决策树
+            </span>
+          </div>
+
+          <StoryGraphViewer
+            graph={state?.artifact?.storyGraph || state?.artifact?.bible?.storyGraph}
+            onRegenerateGraph={() => onIntervene({ action: 'generate_story_graph' })}
+            onValidateGraph={() => onIntervene({ action: 'validate_story_graph' })}
+            isRunning={isRunning}
+          />
         </div>
       </div>
 

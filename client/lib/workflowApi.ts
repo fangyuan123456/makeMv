@@ -24,6 +24,7 @@ export interface ProjectStatus {
   error: string | null;
   artifacts?: Record<string, any>;
   stage_progress?: Record<string, any>;
+  session?: any;
 }
 
 export interface StreamEvent {
@@ -141,16 +142,18 @@ export async function fetchStages(): Promise<StageInfo[]> {
   }
 }
 
-export async function fetchSessions(): Promise<any[]> {
+export async function fetchProjects(): Promise<any[]> {
   try {
-    const resp = await fetch('/api/sessions');
+    const resp = await fetch('/api/projects');
     if (!resp.ok) return [];
-    const data = await parseJsonResponse<{ sessions?: any[] }>(resp, { sessions: [] });
-    return data.sessions || [];
+    const data = await parseJsonResponse<{ projects?: any[] }>(resp, { projects: [] });
+    return data.projects || [];
   } catch {
     return [];
   }
 }
+
+export const fetchSessions = fetchProjects;
 
 async function postPipelineTask(path: string, params: Record<string, any>): Promise<PipelineStartResponse> {
   const resp = await fetch(path, {
@@ -310,7 +313,6 @@ export async function startProject(params: {
   enable_concurrency?: boolean;
   web_search?: boolean;
   expand_idea?: boolean;
-  episodes?: number;
 }): Promise<{ session_id: string; status: string; params: any }> {
   const resp = await fetch('/api/project/start', {
     method: 'POST',
@@ -379,14 +381,18 @@ export async function executeStage(
 
 export async function intervene(
   sessionId: string,
-  stage: string,
-  modifications: Record<string, any>,
+  stageOrFeedback: string,
+  modifications?: Record<string, any>,
 ): Promise<Response> {
+  const payload = modifications !== undefined
+    ? { stage: stageOrFeedback, modifications, feedback: modifications.feedback || modifications }
+    : { feedback: stageOrFeedback, modifications: { feedback: stageOrFeedback } };
+
   // Use STREAM_API_BASE to bypass Next.js proxy (SSE endpoint)
   return fetch(`${STREAM_API_BASE}/api/project/${sessionId}/intervene`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ stage, modifications }),
+    body: JSON.stringify(payload),
   });
 }
 
@@ -429,10 +435,11 @@ export async function saveSelections(
   selections: Record<string, any>,
 ): Promise<{ status: string }> {
   try {
+    const payload = selections.selections ? selections : { selections };
     const resp = await fetch(`/api/project/${sessionId}/artifact/${stage}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(selections),
+      body: JSON.stringify(payload),
     });
     if (!resp.ok) {
       console.warn(`[saveSelections] Server returned HTTP ${resp.status}`);
@@ -450,6 +457,26 @@ export async function continueWorkflow(sessionId: string): Promise<{ status: str
     method: 'POST',
   });
   return parseJsonResponse<{ status: string; next_stage?: string }>(resp, { status: 'continued' });
+}
+
+export async function getProjectAudit(sessionId: string): Promise<any> {
+  try {
+    const resp = await fetch(`/api/project/${sessionId}/audit`);
+    if (!resp.ok) return null;
+    return parseJsonResponse(resp);
+  } catch {
+    return null;
+  }
+}
+
+export async function getStageAuditTrace(sessionId: string, stage: string): Promise<any> {
+  try {
+    const resp = await fetch(`/api/project/${sessionId}/audit/${stage}`);
+    if (!resp.ok) return null;
+    return parseJsonResponse(resp);
+  } catch {
+    return null;
+  }
 }
 
 export async function* parseStreamEvents(response: Response): AsyncGenerator<StreamEvent> {

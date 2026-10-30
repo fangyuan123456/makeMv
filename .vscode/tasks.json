@@ -2,9 +2,15 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "clean:port",
+      "type": "shell",
+      "command": "npm run clean:port",
+      "problemMatcher": []
+    },
+    {
       "label": "build:server",
       "type": "shell",
-      "command": "npm run build:server",
+      "command": "npm run clean:port && npm run build:server",
       "problemMatcher": ["$tsc"],
       "group": {
         "kind": "build",

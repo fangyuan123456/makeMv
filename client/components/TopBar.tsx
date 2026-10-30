@@ -15,13 +15,13 @@ import { fetchModelGroupsByType, fetchVideoModelGroupsByAbility } from '@/lib/mo
 export type StageStatus = 'pending' | 'running' | 'waiting' | 'completed' | 'error' | 'stopped';
 
 export const STAGES = [
-  { id: 'script_generation', name: '剧本大纲', shortName: '剧本大纲' },
+  { id: 'narrative_design', name: '互动叙事', shortName: '互动叙事' },
   { id: 'character_design', name: '角色设计', shortName: '角色' },
-  { id: 'episode_script', name: '分集剧本', shortName: '分集' },
+  { id: 'scene_script', name: '场次剧本', shortName: '剧本' },
   { id: 'storyboard', name: '分镜设计', shortName: '分镜' },
-  { id: 'reference_generation', name: '参考图', shortName: '参考图' },
-  { id: 'video_post', name: '视频后期', shortName: '视频后期' },
-
+  { id: 'keyframe_reference', name: '关键帧图', shortName: '参考图' },
+  { id: 'video_production', name: '分镜视频', shortName: '视频' },
+  { id: 'fmv_packaging', name: '影游装配', shortName: '影游装配' },
 ] as const;
 
 export type StageId = typeof STAGES[number]['id'];
