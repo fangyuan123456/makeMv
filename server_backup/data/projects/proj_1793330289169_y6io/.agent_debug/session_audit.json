@@ -1,0 +1,21 @@
+{
+  "sessionId": "proj_1793330289169_y6io",
+  "createdAt": "2026-10-30T03:19:29.422Z",
+  "updatedAt": "2026-10-30T03:19:29.422Z",
+  "totalTurns": 1,
+  "stagesExecuted": [
+    "narrative_design"
+  ],
+  "records": [
+    {
+      "archiveId": "turn_narrative_design_1793330289238",
+      "stage": "narrative_design",
+      "agentName": "NarrativeDesignerAgent",
+      "stageFolder": "01_narrative_designer",
+      "timestamp": "2026-10-30T03:18:09.238Z",
+      "durationMs": 80169,
+      "status": "success",
+      "aiCallsCount": 2
+    }
+  ]
+}

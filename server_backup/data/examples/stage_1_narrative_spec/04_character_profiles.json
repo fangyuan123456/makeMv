@@ -1,0 +1,46 @@
+[
+  {
+    "id": "char_01",
+    "name": "零号",
+    "role": "主角 / 第一视角失忆调查员 / 灰蛾前首席架构师",
+    "gender": "男",
+    "age": 29,
+    "personality": "极度克制、技术理性偏执、习惯用计算机逻辑解构人际情感，伴随创伤后应激导致的神经性眼跳。",
+    "visualPrompt": "A 29-year-old East Asian male cyberpunk engineer, sharp tired jawline, charred cybernetic neural port on the back of his neck emitting faint sparks, wearing a worn dark waterproof techwear trench coat, realistic cinematic lighting, 8k, moody neon reflection.",
+    "motivation": "找回被物理熔毁的真实身份记忆，阻止灰蛾病毒覆写无辜者；在得知自己是造物主后，承担终极救赎责任。",
+    "affinityTrigger": "对逻辑自洽的理性决策有天然亲和力；厌恶被动哀怨，对果断自救者持有敬意。"
+  },
+  {
+    "id": "char_02",
+    "name": "莱拉·V-7",
+    "role": "盟友 / NEXUS前首席伦理审查官 / 回声巷地下情报贩子",
+    "gender": "女",
+    "age": 32,
+    "personality": "言辞冷峻辛辣、防备心极重，但对底层苦难怀有隐秘的悲悯；习惯在紧张时抚摸左臂的未注册机械义肢。",
+    "visualPrompt": "A 32-year-old fierce cyberpunk woman, half-shaved sleek undercut dark hair, glowing amber bionic left arm with exposed circuits and holographic scanner, smoky eye makeup, wearing a distressed modular tactical harness, volumetric rainy alley atmosphere, hyper-realistic, 8k.",
+    "motivation": "查明丈夫被合规性‘意识修剪’的绝密真相，利用反覆写固件唤醒所有被奴役的底层劳工。",
+    "affinityTrigger": "重守信诺（尤其是微小承诺）；反感任何形式的背叛与试探。唯有玩家两次选择与她共同承担风险，好感才会爆发式增长。"
+  },
+  {
+    "id": "char_03",
+    "name": "总监凯恩",
+    "role": "反派 / NEXUS意识安全总署署长 / 意识纯化工程主谋",
+    "gender": "男",
+    "age": 55,
+    "personality": "语调平缓无起伏、瞳孔无反光、每句话结尾精确停顿1.3秒；认为肉身痛苦与情绪是人类进化的低效冗余。",
+    "visualPrompt": "A 55-year-old immaculate corporate executive in high-collar charcoal cybernetic tailored suit, cold calculating silver eyes, slicked-back platinum hair, semi-transparent holographic glitch overlay indicating telepresence, cold fluorescent lighting, cinematic film still.",
+    "motivation": "完成全球意识升维工程，将全人类的记忆统一提纯为可标准分发的稳定无痛模组，视零号为唯一的校准基底。",
+    "affinityTrigger": "仅对展现绝对认知服从的行为产生临时信用；任何对秩序的辩驳都会被他视作算法异常直接拉响最高安保警报。"
+  },
+  {
+    "id": "char_04",
+    "name": "茧 (Cocoon)",
+    "role": "神秘虚影 / 劳工自治会信使 / 零号剥离封印的原始良知备份",
+    "gender": "非二元 / 少年态",
+    "age": 18,
+    "personality": "无声瞬移、声音经12层变调处理，举手投足带有0.4秒的时空残影，不直视他人面部。",
+    "visualPrompt": "A mysterious ethereal teenage cyberpunk entity, translucent glitching silhouette wearing an oversized tattered digital cloak, wearing a smooth mirrored porcelain mask with a single glowing cyan vertical line, floating particulate dust in neon rain, surreal hyper-realistic.",
+    "motivation": "在现实与数字维度的夹缝中守护最后一份未受污染的情感模块，等待零号在终局重新认领自己。",
+    "affinityTrigger": "仅通过非功利性停留（如在危机中主动救助受害者）积累好感；一切工具型交易与欺瞒都会导致其信标隐匿。"
+  }
+]

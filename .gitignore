@@ -24,7 +24,6 @@ server/data/projects/*/
 # Logs & Temp
 *.log
 _backup/
-server_backup/
 _cache/
 _temp/
 _trash/

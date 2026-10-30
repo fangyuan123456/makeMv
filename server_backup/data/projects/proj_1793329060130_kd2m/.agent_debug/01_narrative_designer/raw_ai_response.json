@@ -1,0 +1,175 @@
+[
+  {
+    "callIndex": 1,
+    "callType": "llm_json",
+    "model": "qwen-plus",
+    "durationMs": 44476,
+    "status": "success",
+    "rawResponse": {
+      "title": "记忆黑市：零号协议",
+      "theme": "在意识可被买卖、记忆可被编辑的赛博都市，真相不是被掩盖的，而是被格式化的——而唯一能还原它的，是偷走自己记忆的贼。",
+      "style": "Realistic（写实主义）：高精度实景扫描+微表情捕捉的FMV影像风格；霓虹浸染但拒绝过度炫技，雨夜街道反射真实车灯与全息广告残影，义体接口处有油渍与氧化锈痕，脑机植入疤痕呈现医学级细节；光影遵循物理逻辑，无夸张粒子特效，以冷蓝/脏橙双主色调强化疏离感与资本灼热。",
+      "logline": "一名被财阀‘清档’过三次的前记忆神偷，接到匿名委托潜入全球脑机巨头‘涅墨西斯集团’总部，调查多名神经外科医生离奇失忆案；当他用非法‘回溯锚’刺入受害者皮层时，却在他人记忆碎片里反复看见自己从未经历过的杀人现场——而系统日志显示：那次‘清除’，正是由他本人签名授权。",
+      "sellingPoints": [
+        "【真·第一视角抉择】所有关键剧情节点采用‘瞳孔级交互’：玩家视线聚焦3秒触发对话选项/证据扫描/义眼模式切换，眨眼即确认，拒绝UI遮挡沉浸感",
+        "【动态好感度矩阵】三大阵营（反抗组织‘灰质’/涅墨西斯安全部门/地下记忆黑市‘蜂巢’）好感度实时影响NPC微表情、环境音效密度、甚至FMV镜头焦距（如低好感时镜头常带呼吸晃动与浅景深虚化）",
+        "【记忆污染机制】每次使用非法回溯将随机触发‘认知熵增’：画面出现短暂数据撕裂、语音倒放、角色模型瞬时错位——累积过高将永久锁死1条结局线，强制进入‘格式化结局’",
+        "【多维分支终点】6大主线结局（含2个隐藏‘反向觉醒’结局），每结局对应不同记忆完整性报告（生成可分享的PDF档案），且第1集结局直接决定续作《记忆黑市：二进制弥赛亚》的初始人格参数"
+      ],
+      "characters": {
+        "playerCharacter": {
+          "name": "Kai-7（凯七）",
+          "description": "32岁，无官方身份编号，左眼为军规级‘渡鸦IV’义眼（带未授权记忆嗅探模块），后颈有三道激光蚀刻的删除标记；声线沙哑带早期神经桥接失败导致的0.3秒延迟。玩家不操控其动作，仅通过凝视、眨眼、短按呼吸键（模拟自主神经反应）驱动叙事推进。",
+          "coreConflict": "记忆可信度悖论：越深入调查，越发现‘自我’是涅墨西斯最成功的篡改作品"
+        },
+        "antagonist": {
+          "name": "Dr. Elara Voss",
+          "description": "58岁，涅墨西斯首席神经架构师，‘零号协议’原始设计者；表面温润如瓷，每次微笑时右颊义颌肌会滞后0.7秒收缩——唯一暴露其脑机深度耦合的生理破绽；随身携带一枚无编号青铜怀表，表盖内侧刻着Kai-7幼年指纹。",
+          "motivation": "相信人类意识必须被‘可控降维’才能避免文明崩溃，而Kai-7是她亲手锻造的终极校验工具"
+        },
+        "ally": {
+          "name": "Rook",
+          "description": "身份不明的‘灰质’技术员，全程以实时AR投影形态出现（投影边缘有轻微信号噪点）；提供黑客支援时，其虚拟手指会在玩家视网膜上投射出可拖拽的神经拓扑图；真实肉体已因多次违规回溯而处于植物状态，本体正被涅墨西斯冷藏在B7区液氮舱。",
+          "secret": "Rook的AR投影频率与Kai-7脑波完全同频——他们共享同一套底层神经编码"
+        }
+      },
+      "episodePlans": [
+        {
+          "nodeId": "E01_OPENING",
+          "title": "雨夜清档",
+          "description": "FMV开场：玩家（Kai-7）在廉价胶囊公寓苏醒，窗外暴雨冲刷着‘涅墨西斯’巨幅全息广告。义眼自动启动，扫描房间发现三处异常：床头柜药瓶标签被纳米级擦除、镜面反射中自己左耳后有新鲜缝合线、智能终端弹出一条无发件人短信：‘你删掉的，正在删你。’",
+          "interactions": [
+            {
+              "type": "gaze_choice",
+              "prompt": "凝视哪处异常？",
+              "options": [
+                {
+                  "target": "pill_bottle",
+                  "effect": {
+                    "gain": {
+                      "gray_matter": 1
+                    },
+                    "unlock": "E01_PILL_ANALYSIS"
+                  }
+                },
+                {
+                  "target": "mirror",
+                  "effect": {
+                    "gain": {
+                      "nemesis_security": -2
+                    },
+                    "unlock": "E01_MIRROR_GLITCH"
+                  }
+                },
+                {
+                  "target": "terminal",
+                  "effect": {
+                    "gain": {
+                      "hive_market": 3
+                    },
+                    "unlock": "E01_TERMINAL_TRACE"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "nodeId": "E01_PILL_ANALYSIS",
+          "title": "褪色的镇静剂",
+          "description": "放大药瓶：成分栏显示‘Neuro-Silence™ v.9.3’，但批号被刮除。义眼调取暗网数据库，匹配到该批次专供涅墨西斯内部‘记忆净化科’——而Kai-7的医疗档案显示，他三年前在此接受过‘自愿性认知重置’。",
+          "interactions": [
+            {
+              "type": "blink_decision",
+              "prompt": "是否用义眼逆向解析药剂残留？（将触发首次认知熵增）",
+              "options": [
+                {
+                  "choice": "yes",
+                  "effect": {
+                    "entropy": 1,
+                    "unlock": "E01_RESIDUE_FLASHBACK"
+                  }
+                },
+                {
+                  "choice": "no",
+                  "effect": {
+                    "gain": {
+                      "nemesis_security": 1
+                    },
+                    "unlock": "E01_STREET_EXIT"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "nodeId": "E01_RESIDUE_FLASHBACK",
+          "title": "血色批号",
+          "description": "FMV闪回：手术灯惨白强光，Kai-7躺在诊疗椅上，手腕被磁吸环固定。镜头剧烈抖动，画面突然切至俯视视角——他看见‘自己’正用神经探针刺入另一名患者太阳穴，而患者病号服胸口印着‘Dr. Aris Thorne’（失踪医生之一）。闪回结束，义眼报错：‘记忆源冲突：该场景未录入任何备份库。’",
+          "interactions": [
+            {
+              "type": "breath_hold",
+              "prompt": "屏息3秒稳定视觉（降低熵增）或任由眩晕蔓延？",
+              "options": [
+                {
+                  "choice": "hold",
+                  "effect": {
+                    "entropy": -1,
+                    "gain": {
+                      "rook_trust": 2
+                    }
+                  }
+                },
+                {
+                  "choice": "release",
+                  "effect": {
+                    "entropy": 2,
+                    "unlock": "E01_ENTROPY_BREAK"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "nodeId": "E01_ENTROPY_BREAK",
+          "title": "格式化临界",
+          "description": "世界骤然静音。所有霓虹熄灭，只剩义眼HUD疯狂滚动红字：‘ERROR: SELF-REFERENCE LOOP DETECTED’。镜中倒影突然转头直视玩家，嘴唇开合无声，但义眼同步译出文字：‘你终于想起，我是你删除的第一段记忆。’",
+          "interactions": [
+            {
+              "type": "final_choice",
+              "prompt": "面对镜中‘自己’，你选择：",
+              "options": [
+                {
+                  "choice": "砸碎镜子",
+                  "effect": {
+                    "ending": "SHATTERED_IDENTITY",
+                    "entropy_cap": 4
+                  }
+                },
+                {
+                  "choice": "触碰镜面",
+                  "effect": {
+                    "ending": "MERGED_CONSCIOUSNESS",
+                    "entropy_cap": 6
+                  }
+                },
+                {
+                  "choice": "闭上义眼",
+                  "effect": {
+                    "ending": "PERMANENT_OFFLINE",
+                    "entropy_cap": 0
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "genreId": "interactive_fmv",
+      "genreName": "交互影游 / 分支博弈"
+    },
+    "error": null
+  }
+]

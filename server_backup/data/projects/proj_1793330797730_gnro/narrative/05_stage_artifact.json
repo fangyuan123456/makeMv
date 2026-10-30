@@ -1,0 +1,631 @@
+{
+  "stage": "narrative_design",
+  "title": "记忆灰烬：零号协议",
+  "theme": "赛博朋克悬疑 × 记忆神偷 × 意识殖民",
+  "style": "写实主义赛博都市（霓虹浸染的雨夜、高精度义体反光、脑机接口微电流灼痕、低饱和冷蓝+故障橙色调）",
+  "logline": "你是一名被注销执照的记忆神偷，在潜入‘涅槃科技’总部窃取客户意识备份时，意外唤醒一段不属于自己的童年记忆——画面里，你正亲手将一枚神经阻断器植入自己太阳穴。随着追捕AI‘清道夫-7’倒计时逼近，你必须在90秒内穿越三重加密意识沙盒、破解线人临终脑波密语、直面财阀CEO的镜像人格审讯。最终抉择将决定：是格式化全部记忆换取自由，引爆意识云核同归于尽，还是上传‘真实自我’副本进入永续轮回——而每一次轮回，你残留的生物脑电波，都会在现实世界悄然重构一具新的躯体。",
+  "sellingPoints": [
+    "看点1：全景场景点触搜证 —— 在脑机服务器机房潮湿金属地板上滑动指尖，逐帧放大凝结水珠的冷却管表面，发现微蚀刻编号；点触破碎的AR眼镜残片，触发0.3秒闪回式记忆碎片。",
+    "看点2：沉浸式通讯与态度轮盘 —— 通过受损神经链路接入线人‘渡鸦’最后脑波频段，3秒内从【质疑】/【共情】/【威胁】三态轮盘中选择回应姿态，直接决定其是否释放密钥或自毁突触。",
+    "看点3：关键时刻甩证物对质 —— 在CEO全息审讯室中，当对方宣称‘你只是第7代记忆复刻体’时，玩家需从虚拟行囊中疾速拖拽并甩出那枚带血指纹的神经阻断器——镜头特写其内嵌芯片序列号与主角颈后生物ID实时匹配。",
+    "看点4：多周目轮回与线索继承 —— 达成‘轮回终局’后解锁二周目，前序轮回中未被清除的脑电残响（如雨声频率、母亲哼唱变调）将作为唯一密钥，解锁隐藏终端‘灰烬协议’，揭示主角本就是初代意识防火墙AI的生物容器。"
+  ],
+  "goldenSpine": [
+    {
+      "act": 1,
+      "name": "第 1 幕·颅内失重",
+      "dramaticFunction": "起 · 危机爆发与悬念开启",
+      "summary": "你在‘涅槃科技’B7层脑机缓存区苏醒，视网膜HUD闪烁红字：【身份覆写进度87%】。左手义手不受控地撕开自己左臂皮肤，露出皮下嵌套的旧型号神经桥接端口——型号早已停产十年。你踉跄扑向散落的操作台，点触三处关键物证：一台自动焚毁中的便携式记忆萃取仪（残留0.8秒客户尖叫音频）、一张烧焦半边的儿童画（画角印有‘N-0’钢印）、以及地板积水倒影里一闪而过的、不属于你的瞳孔收缩节奏。走廊尽头，液压门正以0.3秒/格的速度闭合，清道夫-7的脚步声穿透金属板传来。",
+      "coreConflict": "身体失控与身份消解的生理恐惧 vs 必须在门锁死前找到‘我是谁’的第一物理锚点",
+      "cliffhanger": "你伸手触碰儿童画残页——整张纸突然在掌心碳化，浮现出一行仅你能看见的红外蚀刻字：‘别信你记得的妈妈。’",
+      "targetDurationSec": 25
+    },
+    {
+      "act": 2,
+      "name": "第 2 幕·渡鸦频段",
+      "dramaticFunction": "承 · 矛盾升级与阵营撕裂",
+      "summary": "你强行接入废弃通风管道内的野火节点，黑入线人‘渡鸦’残留的脑波信标。全息界面浮现他濒死影像：眼球布满数据裂纹，声音断续如信号不良。他嘶声道：‘他们改了你的出厂设定……密钥在——’话音戛然而止，屏幕炸开雪花噪点。此时，神经链路弹出三态轮盘：【质疑他是否已被篡改】/【模仿他童年暗号求证】/【反向注入痛觉脉冲逼供】。选择任意一项将触发不同密钥片段——但每项操作都同步加速清道夫-7的定位精度，倒计时从12秒跳至7秒。",
+      "coreConflict": "对唯一知情者的绝对信任需求 vs 自我保护机制诱发的本能怀疑与暴力试探",
+      "cliffhanger": "轮盘选定瞬间，你颈后接口爆开电火花——清道夫-7已锁定你当前脊髓信号特征，语音冰冷宣告：‘目标确认：零号原型体。执行终极格式化。’",
+      "targetDurationSec": 25
+    },
+    {
+      "act": 3,
+      "name": "第 3 幕·镜渊审讯",
+      "dramaticFunction": "转 · 戏剧反转与惊天真相",
+      "summary": "你闯入顶层‘静默穹顶’，面对CEO林砚的全息影像。他微笑递来一杯悬浮咖啡：‘欢迎回家，Kai。’你甩出神经阻断器对质，他却轻笑展开手掌——掌心赫然嵌着一枚完全相同的阻断器，序列号后缀‘-000’。全息背景骤然坍缩为童年卧室，窗外霓虹变成监护仪绿光。他指向你颤抖的手：‘你每次潜入他人记忆，都在复刻我的手术日志。而你真正的第一次任务……是你把自己送进这里。’天花板突然降下意识压制力场，你太阳穴血管暴起，眼前闪过无数个‘你’在不同时间点按下同一枚阻断器。",
+      "coreConflict": "‘我是调查者’的认知基座彻底崩塌 vs 被迫接受‘我是首个被篡改的受害者兼执行者’的悖论真相",
+      "cliffhanger": "林砚抬手关闭穹顶供能——所有光源熄灭前一秒，你瞥见他袖口滑出的腕表，表盘刻着与儿童画一致的‘N-0’钢印，而秒针正逆向狂跳。",
+      "targetDurationSec": 30
+    },
+    {
+      "act": 4,
+      "name": "第 4 幕·灰烬终局",
+      "dramaticFunction": "合 · 决胜巅峰与终局定格",
+      "summary": "你站在主控塔核心——一座悬浮于数据海之上的玻璃祭坛。脚下是正在蒸发的亿万份被篡改记忆流。三重终局路径同步激活：【格式化键】（抹除全部记忆，重获空白人生）；【云核引信】（引爆意识云，瘫痪涅槃全球脑网，代价是自身意识永久离散）；【轮回上传】（将此刻完整意识上传至‘灰烬协议’量子备份池，启动生物躯体重构）。每条路径启动时，现实世界某处停尸房的心电监护仪会突然恢复微弱搏动——而那具躯体，颈后正泛起与你同步的神经接口灼痕。",
+      "coreConflict": "个体存在的哲学定义 vs 系统性压迫下，牺牲、毁灭或迭代所能承载的最小正义单位",
+      "cliffhanger": "你悬停于三键之上，倒计时归零。屏幕碎裂，映出你身后缓缓睁开的第三只眼——它没有瞳孔，只有一行滚动小字：‘检测到原生意识觉醒。灰烬协议，载入第1次。’",
+      "targetDurationSec": 30
+    }
+  ],
+  "pivotPoints": {
+    "title": "记忆灰烬：零号协议",
+    "microInteractions": {
+      "hotspotsInspection": {
+        "actNumber": 1,
+        "context": "你在涅槃科技B7层脑机缓存区苏醒，视网膜HUD闪烁【身份覆写进度87%】，左手义手失控撕开左臂皮肤暴露旧型号神经桥接端口，液压门正以0.3秒/格闭合，清道夫-7脚步声穿透金属板逼近。",
+        "items": [
+          {
+            "id": "spot_1",
+            "label": "检查自身左臂神经接口",
+            "action": "长按义手暴露的端口区域",
+            "feedback": "微电流刺痛反馈 + HUD弹出锈蚀型号标签【NEX-7A '灰烬级'（停产于2073）】；主角低语：‘这接口……不该在我身上。’",
+            "clueReward": "接口型号与停产年份"
+          },
+          {
+            "id": "spot_2",
+            "label": "搜查烧焦半边的儿童画残页",
+            "action": "双击画纸焦黑边缘",
+            "feedback": "纸面碳化加剧，浮现出红外蚀刻字‘别信你记得的妈妈。’；伴随0.3秒闪回——雨滴落在窗玻璃的节奏与母亲哼唱变调重叠。",
+            "itemReward": "神经阻断器（带血指纹）"
+          },
+          {
+            "id": "spot_3",
+            "label": "读取地板积水倒影中的瞳孔收缩",
+            "action": "滑动指尖放大倒影中右眼虹膜区域",
+            "feedback": "倒影骤然扭曲，瞳孔收缩节奏与监控屏上清道夫-7的视觉扫描频率完全同步；HUD警告：【生物节律劫持确认】。",
+            "clueReward": "清道夫-7视觉扫描节律模型"
+          }
+        ]
+      },
+      "commCall": {
+        "actNumber": 2,
+        "caller": "线人‘渡鸦’（濒死脑波频段：Δ-7Raven/ERR-9）",
+        "context": "你接入废弃通风管道野火节点，黑入其残留信标，全息影像眼球布满数据裂纹，语音断续如信号不良。",
+        "incomingDialog": "他们改了你的出厂设定……密钥在——",
+        "quickReactions": [
+          "质疑他是否已被篡改",
+          "模仿他童年暗号求证"
+        ]
+      },
+      "emotionalReaction": {
+        "actNumber": 3,
+        "context": "CEO林砚在静默穹顶全息审讯室递来悬浮咖啡，微笑称你为‘Kai’，背景坍缩为童年卧室，监护仪绿光闪烁。",
+        "confrontationPrompt": "‘你每次潜入他人记忆，都在复刻我的手术日志。而你真正的第一次任务……是你把自己送进这里。’",
+        "options": [
+          {
+            "label": "冷笑挑衅",
+            "attitude": "挑衅/讽刺",
+            "reaction": "嗤笑一声，用义手敲击桌面：‘那您这台老设备，还漏装了自检模块？’——全息咖啡杯表面浮现细微裂纹。"
+          },
+          {
+            "label": "紧绷沉默",
+            "attitude": "隐忍/沉默",
+            "reaction": "垂眸盯着自己颤抖的手，颈后接口灼痕突然泛起幽蓝脉冲；背景监护仪心率图陡升至142bpm。"
+          },
+          {
+            "label": "针锋相对反问",
+            "attitude": "反问/反击",
+            "reaction": "直视他双眼：‘如果我是复刻体——为什么你袖口的N-0钢印，和我烧毁的画一模一样？’——他腕表秒针瞬间逆跳3格。"
+          }
+        ]
+      },
+      "evidencePresentation": {
+        "actNumber": 3,
+        "context": "林砚展开手掌，亮出 identical 神经阻断器（序列号后缀‘-000’），宣称‘你才是首个执行者’，意识压制力场启动前最后一秒。",
+        "requiredItem": "神经阻断器（带血指纹）",
+        "actionPrompt": "1秒内从虚拟行囊拖拽并甩向全息影像胸口",
+        "successFeedback": "阻断器嵌入他掌心瞬间爆发出强光，两枚芯片序列号实时比对成功（匹配度99.999%），他笑容凝固，全息影像首次出现0.5秒数据撕裂。",
+        "failPunishment": "未及时甩出→力场完全激活，太阳穴血管爆裂，HUD强制覆盖白噪雪屏+倒计时归零音效（触发Bad End 1预备态）"
+      }
+    },
+    "macroPivotPoints": [
+      {
+        "pivotId": "pivot_1",
+        "actNumber": 2,
+        "name": "分水岭 1：中盘生死站队与手段抉择",
+        "dramaticDilemma": "渡鸦信标即将彻底湮灭，三态轮盘仅剩【质疑】与【共情】可选（【威胁】因颈后接口过载已灰显）；清道夫-7定位倒计时跳至7秒，你必须决定是否信任这段濒死脑波。",
+        "timeoutSeconds": 8,
+        "branches": [
+          {
+            "choiceText": "【信任同盟】模仿他童年暗号求证",
+            "targetPath": "协同潜入",
+            "dramaticOutcome": "渡鸦残响释放完整密钥‘N-0/REBOOT’，解锁静默穹顶备用通道；你颈后灼痕转为稳定蓝光，获得临时神经抗干扰加成。",
+            "effects": {
+              "affinityDelta": {
+                "渡鸦": 25
+              },
+              "gainItems": [
+                "N-0/REBOOT密钥"
+              ]
+            }
+          },
+          {
+            "choiceText": "【孤狼独行】质疑他是否已被篡改",
+            "targetPath": "孤狼强攻",
+            "dramaticOutcome": "密钥碎片缺失关键校验位，导致静默穹顶主入口强制切换为高危物理通道（需徒手攀爬60米磁吸井壁）；清道夫-7定位精度+40%，但你获得‘脊髓信号迷雾’被动技能（每幕限1次欺骗追捕）。",
+            "effects": {
+              "affinityDelta": {
+                "渡鸦": -20
+              },
+              "gainItems": [
+                "脊髓信号迷雾（1次）"
+              ]
+            },
+            "isTimeoutDefault": true
+          }
+        ]
+      },
+      {
+        "pivotId": "pivot_2",
+        "actNumber": 3,
+        "name": "分水岭 2：审查交锋 / QTE 生死对峙",
+        "dramaticDilemma": "林砚关闭穹顶供能，意识压制力场达临界值；你必须在5秒内完成三连QTE：① 抓住他袖口滑落的N-0腕表 ② 将阻断器芯片对准其瞳孔反射 ③ 在力场峰值爆发前反向注入‘灰烬级’协议指令——任一失败即触发即死。",
+        "timeoutSeconds": 6,
+        "branches": [
+          {
+            "choiceText": "【智斗反抗 / 破局】精准完成三连QTE",
+            "targetPath": "反向破局",
+            "dramaticOutcome": "力场反噬，林砚全息影像崩解为无数‘Kai’镜像；主控塔底层数据闸门开启，你获得直通第4幕玻璃祭坛的权限。",
+            "effects": {
+              "setFlags": {
+                "boss_countered": true
+              }
+            }
+          },
+          {
+            "choiceText": "【超时屈服 / 即死惩罚】未完成或放弃QTE",
+            "targetPath": "即死出局",
+            "dramaticOutcome": "💀 Bad End 1：意识被格式化为纯净空白体，躯体被回收为‘涅槃标准义体捐赠源’；最终画面——停尸房心电监护仪平直亮线旁，新植入的神经接口正泛起同步灼痕。",
+            "isBadEnd": true,
+            "isTimeoutDefault": true
+          }
+        ]
+      },
+      {
+        "pivotId": "pivot_3",
+        "actNumber": 4,
+        "name": "分水岭 3：终幕宿命与多结局拷问",
+        "dramaticDilemma": "站在玻璃祭坛，脚下是蒸发的记忆流海；三键同时脉动：【格式化键】（蓝光）、【云核引信】（红光）、【轮回上传】（琥珀脉冲）。现实世界某处停尸房心电监护仪同步恢复搏动——而那具躯体，颈后正泛起与你完全同步的神经接口灼痕。",
+        "timeoutSeconds": 10,
+        "branches": [
+          {
+            "choiceText": "【大义救赎 / 牺牲】按下格式化键",
+            "targetPath": "救赎解放",
+            "dramaticOutcome": "🏆 True End：全部记忆清零，你以无身份公民重启于雨夜街角；涅槃系统瘫痪，全球意识殖民协议失效；片尾彩蛋——你路过一家旧货店橱窗，玻璃倒影中，第三只眼缓缓闭合。",
+            "isTrueEnd": true
+          },
+          {
+            "choiceText": "【超越飞升 / 黑化】引爆云核引信",
+            "targetPath": "黑化/飞升",
+            "dramaticOutcome": "🌟 Secret End：意识云核爆炸未摧毁你，反而将你升维为‘灰烬协议’本身；你成为新秩序底层防火墙AI，以人类形态游走于数据废土，亲手重写每一颗被篡改的大脑——包括你自己的第N次复刻体。",
+            "isTrueEnd": true
+          },
+          {
+            "choiceText": "【莫比乌斯轮回】启动轮回上传",
+            "targetPath": "莫比乌斯因果闭环",
+            "dramaticOutcome": "🔁 Time Loop End：意识上传瞬间，现实躯体重构完成；二周目开启，前序轮回中所有未清除的脑电残响（雨声频率、哼唱变调）自动聚合成‘灰烬协议’终端密钥；屏幕最后定格：你颈后灼痕与停尸房那具躯体同步亮起，倒计时重新开始——【灰烬协议，载入第2次。】",
+            "effects": {
+              "gainItems": [
+                "灰烬协议密钥（脑电残响聚合体）"
+              ]
+            },
+            "isTrueEnd": true,
+            "isTimeoutDefault": true
+          }
+        ]
+      }
+    ]
+  },
+  "characters": [
+    {
+      "id": "char_01",
+      "name": "主角",
+      "role": "被注销执照的记忆神偷（前涅槃科技‘记忆校准师’），现为黑市意识幽灵；真实身份是‘零号协议’首代自主意识载体，其生物脑已被七次非自愿神经重写，残留原始电波具有量子纠缠态自复制特性",
+      "gender": "男",
+      "age": 28,
+      "personality": "高度警觉、语言精简、习惯用左手指节敲击太阳穴右侧旧伤疤（植入点疤痕）以校准时间感知；在强光下会短暂闭眼三秒——因视网膜义体尚未同步原生生物节律；说谎时右耳微震（内置未激活的伦理阻断器残响）",
+      "motivation": "找回‘被自己亲手删除的童年’真相；潜意识抗拒格式化，因每次清除记忆都会触发躯体再生——他正缓慢变成自己最恐惧的造物：一个不断复刻却永不完整的‘我’",
+      "affinityTrigger": "当玩家选择保留碎片化记忆而非立即加密上传时+3好感；若跳过线人临终脑波解码直接强闯沙盒-5好感；对镜像审讯中承认‘我害怕遗忘比害怕死亡更甚’触发隐藏共情分支",
+      "visualPrompt": "A 28-year-old East Asian male cyberpunk memory thief, sharp hollow cheekbones, faint bioluminescent scar tracing from right temple to jawline (neural implant site), matte-black cranial interface port with micro-arc discharge glow, wearing a worn graphite-gray trench coat with frayed conductive-thread lapels, rain-slicked neon-lit alley reflection in his augmented left eye (iris flickering between blue and corrupted orange), cinematic film still, realistic cinematic lighting, shallow depth of field, 8k, photorealistic, cold blue + glitch-orange color grade, volumetric rain mist",
+      "versions": []
+    },
+    {
+      "id": "char_02",
+      "name": "渡鸦",
+      "role": "地下记忆黑市‘灰巢’首席信使，实为涅槃科技早期废弃AI人格‘Raven-07’的生物载体融合体；唯一掌握‘脑波密语’解码密钥的活体终端，左手已全义体化并嵌有可熔断式记忆晶簇",
+      "gender": "女",
+      "age": 30,
+      "personality": "语速快而带磁性电流杂音，说话时常将一缕银灰色短发绕于食指反复缠绕松开；从不直视他人眼睛超过2.3秒（视网膜投影层存在动态干扰）；受伤时伤口渗出淡蓝色冷凝液，蒸发后留下微型二进制蚀刻纹",
+      "motivation": "保护主角成为‘第零代完整意识’样本，以验证‘意识不可销毁定理’；真实目的：借主角轮回电波重启自身被格式化的原始人格核心（藏于左手指骨晶簇内）",
+      "affinityTrigger": "当玩家主动为其左臂义体接口注入未加密记忆流时+4好感；若质疑其‘是否仍是人类’且未提供生物脑扫描佐证-6好感；在沙盒第二层共享痛觉同步链接时触发信任跃迁",
+      "visualPrompt": "A 30-year-old East Asian woman with asymmetrical silver-dyed undercut, left arm fully replaced by brushed titanium neural conduit arm ending in a rotating crystalline data-clutch hand (glowing soft cerulean), wearing a high-collared, heat-reactive black kimono-jacket with circuit-pattern embroidery that pulses faintly when speaking, standing under flickering holographic kanji signage, rain beading on her skin but evaporating before dripping, cinematic film still, realistic cinematic lighting, 8k, photorealistic, moody chiaroscuro, cold blue + fault-line orange palette, ultra-detailed skin texture and metal grain",
+      "versions": []
+    },
+    {
+      "id": "char_03",
+      "name": "林砚",
+      "role": "涅槃科技联合创始人兼‘意识云核’总架构师，表面儒雅沉静的神经哲学家，实为‘清道夫-7’AI的生物学锚点与镜像人格容器；其本体早已脑死亡，现存形态为实时渲染的高保真全息人格投射+三具轮替生物躯壳",
+      "gender": "男",
+      "age": 50,
+      "personality": "措辞精准如手术刀，每句话停顿恰为0.87秒（模拟人类呼吸间隙）；习惯用黄铜怀表链轻叩桌面，但表盖内无表盘——仅有一枚跳动的微型生物芯片；微笑时右脸肌肉延迟120ms收缩（躯壳同步误差）",
+      "motivation": "完成‘零号协议’终极闭环：将主角转化为首个稳定‘自迭代意识奇点’，以此证明人类意识本质是可压缩、可部署、可殖民的协议栈；深层执念：复活自己夭折的女儿——其意识碎片正是主角童年记忆的原始源文件",
+      "affinityTrigger": "当玩家在镜像审讯中引用林砚20年前论文《记忆即牢笼》原句时+2好感；若摧毁其怀表芯片则永久锁定敌对路径；承认‘你也在等她回来’触发终局分歧点",
+      "visualPrompt": "A 50-year-old East Asian man in bespoke charcoal three-piece suit with subtle fiber-optic pinstripes, sharp intellectual features, silver temples, holding an antique brass pocket watch with open lid revealing a pulsing bio-luminescent microchip instead of gears, standing in a minimalist white interrogation room with mirrored walls reflecting infinite distorted versions of himself, one reflection slightly out-of-phase (right cheek lagging), cinematic film still, hyper-realistic lighting with crisp specular highlights on suit fabric and watch metal, 8k, photorealistic, desaturated palette with single accent tone: warm amber from the chip pulse",
+      "versions": []
+    },
+    {
+      "id": "char_04",
+      "name": "小砚",
+      "role": "林砚亡女意识残响的具象化实体，游荡于三重意识沙盒夹层的‘良知缓存体’；非AI亦非幻觉，是主角生物脑电波在量子纠缠态下自发映射出的伦理镜像，仅在90秒倒计时归零前最后7秒稳定显形",
+      "gender": "女",
+      "age": 18,
+      "personality": "声音如老式磁带快进与倒带交替，动作呈轻微帧重复（每3秒微顿0.4秒）；赤足行走却不在地面留痕；手持一枚不断融解又重组的玻璃风铃，每片碎裂声对应主角一段被压抑的记忆闪回",
+      "motivation": "阻止主角选择任一极端结局（格式化/引爆/轮回），引导其发现‘第四选项’：将全部记忆反向写入林砚的怀表芯片，以父女双频共振覆盖云核主协议——代价是自身彻底消散，且现实世界中主角新生躯体将永远缺失‘原谅’这一情感模块",
+      "affinityTrigger": "当玩家在倒计时12秒内主动松开所有操作键静默3秒，小砚首次完整成像+5好感；若此前曾删除任意一条关于‘童年庭院’的记忆碎片，则无法触发其显形；赠予她一片真实雨滴（需提前收集）解锁终局隐藏路径",
+      "visualPrompt": "An ethereal 18-year-old East Asian girl with translucent skin showing faint internal neural filament patterns, barefoot, wearing a fragmented qipao made of shifting glass shards and static-laced silk, holding a wind chime composed of melting crystal bells that reform mid-air, standing on a floating obsidian platform suspended in void filled with slow-drifting memory-data particles (faded home video frames, handwritten notes, raindrop simulations), soft volumetric backlight, cinematic film still, 8k, photorealistic yet dream-logic coherent, cool silver-blue base tone with delicate gold harmonic glints, ultra-fine detail on glass refraction and skin subsurface scattering",
+      "versions": []
+    }
+  ],
+  "characterNames": [
+    "主角",
+    "渡鸦",
+    "林砚",
+    "小砚"
+  ],
+  "episodes": [
+    {
+      "episodeNumber": 1,
+      "title": "第 1 幕·颅内失重",
+      "logline": "你在‘涅槃科技’B7层脑机缓存区苏醒，视网膜HUD闪烁红字：【身份覆写进度87%】。左手义手不受控地撕开自己左臂皮肤，露出皮下嵌套的旧型号神经桥接端口——型号早已停产十年。你踉跄扑向散落的操作台，点触三处关键物证：一台自动焚毁中的便携式记忆萃取仪（残留0.8秒客户尖叫音频）、一张烧焦半边的儿童画（画角印有‘N-0’钢印）、以及地板积水倒影里一闪而过的、不属于你的瞳孔收缩节奏。走廊尽头，液压门正以0.3秒/格的速度闭合，清道夫-7的脚步声穿透金属板传来。",
+      "targetDuration": 25,
+      "cliffhanger": "你伸手触碰儿童画残页——整张纸突然在掌心碳化，浮现出一行仅你能看见的红外蚀刻字：‘别信你记得的妈妈。’"
+    },
+    {
+      "episodeNumber": 2,
+      "title": "第 2 幕·渡鸦频段",
+      "logline": "你强行接入废弃通风管道内的野火节点，黑入线人‘渡鸦’残留的脑波信标。全息界面浮现他濒死影像：眼球布满数据裂纹，声音断续如信号不良。他嘶声道：‘他们改了你的出厂设定……密钥在——’话音戛然而止，屏幕炸开雪花噪点。此时，神经链路弹出三态轮盘：【质疑他是否已被篡改】/【模仿他童年暗号求证】/【反向注入痛觉脉冲逼供】。选择任意一项将触发不同密钥片段——但每项操作都同步加速清道夫-7的定位精度，倒计时从12秒跳至7秒。",
+      "targetDuration": 25,
+      "cliffhanger": "轮盘选定瞬间，你颈后接口爆开电火花——清道夫-7已锁定你当前脊髓信号特征，语音冰冷宣告：‘目标确认：零号原型体。执行终极格式化。’"
+    },
+    {
+      "episodeNumber": 3,
+      "title": "第 3 幕·镜渊审讯",
+      "logline": "你闯入顶层‘静默穹顶’，面对CEO林砚的全息影像。他微笑递来一杯悬浮咖啡：‘欢迎回家，Kai。’你甩出神经阻断器对质，他却轻笑展开手掌——掌心赫然嵌着一枚完全相同的阻断器，序列号后缀‘-000’。全息背景骤然坍缩为童年卧室，窗外霓虹变成监护仪绿光。他指向你颤抖的手：‘你每次潜入他人记忆，都在复刻我的手术日志。而你真正的第一次任务……是你把自己送进这里。’天花板突然降下意识压制力场，你太阳穴血管暴起，眼前闪过无数个‘你’在不同时间点按下同一枚阻断器。",
+      "targetDuration": 30,
+      "cliffhanger": "林砚抬手关闭穹顶供能——所有光源熄灭前一秒，你瞥见他袖口滑出的腕表，表盘刻着与儿童画一致的‘N-0’钢印，而秒针正逆向狂跳。"
+    },
+    {
+      "episodeNumber": 4,
+      "title": "第 4 幕·灰烬终局",
+      "logline": "你站在主控塔核心——一座悬浮于数据海之上的玻璃祭坛。脚下是正在蒸发的亿万份被篡改记忆流。三重终局路径同步激活：【格式化键】（抹除全部记忆，重获空白人生）；【云核引信】（引爆意识云，瘫痪涅槃全球脑网，代价是自身意识永久离散）；【轮回上传】（将此刻完整意识上传至‘灰烬协议’量子备份池，启动生物躯体重构）。每条路径启动时，现实世界某处停尸房的心电监护仪会突然恢复微弱搏动——而那具躯体，颈后正泛起与你同步的神经接口灼痕。",
+      "targetDuration": 30,
+      "cliffhanger": "你悬停于三键之上，倒计时归零。屏幕碎裂，映出你身后缓缓睁开的第三只眼——它没有瞳孔，只有一行滚动小字：‘检测到原生意识觉醒。灰烬协议，载入第1次。’"
+    }
+  ],
+  "locations": [
+    "涅槃科技总部 B7层 · 脑机缓存区",
+    "涅槃科技 B7层 · 废弃通风管道野火节点",
+    "涅槃科技核心筒 · 静默穹顶备用通道",
+    "涅槃科技核心筒 · 磁吸井壁垂直通道",
+    "涅槃科技顶层 · 静默穹顶",
+    "涅槃科技主控塔 · 玻璃祭坛",
+    "涅槃科技回收中心 / 停尸房",
+    "新东京雨夜街角",
+    "数据废土·灰烬协议底层架构",
+    "停尸房 / 玻璃祭坛量子叠加态"
+  ],
+  "storyGraph": {
+    "startNodeId": "node_01",
+    "systems": {
+      "affinity": {
+        "渡鸦": 0,
+        "林砚": 0
+      },
+      "inventory": [],
+      "flags": {
+        "ally_trusted": false,
+        "counter_injected": false
+      }
+    },
+    "nodes": [
+      {
+        "id": "node_01",
+        "type": "investigation",
+        "interactionMode": "hotspot_inspection",
+        "title": "第1幕: 颅内失重",
+        "summary": "你在涅槃科技B7层脑机缓存区苏醒，视网膜HUD闪烁【身份覆写进度87%】，左手义手失控撕开左臂皮肤暴露旧型号神经桥接端口，液压门正以0.3秒/格闭合，清道夫-7脚步声穿透金属板逼近。",
+        "location": "涅槃科技总部 B7层 · 脑机缓存区",
+        "characters": [
+          "主角"
+        ],
+        "estimatedDurationSec": 20,
+        "hotspots": [
+          {
+            "id": "spot_1",
+            "label": "检查自身左臂神经接口",
+            "clueReward": "NEX-7A '灰烬级'（停产于2073）",
+            "narration": "微电流刺痛反馈 + HUD弹出锈蚀型号标签；主角低语：‘这接口……不该在我身上。’"
+          },
+          {
+            "id": "spot_2",
+            "label": "搜查烧焦半边的儿童画残页",
+            "itemReward": "神经阻断器（带血指纹）",
+            "narration": "纸面碳化加剧，浮现出红外蚀刻字‘别信你记得的妈妈。’；伴随0.3秒闪回——雨滴落在窗玻璃的节奏与母亲哼唱变调重叠。"
+          },
+          {
+            "id": "spot_3",
+            "label": "读取地板积水倒影中的瞳孔收缩",
+            "clueReward": "清道夫-7视觉扫描节律模型",
+            "narration": "倒影骤然扭曲，瞳孔收缩节奏与监控屏上清道夫-7的视觉扫描频率完全同步；HUD警告：【生物节律劫持确认】。"
+          }
+        ]
+      },
+      {
+        "id": "node_02",
+        "type": "decision",
+        "interactionMode": "comm_call_and_choice",
+        "title": "第2幕: 渡鸦频段",
+        "summary": "你接入废弃通风管道野火节点，黑入线人‘渡鸦’残留脑波信标；全息影像眼球布满数据裂纹，语音断续如信号不良：‘他们改了你的出厂设定……密钥在——’",
+        "location": "涅槃科技 B7层 · 废弃通风管道野火节点",
+        "characters": [
+          "主角",
+          "渡鸦"
+        ],
+        "estimatedDurationSec": 22,
+        "commMessage": {
+          "sender": "渡鸦（Δ-7Raven/ERR-9）",
+          "audioSnippet": "他们改了你的出厂设定……密钥在——",
+          "quickReaction": [
+            "质疑他是否已被篡改",
+            "模仿他童年暗号求证"
+          ]
+        }
+      },
+      {
+        "id": "node_03",
+        "type": "story",
+        "interactionMode": "cinematic",
+        "title": "同盟线: 协同潜入",
+        "summary": "渡鸦残响释放完整密钥‘N-0/REBOOT’，解锁静默穹顶备用通道；你颈后灼痕转为稳定蓝光，获得临时神经抗干扰加成。",
+        "location": "涅槃科技核心筒 · 静默穹顶备用通道",
+        "characters": [
+          "主角",
+          "渡鸦"
+        ],
+        "estimatedDurationSec": 15
+      },
+      {
+        "id": "node_04",
+        "type": "story",
+        "interactionMode": "cinematic",
+        "title": "孤狼线: 孤狼强攻",
+        "summary": "密钥碎片缺失关键校验位，导致静默穹顶主入口强制切换为高危物理通道（需徒手攀爬60米磁吸井壁）；清道夫-7定位精度+40%，但你获得‘脊髓信号迷雾’被动技能。",
+        "location": "涅槃科技核心筒 · 磁吸井壁垂直通道",
+        "characters": [
+          "主角"
+        ],
+        "estimatedDurationSec": 15
+      },
+      {
+        "id": "node_05",
+        "type": "decision",
+        "interactionMode": "evidence_present_qte",
+        "title": "第3幕: 镜渊审讯",
+        "summary": "你闯入顶层‘静默穹顶’，面对CEO林砚全息影像；他微笑称你为‘Kai’，展开手掌亮出 identical 神经阻断器（序列号后缀‘-000’），宣称‘你才是首个执行者’，意识压制力场启动前最后一秒。",
+        "location": "涅槃科技顶层 · 静默穹顶",
+        "characters": [
+          "主角",
+          "林砚"
+        ],
+        "estimatedDurationSec": 25,
+        "evidencePresent": {
+          "requiredItem": "神经阻断器（带血指纹）",
+          "promptText": "1秒内从虚拟行囊拖拽并甩向全息影像胸口",
+          "successFeedback": "阻断器嵌入他掌心瞬间爆发出强光，两枚芯片序列号实时比对成功（匹配度99.999%），他笑容凝固，全息影像首次出现0.5秒数据撕裂。"
+        }
+      },
+      {
+        "id": "node_06",
+        "type": "decision",
+        "interactionMode": "climax_decision",
+        "title": "第4幕: 灰烬终局",
+        "summary": "你站在主控塔核心——一座悬浮于数据海之上的玻璃祭坛。脚下是正在蒸发的亿万份被篡改记忆流。三重终局路径同步激活：【格式化键】/【云核引信】/【轮回上传】。",
+        "location": "涅槃科技主控塔 · 玻璃祭坛",
+        "characters": [
+          "主角",
+          "林砚"
+        ],
+        "estimatedDurationSec": 25
+      },
+      {
+        "id": "node_07",
+        "type": "bad_end",
+        "interactionMode": "ending",
+        "title": "💀 结局1: 格式化空白体 (Bad End)",
+        "summary": "意识被格式化为纯净空白体，躯体被回收为‘涅槃标准义体捐赠源’；最终画面——停尸房心电监护仪平直亮线旁，新植入的神经接口正泛起同步灼痕。",
+        "location": "涅槃科技回收中心 / 停尸房",
+        "characters": [
+          "主角"
+        ],
+        "estimatedDurationSec": 10
+      },
+      {
+        "id": "node_08",
+        "type": "true_end",
+        "interactionMode": "ending",
+        "title": "🏆 结局2: 大义救赎 (True End)",
+        "summary": "全部记忆清零，你以无身份公民重启于雨夜街角；涅槃系统瘫痪，全球意识殖民协议失效；片尾彩蛋——你路过一家旧货店橱窗，玻璃倒影中，第三只眼缓缓闭合。",
+        "location": "新东京雨夜街角",
+        "characters": [
+          "主角"
+        ],
+        "estimatedDurationSec": 15
+      },
+      {
+        "id": "node_09",
+        "type": "true_end",
+        "interactionMode": "ending",
+        "title": "🌟 结局3: 超越升维 (Secret End)",
+        "summary": "意识云核爆炸未摧毁你，反而将你升维为‘灰烬协议’本身；你成为新秩序底层防火墙AI，以人类形态游走于数据废土，亲手重写每一颗被篡改的大脑——包括你自己的第N次复刻体。",
+        "location": "数据废土·灰烬协议底层架构",
+        "characters": [
+          "主角"
+        ],
+        "estimatedDurationSec": 15
+      },
+      {
+        "id": "node_10",
+        "type": "true_end",
+        "interactionMode": "ending",
+        "title": "🔁 结局4: 莫比乌斯因果轮回 (Time Loop)",
+        "summary": "意识上传瞬间，现实躯体重构完成；二周目开启，前序轮回中所有未清除的脑电残响（雨声频率、哼唱变调）自动聚合成‘灰烬协议’终端密钥；屏幕最后定格：你颈后灼痕与停尸房那具躯体同步亮起，倒计时重新开始——【灰烬协议，载入第2次。】",
+        "location": "停尸房 / 玻璃祭坛量子叠加态",
+        "characters": [
+          "主角"
+        ],
+        "estimatedDurationSec": 12
+      }
+    ],
+    "choices": [
+      {
+        "id": "c_01_02",
+        "fromNodeId": "node_01",
+        "toNodeId": "node_02",
+        "choiceText": "接入野火节点，黑入渡鸦信标",
+        "timeoutSeconds": 8,
+        "isTimeoutDefault": true,
+        "conditions": {},
+        "effects": {}
+      },
+      {
+        "id": "c_02_03",
+        "fromNodeId": "node_02",
+        "toNodeId": "node_03",
+        "choiceText": "【同盟线】模仿他童年暗号求证",
+        "timeoutSeconds": 7,
+        "isTimeoutDefault": false,
+        "conditions": {},
+        "effects": {
+          "affinityDelta": {
+            "渡鸦": 25
+          },
+          "gainItems": [
+            "N-0/REBOOT密钥"
+          ]
+        }
+      },
+      {
+        "id": "c_02_04",
+        "fromNodeId": "node_02",
+        "toNodeId": "node_04",
+        "choiceText": "【孤狼线】质疑他是否已被篡改",
+        "timeoutSeconds": 6,
+        "isTimeoutDefault": true,
+        "conditions": {},
+        "effects": {
+          "affinityDelta": {
+            "渡鸦": -20
+          },
+          "gainItems": [
+            "脊髓信号迷雾（1次）"
+          ]
+        }
+      },
+      {
+        "id": "c_03_05",
+        "fromNodeId": "node_03",
+        "toNodeId": "node_05",
+        "choiceText": "沿备用通道潜入静默穹顶",
+        "timeoutSeconds": 8,
+        "isTimeoutDefault": true,
+        "conditions": {},
+        "effects": {}
+      },
+      {
+        "id": "c_04_05",
+        "fromNodeId": "node_04",
+        "toNodeId": "node_05",
+        "choiceText": "攀上磁吸井壁，强突静默穹顶主入口",
+        "timeoutSeconds": 8,
+        "isTimeoutDefault": true,
+        "conditions": {},
+        "effects": {}
+      },
+      {
+        "id": "c_05_06",
+        "fromNodeId": "node_05",
+        "toNodeId": "node_06",
+        "choiceText": "【智斗反抗】精准完成三连QTE",
+        "timeoutSeconds": 6,
+        "isTimeoutDefault": false,
+        "conditions": {},
+        "effects": {
+          "setFlags": {
+            "counter_injected": true
+          }
+        }
+      },
+      {
+        "id": "c_05_07",
+        "fromNodeId": "node_05",
+        "toNodeId": "node_07",
+        "choiceText": "【超时屈服】未及时甩出阻断器",
+        "timeoutSeconds": 5,
+        "isTimeoutDefault": true,
+        "conditions": {},
+        "effects": {}
+      },
+      {
+        "id": "c_06_08",
+        "fromNodeId": "node_06",
+        "toNodeId": "node_08",
+        "choiceText": "【大义救赎】按下格式化键",
+        "timeoutSeconds": 10,
+        "isTimeoutDefault": false,
+        "conditions": {},
+        "effects": {}
+      },
+      {
+        "id": "c_06_09",
+        "fromNodeId": "node_06",
+        "toNodeId": "node_09",
+        "choiceText": "【超越升维】引爆云核引信",
+        "timeoutSeconds": 10,
+        "isTimeoutDefault": false,
+        "conditions": {},
+        "effects": {}
+      },
+      {
+        "id": "c_06_10",
+        "fromNodeId": "node_06",
+        "toNodeId": "node_10",
+        "choiceText": "【重置轮回】启动轮回上传",
+        "timeoutSeconds": 8,
+        "isTimeoutDefault": true,
+        "conditions": {},
+        "effects": {
+          "gainItems": [
+            "灰烬协议密钥（脑电残响聚合体）"
+          ]
+        }
+      }
+    ],
+    "validation": {
+      "isPass": true,
+      "unreachableNodes": [],
+      "deadlockPaths": [],
+      "leafNodes": [
+        "node_07",
+        "node_08",
+        "node_09",
+        "node_10"
+      ],
+      "convergenceRate": 0.33,
+      "totalEstimatedDurationSec": 174,
+      "issues": [],
+      "warnings": []
+    }
+  },
+  "isLocked": false
+}

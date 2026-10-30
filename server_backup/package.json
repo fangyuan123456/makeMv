@@ -1,0 +1,38 @@
+{
+  "name": "fmv-agent",
+  "version": "1.0.0",
+  "description": "FMV & VideoClaw AI Director Agent in TypeScript",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "start": "tsc && node --enable-source-maps dist/index.js",
+    "dev": "tsc && node --enable-source-maps --inspect=9229 dist/index.js",
+    "cli": "tsc && node --enable-source-maps dist/cli.js",
+    "serve": "node --enable-source-maps dist/index.js",
+    "clean:port": "powershell -Command \"$c = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue; if ($c) { Stop-Process -Id $c.OwningProcess -Force; Write-Host 'Port 8000 released.' } else { Write-Host 'Port 8000 is already free.' }\""
+  },
+  "keywords": [
+    "fmv",
+    "agent",
+    "videoclaw",
+    "ai-director",
+    "storyboard",
+    "video-generation"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@hono/node-server": "^1.13.8",
+    "dotenv": "^16.4.7",
+    "hono": "^4.7.2",
+    "msedge-tts": "^2.1.1",
+    "openai": "^4.86.1",
+    "picocolors": "^1.1.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "typescript": "^5.8.2"
+  }
+}

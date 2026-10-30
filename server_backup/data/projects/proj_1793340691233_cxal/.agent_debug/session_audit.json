@@ -1,0 +1,92 @@
+{
+  "sessionId": "proj_1793340691233_cxal",
+  "createdAt": "2026-10-30T06:15:05.129Z",
+  "updatedAt": "2026-10-30T08:37:43.780Z",
+  "totalTurns": 8,
+  "stagesExecuted": [
+    "narrative_design",
+    "character_design"
+  ],
+  "records": [
+    {
+      "archiveId": "turn_narrative_design_1793340691249",
+      "stage": "narrative_design",
+      "agentName": "NarrativeDesignerAgent",
+      "stageFolder": "01_narrative_designer",
+      "timestamp": "2026-10-30T06:11:31.249Z",
+      "durationMs": 213871,
+      "status": "success",
+      "aiCallsCount": 4
+    },
+    {
+      "archiveId": "turn_character_design_1793345670578",
+      "stage": "character_design",
+      "agentName": "CharacterDesignerAgent",
+      "stageFolder": "02_character_designer",
+      "timestamp": "2026-10-30T07:34:30.578Z",
+      "durationMs": 40352,
+      "status": "success",
+      "aiCallsCount": 1
+    },
+    {
+      "archiveId": "turn_character_design_1793345768588",
+      "stage": "character_design",
+      "agentName": "CharacterDesignerAgent",
+      "stageFolder": "02_character_designer",
+      "timestamp": "2026-10-30T07:36:08.588Z",
+      "durationMs": 8329,
+      "status": "success",
+      "aiCallsCount": 0
+    },
+    {
+      "archiveId": "turn_character_design_1793346184315",
+      "stage": "character_design",
+      "agentName": "CharacterDesignerAgent",
+      "stageFolder": "02_character_designer",
+      "timestamp": "2026-10-30T07:43:04.315Z",
+      "durationMs": 10429,
+      "status": "success",
+      "aiCallsCount": 0
+    },
+    {
+      "archiveId": "turn_character_design_1793349167963",
+      "stage": "character_design",
+      "agentName": "CharacterDesignerAgent",
+      "stageFolder": "02_character_designer",
+      "timestamp": "2026-10-30T08:32:47.963Z",
+      "durationMs": 10790,
+      "status": "success",
+      "aiCallsCount": 0
+    },
+    {
+      "archiveId": "turn_character_design_1793349254263",
+      "stage": "character_design",
+      "agentName": "CharacterDesignerAgent",
+      "stageFolder": "02_character_designer",
+      "timestamp": "2026-10-30T08:34:14.263Z",
+      "durationMs": 9107,
+      "status": "success",
+      "aiCallsCount": 0
+    },
+    {
+      "archiveId": "turn_character_design_1793349422141",
+      "stage": "character_design",
+      "agentName": "CharacterDesignerAgent",
+      "stageFolder": "02_character_designer",
+      "timestamp": "2026-10-30T08:37:02.141Z",
+      "durationMs": 6996,
+      "status": "success",
+      "aiCallsCount": 0
+    },
+    {
+      "archiveId": "turn_character_design_1793349456760",
+      "stage": "character_design",
+      "agentName": "CharacterDesignerAgent",
+      "stageFolder": "02_character_designer",
+      "timestamp": "2026-10-30T08:37:36.760Z",
+      "durationMs": 7016,
+      "status": "success",
+      "aiCallsCount": 0
+    }
+  ]
+}

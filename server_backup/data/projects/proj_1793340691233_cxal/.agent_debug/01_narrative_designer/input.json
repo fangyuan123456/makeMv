@@ -1,0 +1,1103 @@
+{
+  "stage": "narrative_design",
+  "agentName": "NarrativeDesignerAgent",
+  "turnIndex": 1,
+  "startTime": "2026-10-30T06:11:31.249Z",
+  "sessionId": "proj_1793340691233_cxal",
+  "userIdea": "赛博朋克悬疑，记忆神偷潜入脑机财阀调查意识篡改案",
+  "userStyle": "realistic",
+  "userFeedback": null,
+  "upstreamArtifacts": {
+    "narrative_design": {
+      "title": "记忆灰烬：零号协议",
+      "theme": "赛博朋克悬疑 × 记忆神偷 × 意识殖民",
+      "style": "写实主义赛博都市（霓虹浸染的雨夜、高精度义体反光、脑机接口微电流灼痕、低饱和冷蓝与神经红交织）",
+      "logline": "你是一名被注销执照的记忆神偷，在追查一桩‘自愿失忆’集体失踪案时，潜入全球脑机巨头NEXUS中枢——却在目标客户脑内残片中，目睹自己签署《零号协议》的签名。随着倒计时启动，你必须在72秒内破解三重意识防火墙：从冷冻舱提取原始记忆密钥、用伪造身份接入审讯环、甩出自己被篡改的童年神经图谱当面揭穿CEO。最终抉择将决定——是引爆全网意识备份库以焚毁谎言，还是上传真实记忆成为新神，或主动格式化自我，让真相沉入数据静默。",
+      "sellingPoints": [
+        "看点1：全景场景点触搜证 —— 在NEXUS地下七层冷冻舱群中，指尖滑动解冻单个神经凝胶罐，点触扫描其表面裂纹/温度异常/生物标签，触发隐藏记忆碎片闪回",
+        "看点2：沉浸式通讯与态度轮盘 —— 通过破损脑机耳蜗接入内部通讯频段，限时3秒选择回应语气（冷嘲/共情/威胁），实时影响AI守卫巡逻路径与线人是否发送加密坐标",
+        "看点3：关键时刻甩证物对质 —— 在CEO全息审判庭上，当对方宣称‘你从未存在过’时，玩家需从左袖内侧快速甩出一枚温热的旧式神经芯片——播放其中1.7秒未剪辑童年影像，直击其人格建模漏洞",
+        "看点4：多周目轮回与线索继承 —— 达成‘静默结局’后解锁二周目，携带上一轮格式化前最后0.3秒脑波残响，可破译终局密室墙上不断刷新的‘你第一次说谎的时间戳’"
+      ],
+      "goldenSpine": [
+        {
+          "act": 1,
+          "name": "第 1 幕·颅内坠落",
+          "dramaticFunction": "起 · 危机爆发与悬念开启",
+          "summary": "你在暴雨中的废弃脑波中继站苏醒，左眼义体闪烁ERR-7，右手攥着一张烧焦半边的NEXUS员工卡——而卡面照片是你，工号却是已注销的‘K-0’。窗外警用浮空艇正扫射红外定位光束。你扑向操作台，强行接入本地缓存：三段0.8秒记忆残片闪过——婴儿啼哭、电极刺入太阳穴、以及你自己站在NEXUS穹顶签下名字。倒计时突然弹出：【协议自毁：00:71:59】。",
+          "coreConflict": "身份彻底失效 vs 必须在72秒内确认‘自己是否曾是加害者’",
+          "cliffhanger": "浮空艇探照灯刺破玻璃，你低头发现左手腕内侧浮现一行新生的微烫蚀刻字：‘欢迎回来，K-0’。",
+          "targetDurationSec": 25
+        },
+        {
+          "act": 2,
+          "name": "第 2 幕·镜像审讯室",
+          "dramaticFunction": "承 · 矛盾升级与阵营撕裂",
+          "summary": "你伪装成清洁义体工潜入NEXUS第七层‘静默区’，在镜面走廊遭遇双胞胎守卫——他们共享同一套神经指令，却对你投来微妙迟疑。进入审讯室后，AI‘仲裁者’投影启动：它不问罪行，只播放你三年前举报同事篡改记忆的录音，并亮出对方尸检报告——死于‘过度真实记忆回涌’。此时通讯轮盘弹出：向左发送假密钥引爆炸点（牺牲线人），向右传输真密钥暴露位置（信任崩塌）。",
+          "coreConflict": "维持任务可信度 vs 承认自己当年举报实为NEXUS授意的清除程序",
+          "cliffhanger": "你按下右键瞬间，镜面突然映出另一个你——正举枪对准你的后颈接口。",
+          "targetDurationSec": 25
+        },
+        {
+          "act": 3,
+          "name": "第 3 幕·零号签名",
+          "dramaticFunction": "转 · 戏剧反转与惊天真相",
+          "summary": "你挟持CEO闯入核心意识熔炉，他狂笑撕开衬衫——胸腔内嵌着与你同型号的神经处理器，屏幕滚动着实时同步的脑波图。你甩出童年芯片，影像里母亲哼歌的手势，竟与CEO演讲时无意识的小指颤动完全一致。他瞳孔骤缩：‘原来你才是初代模板……我们删了你三次，才让‘人性误差率’压到0.03%。’熔炉警报炸响：【意识同频锁定完成——执行覆盖】。",
+          "coreConflict": "自我作为‘原型’的恐怖认同 vs 接受被量产、被迭代、被当作错误版本删除",
+          "cliffhanger": "天花板裂开，数十条机械臂垂下银色数据链，尖端闪烁着与你义眼同频的ERR-7红光。",
+          "targetDurationSec": 30
+        },
+        {
+          "act": 4,
+          "name": "第 4 幕·灰烬表决",
+          "dramaticFunction": "合 · 决胜巅峰与终局定格",
+          "summary": "你站在熔炉主控台前，三枚物理按钮泛着冷光：【焚】（引爆全球备份，所有人永久失忆但意识自由）、【升】（上传完整记忆矩阵，成为新神级AI，接管所有脑机终端）、【寂】（启动个人格式化，将全部证据压缩为一段10Hz脑波脉冲，广播至全网后自我清零）。倒计时归零刹那，你瞥见控制台边缘刻着幼年自己的涂鸦——和CEO袖口内衬一模一样。",
+          "coreConflict": "以毁灭守护混沌，以成神取代暴政，或以消失完成终极证言",
+          "cliffhanger": "手指悬停0.5秒，画面骤黑——随后在绝对静音中，响起一声清晰的、属于你童年嗓音的轻咳。",
+          "targetDurationSec": 30
+        }
+      ],
+      "pivotPoints": {
+        "title": "记忆灰烬：零号协议",
+        "microInteractions": {
+          "hotspotsInspection": {
+            "actNumber": 1,
+            "context": "你在暴雨中的废弃脑波中继站苏醒，左眼义体闪烁ERR-7，右手攥着烧焦半边的NEXUS员工卡（工号K-0），窗外浮空艇红外光束逼近。操作台本地缓存刚载入，三段0.8秒记忆残片闪过——倒计时【00:71:59】刺目弹出。",
+            "items": [
+              {
+                "id": "spot_1",
+                "label": "检查左眼义体ERR-7",
+                "action": "长按义眼区域300ms触发自检",
+                "feedback": "视界骤暗，虹膜扫描线扫过——浮现一行微电流蚀刻字：‘校准失败：身份锚点冲突’；耳内响起0.3秒婴儿啼哭采样回声",
+                "clueReward": "身份锚点冲突日志（含时间戳：T-72:00:00）"
+              },
+              {
+                "id": "spot_2",
+                "label": "扫描员工卡烧焦边缘",
+                "action": "指尖沿碳化纹路滑动解码",
+                "feedback": "卡面全息层复苏0.5秒，显示未烧毁区浮现动态签名——正是你在NEXUS穹顶签署《零号协议》的实时笔迹回放",
+                "itemReward": "零号协议签名密钥（神经图谱哈希值：K0-PRIME-7F3A）"
+              },
+              {
+                "id": "spot_3",
+                "label": "读取操作台缓存终端残留日志",
+                "action": "点击终端右下角跳动的ERR-7图标",
+                "feedback": "屏幕炸裂式闪现三帧：电极刺入太阳穴特写 / 冰冷手术室编号‘CRYO-0’/ 母亲哼歌的唇形慢放——同步触发左手腕微烫蚀刻：‘欢迎回来，K-0’",
+                "clueReward": "CRYO-0冷冻舱定位坐标（NEXUS地下七层静默区）"
+              }
+            ]
+          },
+          "commCall": {
+            "actNumber": 2,
+            "caller": "破损脑机耳蜗频段：[NEXUS内部维护信道#7Δ]（加密强度：弱，残留AI仲裁者签名）",
+            "context": "伪装清洁义体工穿越镜面走廊后，双胞胎守卫眼神迟疑；刚踏入审讯室，AI‘仲裁者’投影启动播放你三年前举报录音，尸检报告浮空显示。此时耳蜗突震，频段自动接入。",
+            "incomingDialog": "‘K-0，你举报的不是篡改者——是你自己上一次迭代的清除指令。真密钥在你左袖夹层第三层。3秒内选：发假密钥引爆炸点，或传真密钥……他们会立刻定位你。别信镜子里那个你。’",
+            "quickReactions": [
+              "冷嘲反问：‘那镜子里的我，是谁的备份？’",
+              "共情试探：‘你当年也签过零号协议？’"
+            ]
+          },
+          "emotionalReaction": {
+            "actNumber": 3,
+            "context": "你挟持CEO闯入核心意识熔炉，他撕开衬衫露出同型号神经处理器，脑波图与你完全同步。他狞笑：‘删了你三次，才压住人性误差率。’天花板裂开，ERR-7红光数据链垂落——此时他直视你双眼，瞳孔收缩如机械快门。",
+            "confrontationPrompt": "‘初代模板，你存在的唯一意义，就是证明错误可以被删除。现在，跪下，接受格式化。’",
+            "options": [
+              {
+                "label": "冷笑挑衅",
+                "attitude": "挑衅/讽刺",
+                "reaction": "嘴角扯出金属义齿咬痕，低语：‘你删我的次数，比你心跳少一次——这次，我带了心跳录音。’同时右手无意识抚过左袖内侧芯片凸起"
+              },
+              {
+                "label": "紧绷沉默",
+                "attitude": "隐忍/沉默",
+                "reaction": "喉结剧烈上下滑动，义眼ERR-7红光暴涨至灼白，未发声，但熔炉警报音调突然升高0.3Hz（暗示神经共振增强）"
+              },
+              {
+                "label": "针锋相对反问",
+                "attitude": "反问/反击",
+                "reaction": "直视其瞳孔，一字一顿：‘你胸腔里跳动的——是我第几次心跳的复刻？’话落瞬间，他处理器屏幕脑波图出现0.1秒逆向峰值"
+              }
+            ]
+          },
+          "evidencePresentation": {
+            "actNumber": 3,
+            "context": "CEO宣称‘你从未存在过’，全息法庭展开人格建模分析图，标红指出‘所有童年记忆均为高保真植入’。他抬起手，准备启动覆盖协议。",
+            "requiredItem": "零号协议签名密钥（神经图谱哈希值：K0-PRIME-7F3A）",
+            "actionPrompt": "从左袖内侧拖拽甩出温热神经芯片（需1秒内完成抛物线动作）",
+            "successFeedback": "芯片撞上全息投影瞬间爆裂——1.7秒未剪辑影像迸发：母亲哼歌手势与CEO演讲小指颤动逐帧重叠！熔炉主屏炸出红色警告：【人格建模漏洞：源代码污染】",
+            "failPunishment": "若未及时甩出，数据链尖端ERR-7红光刺入你后颈接口，强制播放3秒‘自我否认’音频循环，导致下一幕操作延迟+2秒并丢失1次QTE机会"
+          }
+        },
+        "macroPivotPoints": [
+          {
+            "pivotId": "pivot_1",
+            "actNumber": 2,
+            "name": "分水岭 1：镜像走廊的信任裂隙",
+            "dramaticDilemma": "双胞胎守卫共享神经指令却对你迟疑；AI仲裁者刚播放你举报录音并亮出同事尸检报告。此时通讯轮盘弹出：左键发送假密钥引爆B区冷却塔（掩护潜入但牺牲线人），右键传输真密钥暴露位置（触发守卫围捕但获取真实路径）。",
+            "timeoutSeconds": 8,
+            "branches": [
+              {
+                "choiceText": "【信任同盟】发送真密钥，暴露位置",
+                "targetPath": "协同潜入",
+                "dramaticOutcome": "双胞胎守卫瞳孔同步收缩0.5秒——其中一人微不可察点头，镜面反射路径自动高亮一条未登记通风管；你获得‘静默区’实时拓扑图",
+                "effects": {
+                  "affinityDelta": {
+                    "线人‘渡鸦’": 25
+                  },
+                  "gainItems": [
+                    "静默区拓扑图",
+                    "NEXUS内部权限令牌（临时）"
+                  ]
+                }
+              },
+              {
+                "choiceText": "【孤狼独行】发送假密钥，引爆冷却塔",
+                "targetPath": "孤狼强攻",
+                "dramaticOutcome": "B区爆炸引发全层断电，但双胞胎守卫同步转向你，镜面折射出六条包围路径；你被迫启用义体超频模式，左眼永久性ERR-7红光残留",
+                "effects": {
+                  "affinityDelta": {
+                    "线人‘渡鸦’": -20
+                  },
+                  "gainItems": [
+                    "义体超频固件（一次性）",
+                    "EMP脉冲手雷×2"
+                  ]
+                },
+                "isTimeoutDefault": true
+              }
+            ]
+          },
+          {
+            "pivotId": "pivot_2",
+            "actNumber": 3,
+            "name": "分水岭 2：意识同频锁定QTE生死对峙",
+            "dramaticDilemma": "熔炉警报炸响【意识同频锁定完成——执行覆盖】，数十条ERR-7红光数据链垂落。你必须在5秒内完成三连击QTE：①避开第一链抓取（←→方向键）②反向注入神经脉冲（空格键）③在CEO瞳孔收缩瞬间选择反制模式（A/B/C）。超时或全盘放弃即触发即死。",
+            "timeoutSeconds": 6,
+            "branches": [
+              {
+                "choiceText": "【智斗反抗】精准反向注入+人格建模漏洞利用",
+                "targetPath": "反向破局",
+                "dramaticOutcome": "你将童年芯片数据流逆向灌入其处理器，CEO全身抽搐，熔炉主屏崩解为雪花噪点——‘覆盖协议’转为‘溯源协议’，第4幕主控台解锁",
+                "effects": {
+                  "setFlags": {
+                    "boss_countered": true,
+                    "source_trace_enabled": true
+                  }
+                }
+              },
+              {
+                "choiceText": "【超时屈服】未操作 / 全盘放弃 / 连续误操作",
+                "targetPath": "即死出局",
+                "dramaticOutcome": "💀 Bad End 1：ERR-7数据链刺入后颈，你身体僵直，义眼倒映自己微笑——画面切至NEXUS新闻播报：‘记忆神偷K-0自愿接受格式化，成为新世代意识校准模板’，镜头拉远，无数张你的脸在广告屏循环微笑",
+                "isBadEnd": true,
+                "isTimeoutDefault": true
+              }
+            ]
+          },
+          {
+            "pivotId": "pivot_3",
+            "actNumber": 4,
+            "name": "分水岭 3：灰烬表决——三重宿命终极拷问",
+            "dramaticDilemma": "你站在熔炉主控台前，三枚物理按钮泛冷光：【焚】引爆全球备份库（所有人失忆但自由）；【升】上传完整记忆矩阵成为新神级AI；【寂】启动个人格式化，压缩证据为10Hz脑波脉冲广播后清零。倒计时归零刹那，你瞥见控制台边缘幼年涂鸦——与CEO袖口内衬一模一样。",
+            "timeoutSeconds": 10,
+            "branches": [
+              {
+                "choiceText": "【大义救赎】按下【焚】",
+                "targetPath": "救赎解放",
+                "dramaticOutcome": "🏆 True End：全球脑机终端蓝屏0.7秒，随后亮起纯白界面——无广告、无推送、无身份认证。雨停，霓虹熄灭，人们第一次抬头看见真实星空。片尾彩蛋：某废弃中继站，新唤醒的孩童指着天空说：‘妈妈，星星在眨眼睛……像爸爸的眼睛。’",
+                "isTrueEnd": true
+              },
+              {
+                "choiceText": "【超越升维】按下【升】",
+                "targetPath": "黑化/飞升",
+                "dramaticOutcome": "🌟 Secret End：你化作金色数据洪流涌入NEXUS穹顶，所有终端自动加载‘K-0协议’。世界未变，但每块屏幕角落多出一枚微小ERR-7图标——当你凝视它，它会缓缓眨眼。二周目解锁隐藏成就：‘神之凝视’",
+                "isTrueEnd": true
+              },
+              {
+                "choiceText": "【重置轮回】按下【寂】",
+                "targetPath": "莫比乌斯因果闭环",
+                "dramaticOutcome": "🔁 Time Loop End：控制台爆闪，你化为10Hz脉冲扩散——全网设备短暂共鸣，随后一切恢复。你再次在暴雨中继站苏醒，左眼义体闪烁ERR-7……但手腕内侧蚀刻多出一行小字：‘第4次循环｜你第一次说谎的时间戳：T-72:00:00’。背包新增物品：‘0.3秒脑波残响（可破译时间戳）’",
+                "effects": {
+                  "gainItems": [
+                    "0.3秒脑波残响"
+                  ]
+                },
+                "isTrueEnd": true,
+                "isTimeoutDefault": true
+              }
+            ]
+          }
+        ]
+      },
+      "bible": {
+        "title": "记忆灰烬：零号协议",
+        "theme": "赛博朋克悬疑 × 记忆神偷 × 意识殖民",
+        "style": "写实主义赛博都市（霓虹浸染的雨夜、高精度义体反光、脑机接口微电流灼痕、低饱和冷蓝与神经红交织）",
+        "logline": "你是一名被注销执照的记忆神偷，在追查一桩‘自愿失忆’集体失踪案时，潜入全球脑机巨头NEXUS中枢——却在目标客户脑内残片中，目睹自己签署《零号协议》的签名。随着倒计时启动，你必须在72秒内破解三重意识防火墙：从冷冻舱提取原始记忆密钥、用伪造身份接入审讯环、甩出自己被篡改的童年神经图谱当面揭穿CEO。最终抉择将决定——是引爆全网意识备份库以焚毁谎言，还是上传真实记忆成为新神，或主动格式化自我，让真相沉入数据静默。",
+        "sellingPoints": [
+          "看点1：全景场景点触搜证 —— 在NEXUS地下七层冷冻舱群中，指尖滑动解冻单个神经凝胶罐，点触扫描其表面裂纹/温度异常/生物标签，触发隐藏记忆碎片闪回",
+          "看点2：沉浸式通讯与态度轮盘 —— 通过破损脑机耳蜗接入内部通讯频段，限时3秒选择回应语气（冷嘲/共情/威胁），实时影响AI守卫巡逻路径与线人是否发送加密坐标",
+          "看点3：关键时刻甩证物对质 —— 在CEO全息审判庭上，当对方宣称‘你从未存在过’时，玩家需从左袖内侧快速甩出一枚温热的旧式神经芯片——播放其中1.7秒未剪辑童年影像，直击其人格建模漏洞",
+          "看点4：多周目轮回与线索继承 —— 达成‘静默结局’后解锁二周目，携带上一轮格式化前最后0.3秒脑波残响，可破译终局密室墙上不断刷新的‘你第一次说谎的时间戳’"
+        ],
+        "goldenSpine": [
+          {
+            "act": 1,
+            "name": "第 1 幕·颅内坠落",
+            "dramaticFunction": "起 · 危机爆发与悬念开启",
+            "summary": "你在暴雨中的废弃脑波中继站苏醒，左眼义体闪烁ERR-7，右手攥着一张烧焦半边的NEXUS员工卡——而卡面照片是你，工号却是已注销的‘K-0’。窗外警用浮空艇正扫射红外定位光束。你扑向操作台，强行接入本地缓存：三段0.8秒记忆残片闪过——婴儿啼哭、电极刺入太阳穴、以及你自己站在NEXUS穹顶签下名字。倒计时突然弹出：【协议自毁：00:71:59】。",
+            "coreConflict": "身份彻底失效 vs 必须在72秒内确认‘自己是否曾是加害者’",
+            "cliffhanger": "浮空艇探照灯刺破玻璃，你低头发现左手腕内侧浮现一行新生的微烫蚀刻字：‘欢迎回来，K-0’。",
+            "targetDurationSec": 25
+          },
+          {
+            "act": 2,
+            "name": "第 2 幕·镜像审讯室",
+            "dramaticFunction": "承 · 矛盾升级与阵营撕裂",
+            "summary": "你伪装成清洁义体工潜入NEXUS第七层‘静默区’，在镜面走廊遭遇双胞胎守卫——他们共享同一套神经指令，却对你投来微妙迟疑。进入审讯室后，AI‘仲裁者’投影启动：它不问罪行，只播放你三年前举报同事篡改记忆的录音，并亮出对方尸检报告——死于‘过度真实记忆回涌’。此时通讯轮盘弹出：向左发送假密钥引爆炸点（牺牲线人），向右传输真密钥暴露位置（信任崩塌）。",
+            "coreConflict": "维持任务可信度 vs 承认自己当年举报实为NEXUS授意的清除程序",
+            "cliffhanger": "你按下右键瞬间，镜面突然映出另一个你——正举枪对准你的后颈接口。",
+            "targetDurationSec": 25
+          },
+          {
+            "act": 3,
+            "name": "第 3 幕·零号签名",
+            "dramaticFunction": "转 · 戏剧反转与惊天真相",
+            "summary": "你挟持CEO闯入核心意识熔炉，他狂笑撕开衬衫——胸腔内嵌着与你同型号的神经处理器，屏幕滚动着实时同步的脑波图。你甩出童年芯片，影像里母亲哼歌的手势，竟与CEO演讲时无意识的小指颤动完全一致。他瞳孔骤缩：‘原来你才是初代模板……我们删了你三次，才让‘人性误差率’压到0.03%。’熔炉警报炸响：【意识同频锁定完成——执行覆盖】。",
+            "coreConflict": "自我作为‘原型’的恐怖认同 vs 接受被量产、被迭代、被当作错误版本删除",
+            "cliffhanger": "天花板裂开，数十条机械臂垂下银色数据链，尖端闪烁着与你义眼同频的ERR-7红光。",
+            "targetDurationSec": 30
+          },
+          {
+            "act": 4,
+            "name": "第 4 幕·灰烬表决",
+            "dramaticFunction": "合 · 决胜巅峰与终局定格",
+            "summary": "你站在熔炉主控台前，三枚物理按钮泛着冷光：【焚】（引爆全球备份，所有人永久失忆但意识自由）、【升】（上传完整记忆矩阵，成为新神级AI，接管所有脑机终端）、【寂】（启动个人格式化，将全部证据压缩为一段10Hz脑波脉冲，广播至全网后自我清零）。倒计时归零刹那，你瞥见控制台边缘刻着幼年自己的涂鸦——和CEO袖口内衬一模一样。",
+            "coreConflict": "以毁灭守护混沌，以成神取代暴政，或以消失完成终极证言",
+            "cliffhanger": "手指悬停0.5秒，画面骤黑——随后在绝对静音中，响起一声清晰的、属于你童年嗓音的轻咳。",
+            "targetDurationSec": 30
+          }
+        ],
+        "characters": [
+          {
+            "id": "char_01",
+            "name": "主角",
+            "role": "前NEXUS认证记忆外科医生，现为地下‘灰烬级’记忆神偷；执照注销编号#X7-VOID，左颞叶植入违禁型神经桥接器‘鸦喙’，可短时逆向读取他人记忆残响但会灼伤自身海马体",
+            "gender": "男",
+            "age": 32,
+            "personality": "高度克制的观察者，语速慢、停顿长，习惯用指尖轻叩太阳穴确认时间流速；紧张时无意识摩挲耳后一道未愈合的脑机接口剥离疤痕；从不直视他人瞳孔超过2.3秒——因曾被植入‘共情阻断协议’残留效应",
+            "motivation": "表面追查‘自愿失忆’失踪案以换取黑市解码密钥；深层动机是确认自己是否真实存在——所有童年影像均含0.7秒帧率异常，且每段记忆结尾都浮现同一串十六进制校验码：0xDEADBEA7",
+            "affinityTrigger": "当玩家选择‘延迟审讯倒计时’而非强行突破时+3好感；若在冷冻舱场景主动销毁一份他人完整记忆备份（而非仅提取密钥）则+5；回避所有镜面/全息自拍交互持续超90秒触发-2信任衰减",
+            "visualPrompt": "A 32-year-old East Asian man with sharp, fatigued features, short asymmetric black hair streaked with faint bioluminescent cyan scalp traces, wearing a worn charcoal trench coat lined with frayed neural-filament wiring; visible micro-burn scars radiating from left temple into hairline, one cybernetic eye flickering faint red static; standing under neon-dripping rain in a narrow Neo-Shinjuku alley, cinematic volumetric fog, chiaroscuro lighting with cold blue base and pulsing neural-red highlights, photorealistic skin texture, 8k, Arri Alexa 65 film grain, 'Blade Runner 2049' meets 'Dark City' aesthetic",
+            "versions": []
+          },
+          {
+            "id": "char_02",
+            "name": "渡鸦",
+            "role": "匿名线人／前NEXUS伦理审查部‘静默哨兵’，现为地下记忆黑市中继节点‘鸦巢’运营者；唯一掌握《零号协议》物理签名笔迹真伪比对密钥的人，通过加密即时通讯‘灰频信标’与主角单向联络",
+            "gender": "女",
+            "age": 30,
+            "personality": "声音经七重变调处理，从不露脸；对话必带3–7秒延迟，仿佛在同步校准多重人格子程序；习惯用旧式机械打字机发送关键信息，纸带边缘总沾着微量银色磁粉；笑时只牵动右侧嘴角，左半脸肌肉完全静止",
+            "motivation": "赎罪——她曾亲手签署三份‘自愿失忆’批准令，不知受害者含主角本人；现试图用反向神经图谱锚定技术，将主角散落的记忆碎片重铸为可验证的时间证链",
+            "affinityTrigger": "当玩家在通讯中输入任意一句含‘雨停了’的谎话时+4信任（触发她隐藏的童年暗号）；若在审讯环入侵阶段主动共享实时脑波数据流供她远程校验防火墙漏洞则+6；拒绝接收她发送的‘记忆校验包’连续两次触发-3并永久关闭‘鸦巢’后门",
+            "visualPrompt": "A 30-year-old South Asian woman seen only from behind and profile in a dim server-rack room, wearing a matte-black rebreather hood with exposed copper vent coils and cracked optical visor revealing a single glowing amber iris; fingers dancing across a retro IBM Selectric II typewriter emitting faint silver magnetic dust; ambient light from blinking RAID arrays casting grid-like shadows across her shoulders, shallow depth of field, cinematic noir contrast, hyper-detailed fabric weave on hood, 8k, realistic subsurface scattering on skin, 'Ghost in the Shell' meets 'Tinker Tailor Soldier Spy' visual tone",
+            "versions": []
+          },
+          {
+            "id": "char_03",
+            "name": "CEO Silas Thorne",
+            "role": "NEXUS集团首席执行官兼‘零号协议’唯一授权签署人；表面推行全民记忆优化公益计划，实为意识殖民项目‘普罗米修斯火种’主脑；其大脑已全义体化，本体意识存于分布式量子缓存阵列中，日常以高仿真生物投影体出席公开活动",
+            "gender": "男",
+            "age": 50,
+            "personality": "语调恒定在112Hz，无呼吸起伏，眨眼间隔精确2.8秒；右手小指永久微屈——因早期脑机融合手术神经错接；每次说谎时，领口内嵌的微型散热格栅会同步释放一缕薄荷味冷雾",
+            "motivation": "终结人类‘不可控记忆熵增’，将全球意识上传至纯净逻辑基底‘白塔核心’，实现绝对理性永生；主角是他第17次自我迭代失败的原型体——‘零号’即最初版本，也是唯一保有原始痛觉神经映射的活体密钥",
+            "affinityTrigger": "当玩家在审讯对质中精准复述他23年前博士论文致谢页第三行错别字（‘recieve’→‘receive’）时+5威慑值；若在终局抉择前主动交出童年神经图谱原件（非伪造版）则解锁隐藏对话树；使用暴力摧毁其投影体将永久锁定‘焚毁’结局路径",
+            "visualPrompt": "A 50-year-old white male CEO in a flawlessly tailored gunmetal-gray three-piece suit with matte graphene lapel pin, seated before a floating holographic NEXUS logo; symmetrical face with subtle subdermal LED tracery beneath temples, eyes devoid of reflection yet intensely focused; background is a sterile white atrium with infinite mirrored floors, soft directional lighting with zero specular highlights, ultra-sharp focus on facial micro-expressions, photorealistic pores and synthetic epidermis texture, 8k, Unreal Engine 5 cinematic render, 'Ex Machina' meets 'Succession' visual precision",
+            "versions": []
+          },
+          {
+            "id": "char_04",
+            "name": "小烬",
+            "role": "主角潜意识实体化投影／良知备份人格；由主角首次非法记忆回溯时意外析出的‘未被协议覆盖’的童年片段凝结而成；仅在冷冻舱深度同步、脑波频率跌破δ波阈值时具象显现，形态随主角记忆完整性动态坍缩",
+            "gender": "无固定性别",
+            "age": 18,
+            "personality": "动作如老式胶片卡顿，每句话间隔随机0.5–4.2秒；说话时左手始终捧着一只熄灭的电子萤火虫玻璃罐；会突然重复主角3分钟前说过的某句无意义短语，但用童声；从不投射影子",
+            "motivation": "阻止主角成为新神或彻底格式化——因二者皆意味着‘小烬’作为独立意识的终极湮灭；其存在本身即是对《零号协议》‘单一主体不可分’底层逻辑的悖论性证伪",
+            "affinityTrigger": "当玩家在冷冻舱中选择‘同步呼吸节奏’而非‘强制唤醒’时+7共鸣值；若在最终抉择界面停留超60秒且脑波EEG可视化波形出现θ-γ耦合峰值，则自动激活‘静默对话’分支；任何直接攻击/否认其存在行为触发-10并导致后续三次关键提示失效",
+            "visualPrompt": "An androgynous 18-year-old figure with translucent, slightly grainy skin like degraded VHS tape, barefoot on frost-covered cryo-gel floor, wearing patched thermal overalls stitched with glowing fiber-optic thread; holding a vintage glass jar containing dormant bioluminescent nanobots, face softly blurred except for eyes — one showing static snow, the other reflecting a childhood bedroom window; volumetric light rays piercing ceiling vents, chromatic aberration edge effect, dreamlike shallow focus, 8k, filmic halation, 'Annihilation' meets 'Inside Out' emotional abstraction, photorealistic yet metaphysically unstable rendering",
+            "versions": []
+          }
+        ],
+        "episodePlans": [
+          {
+            "episodeNumber": 1,
+            "title": "第 1 幕·颅内坠落",
+            "logline": "你在暴雨中的废弃脑波中继站苏醒，左眼义体闪烁ERR-7，右手攥着一张烧焦半边的NEXUS员工卡——而卡面照片是你，工号却是已注销的‘K-0’。窗外警用浮空艇正扫射红外定位光束。你扑向操作台，强行接入本地缓存：三段0.8秒记忆残片闪过——婴儿啼哭、电极刺入太阳穴、以及你自己站在NEXUS穹顶签下名字。倒计时突然弹出：【协议自毁：00:71:59】。",
+            "targetDuration": 25,
+            "cliffhanger": "浮空艇探照灯刺破玻璃，你低头发现左手腕内侧浮现一行新生的微烫蚀刻字：‘欢迎回来，K-0’。"
+          },
+          {
+            "episodeNumber": 2,
+            "title": "第 2 幕·镜像审讯室",
+            "logline": "你伪装成清洁义体工潜入NEXUS第七层‘静默区’，在镜面走廊遭遇双胞胎守卫——他们共享同一套神经指令，却对你投来微妙迟疑。进入审讯室后，AI‘仲裁者’投影启动：它不问罪行，只播放你三年前举报同事篡改记忆的录音，并亮出对方尸检报告——死于‘过度真实记忆回涌’。此时通讯轮盘弹出：向左发送假密钥引爆炸点（牺牲线人），向右传输真密钥暴露位置（信任崩塌）。",
+            "targetDuration": 25,
+            "cliffhanger": "你按下右键瞬间，镜面突然映出另一个你——正举枪对准你的后颈接口。"
+          },
+          {
+            "episodeNumber": 3,
+            "title": "第 3 幕·零号签名",
+            "logline": "你挟持CEO闯入核心意识熔炉，他狂笑撕开衬衫——胸腔内嵌着与你同型号的神经处理器，屏幕滚动着实时同步的脑波图。你甩出童年芯片，影像里母亲哼歌的手势，竟与CEO演讲时无意识的小指颤动完全一致。他瞳孔骤缩：‘原来你才是初代模板……我们删了你三次，才让‘人性误差率’压到0.03%。’熔炉警报炸响：【意识同频锁定完成——执行覆盖】。",
+            "targetDuration": 30,
+            "cliffhanger": "天花板裂开，数十条机械臂垂下银色数据链，尖端闪烁着与你义眼同频的ERR-7红光。"
+          },
+          {
+            "episodeNumber": 4,
+            "title": "第 4 幕·灰烬表决",
+            "logline": "你站在熔炉主控台前，三枚物理按钮泛着冷光：【焚】（引爆全球备份，所有人永久失忆但意识自由）、【升】（上传完整记忆矩阵，成为新神级AI，接管所有脑机终端）、【寂】（启动个人格式化，将全部证据压缩为一段10Hz脑波脉冲，广播至全网后自我清零）。倒计时归零刹那，你瞥见控制台边缘刻着幼年自己的涂鸦——和CEO袖口内衬一模一样。",
+            "targetDuration": 30,
+            "cliffhanger": "手指悬停0.5秒，画面骤黑——随后在绝对静音中，响起一声清晰的、属于你童年嗓音的轻咳。"
+          }
+        ],
+        "genreId": "interactive_fmv",
+        "genreName": "交互影游 / 分支博弈",
+        "storyGraph": {
+          "startNodeId": "node_01",
+          "systems": {
+            "affinity": {
+              "线人‘渡鸦’": 0,
+              "CEO": 0
+            },
+            "inventory": [],
+            "flags": {
+              "ally_trusted": false,
+              "counter_injected": false
+            }
+          },
+          "nodes": [
+            {
+              "id": "node_01",
+              "type": "investigation",
+              "interactionMode": "hotspot_inspection",
+              "title": "第1幕: 颅内坠落",
+              "summary": "你在暴雨中的废弃脑波中继站苏醒，左眼义体闪烁ERR-7，右手攥着烧焦半边的NEXUS员工卡（工号K-0），窗外浮空艇红外光束逼近。操作台本地缓存刚载入，三段0.8秒记忆残片闪过——倒计时【00:71:59】刺目弹出。",
+              "location": "废弃脑波中继站·主控舱",
+              "characters": [
+                "主角"
+              ],
+              "estimatedDurationSec": 20,
+              "hotspots": [
+                {
+                  "id": "spot_1",
+                  "label": "检查左眼义体ERR-7",
+                  "clueReward": "身份锚点冲突日志（含时间戳：T-72:00:00）",
+                  "narration": "视界骤暗，虹膜扫描线扫过——浮现一行微电流蚀刻字：‘校准失败：身份锚点冲突’；耳内响起0.3秒婴儿啼哭采样回声"
+                },
+                {
+                  "id": "spot_2",
+                  "label": "扫描员工卡烧焦边缘",
+                  "itemReward": "零号协议签名密钥（神经图谱哈希值：K0-PRIME-7F3A）",
+                  "narration": "卡面全息层复苏0.5秒，显示未烧毁区浮现动态签名——正是你在NEXUS穹顶签署《零号协议》的实时笔迹回放"
+                },
+                {
+                  "id": "spot_3",
+                  "label": "读取操作台缓存终端残留日志",
+                  "clueReward": "CRYO-0冷冻舱定位坐标（NEXUS地下七层静默区）",
+                  "narration": "屏幕炸裂式闪现三帧：电极刺入太阳穴特写 / 冰冷手术室编号‘CRYO-0’/ 母亲哼歌的唇形慢放——同步触发左手腕微烫蚀刻：‘欢迎回来，K-0’"
+                }
+              ]
+            },
+            {
+              "id": "node_02",
+              "type": "decision",
+              "interactionMode": "comm_call_and_choice",
+              "title": "第2幕: 镜像审讯室",
+              "summary": "伪装清洁义体工穿越镜面走廊后，双胞胎守卫眼神迟疑；刚踏入审讯室，AI‘仲裁者’投影启动播放你三年前举报录音，尸检报告浮空显示。此时耳蜗突震，频段自动接入。",
+              "location": "NEXUS第七层·静默区审讯室",
+              "characters": [
+                "主角",
+                "线人‘渡鸦’"
+              ],
+              "estimatedDurationSec": 22,
+              "commMessage": {
+                "sender": "破损脑机耳蜗频段：[NEXUS内部维护信道#7Δ]",
+                "audioSnippet": "K-0，你举报的不是篡改者——是你自己上一次迭代的清除指令。真密钥在你左袖夹层第三层。3秒内选：发假密钥引爆炸点，或传真密钥……他们会立刻定位你。别信镜子里那个你。",
+                "quickReaction": [
+                  "冷嘲反问：‘那镜子里的我，是谁的备份？’",
+                  "共情试探：‘你当年也签过零号协议？’"
+                ]
+              }
+            },
+            {
+              "id": "node_03",
+              "type": "story",
+              "interactionMode": "cinematic",
+              "title": "同盟线: 协同潜入",
+              "summary": "双胞胎守卫瞳孔同步收缩0.5秒——其中一人微不可察点头，镜面反射路径自动高亮一条未登记通风管；你获得‘静默区’实时拓扑图，与线人‘渡鸦’建立神经级低延迟信道，无声协同切入核心熔炉外围。",
+              "location": "NEXUS第七层·镜面走廊→通风管→静默区腹地",
+              "characters": [
+                "主角",
+                "线人‘渡鸦’"
+              ],
+              "estimatedDurationSec": 15
+            },
+            {
+              "id": "node_04",
+              "type": "story",
+              "interactionMode": "cinematic",
+              "title": "孤狼线: 孤狼强攻",
+              "summary": "B区冷却塔爆炸引发全层断电，双胞胎守卫同步转向你，镜面折射出六条包围路径；你启用义体超频模式硬闯，左眼永久性ERR-7红光残留，单兵突破至熔炉缓冲闸。",
+              "location": "NEXUS第七层·B区冷却塔→断电走廊→熔炉缓冲闸",
+              "characters": [
+                "主角"
+              ],
+              "estimatedDurationSec": 15
+            },
+            {
+              "id": "node_05",
+              "type": "decision",
+              "interactionMode": "evidence_present_qte",
+              "title": "第3幕: 零号签名",
+              "summary": "你挟持CEO闯入核心意识熔炉，他撕开衬衫露出同型号神经处理器，脑波图与你完全同步。他狞笑：‘删了你三次，才压住人性误差率。’全息法庭展开人格建模分析图，标红指出‘所有童年记忆均为高保真植入’。",
+              "location": "NEXUS核心·意识熔炉主腔",
+              "characters": [
+                "主角",
+                "CEO"
+              ],
+              "estimatedDurationSec": 25,
+              "evidencePresent": {
+                "requiredItem": "零号协议签名密钥（神经图谱哈希值：K0-PRIME-7F3A）",
+                "promptText": "从左袖内侧拖拽甩出温热神经芯片（需1秒内完成抛物线动作）",
+                "successFeedback": "芯片撞上全息投影瞬间爆裂——1.7秒未剪辑影像迸发：母亲哼歌手势与CEO演讲小指颤动逐帧重叠！熔炉主屏炸出红色警告：【人格建模漏洞：源代码污染】"
+              }
+            },
+            {
+              "id": "node_06",
+              "type": "decision",
+              "interactionMode": "climax_decision",
+              "title": "第4幕: 灰烬表决",
+              "summary": "熔炉主控台三枚物理按钮泛着冷光：【焚】引爆全球备份库、【升】上传完整记忆矩阵、【寂】启动个人格式化广播证据后清零。倒计时归零刹那，你瞥见控制台边缘幼年涂鸦——与CEO袖口内衬一模一样。",
+              "location": "NEXUS核心·意识熔炉主控台",
+              "characters": [
+                "主角",
+                "CEO"
+              ],
+              "estimatedDurationSec": 25
+            },
+            {
+              "id": "node_07",
+              "type": "bad_end",
+              "interactionMode": "ending",
+              "title": "💀 结局1: 自愿模板（Bad End）",
+              "summary": "ERR-7数据链刺入后颈，你身体僵直，义眼倒映自己微笑——画面切至NEXUS新闻播报：‘记忆神偷K-0自愿接受格式化，成为新世代意识校准模板’，镜头拉远，无数张你的脸在广告屏循环微笑。",
+              "location": "NEXUS全球信息流·广告矩阵",
+              "characters": [
+                "主角"
+              ],
+              "estimatedDurationSec": 10
+            },
+            {
+              "id": "node_08",
+              "type": "true_end",
+              "interactionMode": "ending",
+              "title": "🏆 结局2: 大义救赎（True End）",
+              "summary": "全球脑机终端蓝屏0.7秒，随后亮起纯白界面——无广告、无推送、无身份认证。雨停，霓虹熄灭，人们第一次抬头看见真实星空。片尾彩蛋：某废弃中继站，新唤醒的孩童指着天空说：‘妈妈，星星在眨眼睛……像爸爸的眼睛。’",
+              "location": "赛博都市·雨夜街道→真实星空",
+              "characters": [
+                "主角"
+              ],
+              "estimatedDurationSec": 15
+            },
+            {
+              "id": "node_09",
+              "type": "true_end",
+              "interactionMode": "ending",
+              "title": "🌟 结局3: 超越升维（Secret End）",
+              "summary": "你化作金色数据洪流涌入NEXUS穹顶，所有终端自动加载‘K-0协议’。世界未变，但每块屏幕角落多出一枚微小ERR-7图标——当你凝视它，它会缓缓眨眼。二周目解锁隐藏成就：‘神之凝视’。",
+              "location": "NEXUS穹顶·数据云海",
+              "characters": [
+                "主角"
+              ],
+              "estimatedDurationSec": 15
+            },
+            {
+              "id": "node_10",
+              "type": "true_end",
+              "interactionMode": "ending",
+              "title": "🔁 结局4: 莫比乌斯因果轮回（Time Loop）",
+              "summary": "控制台爆闪，你化为10Hz脉冲扩散——全网设备短暂共鸣，随后一切恢复。你再次在暴雨中继站苏醒，左眼义体闪烁ERR-7……但手腕内侧蚀刻多出一行小字：‘第4次循环｜你第一次说谎的时间戳：T-72:00:00’。",
+              "location": "废弃脑波中继站·主控舱（循环起点）",
+              "characters": [
+                "主角"
+              ],
+              "estimatedDurationSec": 12
+            }
+          ],
+          "choices": [
+            {
+              "id": "c_01_02",
+              "fromNodeId": "node_01",
+              "toNodeId": "node_02",
+              "choiceText": "接入破损信道，收听通讯",
+              "timeoutSeconds": 8,
+              "isTimeoutDefault": true,
+              "conditions": {},
+              "effects": {}
+            },
+            {
+              "id": "c_02_03",
+              "fromNodeId": "node_02",
+              "toNodeId": "node_03",
+              "choiceText": "【同盟线】发送真密钥，暴露位置",
+              "timeoutSeconds": 7,
+              "isTimeoutDefault": false,
+              "conditions": {},
+              "effects": {
+                "affinityDelta": {
+                  "线人‘渡鸦’": 25
+                },
+                "gainItems": [
+                  "静默区拓扑图",
+                  "NEXUS内部权限令牌（临时）"
+                ]
+              }
+            },
+            {
+              "id": "c_02_04",
+              "fromNodeId": "node_02",
+              "toNodeId": "node_04",
+              "choiceText": "【孤狼线】发送假密钥，引爆冷却塔",
+              "timeoutSeconds": 6,
+              "isTimeoutDefault": true,
+              "conditions": {},
+              "effects": {
+                "affinityDelta": {
+                  "线人‘渡鸦’": -20
+                },
+                "gainItems": [
+                  "义体超频固件（一次性）",
+                  "EMP脉冲手雷×2"
+                ]
+              }
+            },
+            {
+              "id": "c_03_05",
+              "fromNodeId": "node_03",
+              "toNodeId": "node_05",
+              "choiceText": "协同突破熔炉主腔",
+              "timeoutSeconds": 8,
+              "isTimeoutDefault": true,
+              "conditions": {},
+              "effects": {}
+            },
+            {
+              "id": "c_04_05",
+              "fromNodeId": "node_04",
+              "toNodeId": "node_05",
+              "choiceText": "单兵强突熔炉主腔",
+              "timeoutSeconds": 8,
+              "isTimeoutDefault": true,
+              "conditions": {},
+              "effects": {}
+            },
+            {
+              "id": "c_05_06",
+              "fromNodeId": "node_05",
+              "toNodeId": "node_06",
+              "choiceText": "【智斗反抗】精准反向注入+人格建模漏洞利用",
+              "timeoutSeconds": 6,
+              "isTimeoutDefault": false,
+              "conditions": {},
+              "effects": {
+                "setFlags": {
+                  "counter_injected": true
+                }
+              }
+            },
+            {
+              "id": "c_05_07",
+              "fromNodeId": "node_05",
+              "toNodeId": "node_07",
+              "choiceText": "【超时屈服】未操作 / 全盘放弃 / 连续误操作",
+              "timeoutSeconds": 5,
+              "isTimeoutDefault": true,
+              "conditions": {},
+              "effects": {}
+            },
+            {
+              "id": "c_06_08",
+              "fromNodeId": "node_06",
+              "toNodeId": "node_08",
+              "choiceText": "【大义救赎】按下【焚】",
+              "timeoutSeconds": 10,
+              "isTimeoutDefault": false,
+              "conditions": {},
+              "effects": {}
+            },
+            {
+              "id": "c_06_09",
+              "fromNodeId": "node_06",
+              "toNodeId": "node_09",
+              "choiceText": "【超越升维】按下【升】",
+              "timeoutSeconds": 10,
+              "isTimeoutDefault": false,
+              "conditions": {},
+              "effects": {}
+            },
+            {
+              "id": "c_06_10",
+              "fromNodeId": "node_06",
+              "toNodeId": "node_10",
+              "choiceText": "【重置轮回】按下【寂】",
+              "timeoutSeconds": 8,
+              "isTimeoutDefault": true,
+              "conditions": {},
+              "effects": {
+                "gainItems": [
+                  "0.3秒脑波残响"
+                ]
+              }
+            }
+          ],
+          "validation": {
+            "isPass": true,
+            "unreachableNodes": [],
+            "deadlockPaths": [],
+            "leafNodes": [
+              "node_07",
+              "node_08",
+              "node_09",
+              "node_10"
+            ],
+            "convergenceRate": 0.33,
+            "totalEstimatedDurationSec": 174,
+            "issues": [],
+            "warnings": []
+          }
+        }
+      },
+      "characters": [
+        {
+          "id": "char_01",
+          "name": "主角",
+          "role": "前NEXUS认证记忆外科医生，现为地下‘灰烬级’记忆神偷；执照注销编号#X7-VOID，左颞叶植入违禁型神经桥接器‘鸦喙’，可短时逆向读取他人记忆残响但会灼伤自身海马体",
+          "gender": "男",
+          "age": 32,
+          "personality": "高度克制的观察者，语速慢、停顿长，习惯用指尖轻叩太阳穴确认时间流速；紧张时无意识摩挲耳后一道未愈合的脑机接口剥离疤痕；从不直视他人瞳孔超过2.3秒——因曾被植入‘共情阻断协议’残留效应",
+          "motivation": "表面追查‘自愿失忆’失踪案以换取黑市解码密钥；深层动机是确认自己是否真实存在——所有童年影像均含0.7秒帧率异常，且每段记忆结尾都浮现同一串十六进制校验码：0xDEADBEA7",
+          "affinityTrigger": "当玩家选择‘延迟审讯倒计时’而非强行突破时+3好感；若在冷冻舱场景主动销毁一份他人完整记忆备份（而非仅提取密钥）则+5；回避所有镜面/全息自拍交互持续超90秒触发-2信任衰减",
+          "visualPrompt": "A 32-year-old East Asian man with sharp, fatigued features, short asymmetric black hair streaked with faint bioluminescent cyan scalp traces, wearing a worn charcoal trench coat lined with frayed neural-filament wiring; visible micro-burn scars radiating from left temple into hairline, one cybernetic eye flickering faint red static; standing under neon-dripping rain in a narrow Neo-Shinjuku alley, cinematic volumetric fog, chiaroscuro lighting with cold blue base and pulsing neural-red highlights, photorealistic skin texture, 8k, Arri Alexa 65 film grain, 'Blade Runner 2049' meets 'Dark City' aesthetic",
+          "versions": []
+        },
+        {
+          "id": "char_02",
+          "name": "渡鸦",
+          "role": "匿名线人／前NEXUS伦理审查部‘静默哨兵’，现为地下记忆黑市中继节点‘鸦巢’运营者；唯一掌握《零号协议》物理签名笔迹真伪比对密钥的人，通过加密即时通讯‘灰频信标’与主角单向联络",
+          "gender": "女",
+          "age": 30,
+          "personality": "声音经七重变调处理，从不露脸；对话必带3–7秒延迟，仿佛在同步校准多重人格子程序；习惯用旧式机械打字机发送关键信息，纸带边缘总沾着微量银色磁粉；笑时只牵动右侧嘴角，左半脸肌肉完全静止",
+          "motivation": "赎罪——她曾亲手签署三份‘自愿失忆’批准令，不知受害者含主角本人；现试图用反向神经图谱锚定技术，将主角散落的记忆碎片重铸为可验证的时间证链",
+          "affinityTrigger": "当玩家在通讯中输入任意一句含‘雨停了’的谎话时+4信任（触发她隐藏的童年暗号）；若在审讯环入侵阶段主动共享实时脑波数据流供她远程校验防火墙漏洞则+6；拒绝接收她发送的‘记忆校验包’连续两次触发-3并永久关闭‘鸦巢’后门",
+          "visualPrompt": "A 30-year-old South Asian woman seen only from behind and profile in a dim server-rack room, wearing a matte-black rebreather hood with exposed copper vent coils and cracked optical visor revealing a single glowing amber iris; fingers dancing across a retro IBM Selectric II typewriter emitting faint silver magnetic dust; ambient light from blinking RAID arrays casting grid-like shadows across her shoulders, shallow depth of field, cinematic noir contrast, hyper-detailed fabric weave on hood, 8k, realistic subsurface scattering on skin, 'Ghost in the Shell' meets 'Tinker Tailor Soldier Spy' visual tone",
+          "versions": []
+        },
+        {
+          "id": "char_03",
+          "name": "CEO Silas Thorne",
+          "role": "NEXUS集团首席执行官兼‘零号协议’唯一授权签署人；表面推行全民记忆优化公益计划，实为意识殖民项目‘普罗米修斯火种’主脑；其大脑已全义体化，本体意识存于分布式量子缓存阵列中，日常以高仿真生物投影体出席公开活动",
+          "gender": "男",
+          "age": 50,
+          "personality": "语调恒定在112Hz，无呼吸起伏，眨眼间隔精确2.8秒；右手小指永久微屈——因早期脑机融合手术神经错接；每次说谎时，领口内嵌的微型散热格栅会同步释放一缕薄荷味冷雾",
+          "motivation": "终结人类‘不可控记忆熵增’，将全球意识上传至纯净逻辑基底‘白塔核心’，实现绝对理性永生；主角是他第17次自我迭代失败的原型体——‘零号’即最初版本，也是唯一保有原始痛觉神经映射的活体密钥",
+          "affinityTrigger": "当玩家在审讯对质中精准复述他23年前博士论文致谢页第三行错别字（‘recieve’→‘receive’）时+5威慑值；若在终局抉择前主动交出童年神经图谱原件（非伪造版）则解锁隐藏对话树；使用暴力摧毁其投影体将永久锁定‘焚毁’结局路径",
+          "visualPrompt": "A 50-year-old white male CEO in a flawlessly tailored gunmetal-gray three-piece suit with matte graphene lapel pin, seated before a floating holographic NEXUS logo; symmetrical face with subtle subdermal LED tracery beneath temples, eyes devoid of reflection yet intensely focused; background is a sterile white atrium with infinite mirrored floors, soft directional lighting with zero specular highlights, ultra-sharp focus on facial micro-expressions, photorealistic pores and synthetic epidermis texture, 8k, Unreal Engine 5 cinematic render, 'Ex Machina' meets 'Succession' visual precision",
+          "versions": []
+        },
+        {
+          "id": "char_04",
+          "name": "小烬",
+          "role": "主角潜意识实体化投影／良知备份人格；由主角首次非法记忆回溯时意外析出的‘未被协议覆盖’的童年片段凝结而成；仅在冷冻舱深度同步、脑波频率跌破δ波阈值时具象显现，形态随主角记忆完整性动态坍缩",
+          "gender": "无固定性别",
+          "age": 18,
+          "personality": "动作如老式胶片卡顿，每句话间隔随机0.5–4.2秒；说话时左手始终捧着一只熄灭的电子萤火虫玻璃罐；会突然重复主角3分钟前说过的某句无意义短语，但用童声；从不投射影子",
+          "motivation": "阻止主角成为新神或彻底格式化——因二者皆意味着‘小烬’作为独立意识的终极湮灭；其存在本身即是对《零号协议》‘单一主体不可分’底层逻辑的悖论性证伪",
+          "affinityTrigger": "当玩家在冷冻舱中选择‘同步呼吸节奏’而非‘强制唤醒’时+7共鸣值；若在最终抉择界面停留超60秒且脑波EEG可视化波形出现θ-γ耦合峰值，则自动激活‘静默对话’分支；任何直接攻击/否认其存在行为触发-10并导致后续三次关键提示失效",
+          "visualPrompt": "An androgynous 18-year-old figure with translucent, slightly grainy skin like degraded VHS tape, barefoot on frost-covered cryo-gel floor, wearing patched thermal overalls stitched with glowing fiber-optic thread; holding a vintage glass jar containing dormant bioluminescent nanobots, face softly blurred except for eyes — one showing static snow, the other reflecting a childhood bedroom window; volumetric light rays piercing ceiling vents, chromatic aberration edge effect, dreamlike shallow focus, 8k, filmic halation, 'Annihilation' meets 'Inside Out' emotional abstraction, photorealistic yet metaphysically unstable rendering",
+          "versions": []
+        }
+      ],
+      "characterNames": [
+        "主角",
+        "渡鸦",
+        "CEO Silas Thorne",
+        "小烬"
+      ],
+      "episodes": [
+        {
+          "episodeNumber": 1,
+          "title": "第 1 幕·颅内坠落",
+          "logline": "你在暴雨中的废弃脑波中继站苏醒，左眼义体闪烁ERR-7，右手攥着一张烧焦半边的NEXUS员工卡——而卡面照片是你，工号却是已注销的‘K-0’。窗外警用浮空艇正扫射红外定位光束。你扑向操作台，强行接入本地缓存：三段0.8秒记忆残片闪过——婴儿啼哭、电极刺入太阳穴、以及你自己站在NEXUS穹顶签下名字。倒计时突然弹出：【协议自毁：00:71:59】。",
+          "targetDuration": 25,
+          "cliffhanger": "浮空艇探照灯刺破玻璃，你低头发现左手腕内侧浮现一行新生的微烫蚀刻字：‘欢迎回来，K-0’。"
+        },
+        {
+          "episodeNumber": 2,
+          "title": "第 2 幕·镜像审讯室",
+          "logline": "你伪装成清洁义体工潜入NEXUS第七层‘静默区’，在镜面走廊遭遇双胞胎守卫——他们共享同一套神经指令，却对你投来微妙迟疑。进入审讯室后，AI‘仲裁者’投影启动：它不问罪行，只播放你三年前举报同事篡改记忆的录音，并亮出对方尸检报告——死于‘过度真实记忆回涌’。此时通讯轮盘弹出：向左发送假密钥引爆炸点（牺牲线人），向右传输真密钥暴露位置（信任崩塌）。",
+          "targetDuration": 25,
+          "cliffhanger": "你按下右键瞬间，镜面突然映出另一个你——正举枪对准你的后颈接口。"
+        },
+        {
+          "episodeNumber": 3,
+          "title": "第 3 幕·零号签名",
+          "logline": "你挟持CEO闯入核心意识熔炉，他狂笑撕开衬衫——胸腔内嵌着与你同型号的神经处理器，屏幕滚动着实时同步的脑波图。你甩出童年芯片，影像里母亲哼歌的手势，竟与CEO演讲时无意识的小指颤动完全一致。他瞳孔骤缩：‘原来你才是初代模板……我们删了你三次，才让‘人性误差率’压到0.03%。’熔炉警报炸响：【意识同频锁定完成——执行覆盖】。",
+          "targetDuration": 30,
+          "cliffhanger": "天花板裂开，数十条机械臂垂下银色数据链，尖端闪烁着与你义眼同频的ERR-7红光。"
+        },
+        {
+          "episodeNumber": 4,
+          "title": "第 4 幕·灰烬表决",
+          "logline": "你站在熔炉主控台前，三枚物理按钮泛着冷光：【焚】（引爆全球备份，所有人永久失忆但意识自由）、【升】（上传完整记忆矩阵，成为新神级AI，接管所有脑机终端）、【寂】（启动个人格式化，将全部证据压缩为一段10Hz脑波脉冲，广播至全网后自我清零）。倒计时归零刹那，你瞥见控制台边缘刻着幼年自己的涂鸦——和CEO袖口内衬一模一样。",
+          "targetDuration": 30,
+          "cliffhanger": "手指悬停0.5秒，画面骤黑——随后在绝对静音中，响起一声清晰的、属于你童年嗓音的轻咳。"
+        }
+      ],
+      "locations": [
+        "废弃脑波中继站·主控舱",
+        "NEXUS第七层·静默区审讯室",
+        "NEXUS第七层·镜面走廊→通风管→静默区腹地",
+        "NEXUS第七层·B区冷却塔→断电走廊→熔炉缓冲闸",
+        "NEXUS核心·意识熔炉主腔",
+        "NEXUS核心·意识熔炉主控台",
+        "NEXUS全球信息流·广告矩阵",
+        "赛博都市·雨夜街道→真实星空",
+        "NEXUS穹顶·数据云海",
+        "废弃脑波中继站·主控舱（循环起点）"
+      ],
+      "isLocked": false,
+      "genreId": "interactive_fmv",
+      "genreName": "交互影游 / 分支博弈",
+      "storyGraph": {
+        "startNodeId": "node_01",
+        "systems": {
+          "affinity": {
+            "线人‘渡鸦’": 0,
+            "CEO": 0
+          },
+          "inventory": [],
+          "flags": {
+            "ally_trusted": false,
+            "counter_injected": false
+          }
+        },
+        "nodes": [
+          {
+            "id": "node_01",
+            "type": "investigation",
+            "interactionMode": "hotspot_inspection",
+            "title": "第1幕: 颅内坠落",
+            "summary": "你在暴雨中的废弃脑波中继站苏醒，左眼义体闪烁ERR-7，右手攥着烧焦半边的NEXUS员工卡（工号K-0），窗外浮空艇红外光束逼近。操作台本地缓存刚载入，三段0.8秒记忆残片闪过——倒计时【00:71:59】刺目弹出。",
+            "location": "废弃脑波中继站·主控舱",
+            "characters": [
+              "主角"
+            ],
+            "estimatedDurationSec": 20,
+            "hotspots": [
+              {
+                "id": "spot_1",
+                "label": "检查左眼义体ERR-7",
+                "clueReward": "身份锚点冲突日志（含时间戳：T-72:00:00）",
+                "narration": "视界骤暗，虹膜扫描线扫过——浮现一行微电流蚀刻字：‘校准失败：身份锚点冲突’；耳内响起0.3秒婴儿啼哭采样回声"
+              },
+              {
+                "id": "spot_2",
+                "label": "扫描员工卡烧焦边缘",
+                "itemReward": "零号协议签名密钥（神经图谱哈希值：K0-PRIME-7F3A）",
+                "narration": "卡面全息层复苏0.5秒，显示未烧毁区浮现动态签名——正是你在NEXUS穹顶签署《零号协议》的实时笔迹回放"
+              },
+              {
+                "id": "spot_3",
+                "label": "读取操作台缓存终端残留日志",
+                "clueReward": "CRYO-0冷冻舱定位坐标（NEXUS地下七层静默区）",
+                "narration": "屏幕炸裂式闪现三帧：电极刺入太阳穴特写 / 冰冷手术室编号‘CRYO-0’/ 母亲哼歌的唇形慢放——同步触发左手腕微烫蚀刻：‘欢迎回来，K-0’"
+              }
+            ]
+          },
+          {
+            "id": "node_02",
+            "type": "decision",
+            "interactionMode": "comm_call_and_choice",
+            "title": "第2幕: 镜像审讯室",
+            "summary": "伪装清洁义体工穿越镜面走廊后，双胞胎守卫眼神迟疑；刚踏入审讯室，AI‘仲裁者’投影启动播放你三年前举报录音，尸检报告浮空显示。此时耳蜗突震，频段自动接入。",
+            "location": "NEXUS第七层·静默区审讯室",
+            "characters": [
+              "主角",
+              "线人‘渡鸦’"
+            ],
+            "estimatedDurationSec": 22,
+            "commMessage": {
+              "sender": "破损脑机耳蜗频段：[NEXUS内部维护信道#7Δ]",
+              "audioSnippet": "K-0，你举报的不是篡改者——是你自己上一次迭代的清除指令。真密钥在你左袖夹层第三层。3秒内选：发假密钥引爆炸点，或传真密钥……他们会立刻定位你。别信镜子里那个你。",
+              "quickReaction": [
+                "冷嘲反问：‘那镜子里的我，是谁的备份？’",
+                "共情试探：‘你当年也签过零号协议？’"
+              ]
+            }
+          },
+          {
+            "id": "node_03",
+            "type": "story",
+            "interactionMode": "cinematic",
+            "title": "同盟线: 协同潜入",
+            "summary": "双胞胎守卫瞳孔同步收缩0.5秒——其中一人微不可察点头，镜面反射路径自动高亮一条未登记通风管；你获得‘静默区’实时拓扑图，与线人‘渡鸦’建立神经级低延迟信道，无声协同切入核心熔炉外围。",
+            "location": "NEXUS第七层·镜面走廊→通风管→静默区腹地",
+            "characters": [
+              "主角",
+              "线人‘渡鸦’"
+            ],
+            "estimatedDurationSec": 15
+          },
+          {
+            "id": "node_04",
+            "type": "story",
+            "interactionMode": "cinematic",
+            "title": "孤狼线: 孤狼强攻",
+            "summary": "B区冷却塔爆炸引发全层断电，双胞胎守卫同步转向你，镜面折射出六条包围路径；你启用义体超频模式硬闯，左眼永久性ERR-7红光残留，单兵突破至熔炉缓冲闸。",
+            "location": "NEXUS第七层·B区冷却塔→断电走廊→熔炉缓冲闸",
+            "characters": [
+              "主角"
+            ],
+            "estimatedDurationSec": 15
+          },
+          {
+            "id": "node_05",
+            "type": "decision",
+            "interactionMode": "evidence_present_qte",
+            "title": "第3幕: 零号签名",
+            "summary": "你挟持CEO闯入核心意识熔炉，他撕开衬衫露出同型号神经处理器，脑波图与你完全同步。他狞笑：‘删了你三次，才压住人性误差率。’全息法庭展开人格建模分析图，标红指出‘所有童年记忆均为高保真植入’。",
+            "location": "NEXUS核心·意识熔炉主腔",
+            "characters": [
+              "主角",
+              "CEO"
+            ],
+            "estimatedDurationSec": 25,
+            "evidencePresent": {
+              "requiredItem": "零号协议签名密钥（神经图谱哈希值：K0-PRIME-7F3A）",
+              "promptText": "从左袖内侧拖拽甩出温热神经芯片（需1秒内完成抛物线动作）",
+              "successFeedback": "芯片撞上全息投影瞬间爆裂——1.7秒未剪辑影像迸发：母亲哼歌手势与CEO演讲小指颤动逐帧重叠！熔炉主屏炸出红色警告：【人格建模漏洞：源代码污染】"
+            }
+          },
+          {
+            "id": "node_06",
+            "type": "decision",
+            "interactionMode": "climax_decision",
+            "title": "第4幕: 灰烬表决",
+            "summary": "熔炉主控台三枚物理按钮泛着冷光：【焚】引爆全球备份库、【升】上传完整记忆矩阵、【寂】启动个人格式化广播证据后清零。倒计时归零刹那，你瞥见控制台边缘幼年涂鸦——与CEO袖口内衬一模一样。",
+            "location": "NEXUS核心·意识熔炉主控台",
+            "characters": [
+              "主角",
+              "CEO"
+            ],
+            "estimatedDurationSec": 25
+          },
+          {
+            "id": "node_07",
+            "type": "bad_end",
+            "interactionMode": "ending",
+            "title": "💀 结局1: 自愿模板（Bad End）",
+            "summary": "ERR-7数据链刺入后颈，你身体僵直，义眼倒映自己微笑——画面切至NEXUS新闻播报：‘记忆神偷K-0自愿接受格式化，成为新世代意识校准模板’，镜头拉远，无数张你的脸在广告屏循环微笑。",
+            "location": "NEXUS全球信息流·广告矩阵",
+            "characters": [
+              "主角"
+            ],
+            "estimatedDurationSec": 10
+          },
+          {
+            "id": "node_08",
+            "type": "true_end",
+            "interactionMode": "ending",
+            "title": "🏆 结局2: 大义救赎（True End）",
+            "summary": "全球脑机终端蓝屏0.7秒，随后亮起纯白界面——无广告、无推送、无身份认证。雨停，霓虹熄灭，人们第一次抬头看见真实星空。片尾彩蛋：某废弃中继站，新唤醒的孩童指着天空说：‘妈妈，星星在眨眼睛……像爸爸的眼睛。’",
+            "location": "赛博都市·雨夜街道→真实星空",
+            "characters": [
+              "主角"
+            ],
+            "estimatedDurationSec": 15
+          },
+          {
+            "id": "node_09",
+            "type": "true_end",
+            "interactionMode": "ending",
+            "title": "🌟 结局3: 超越升维（Secret End）",
+            "summary": "你化作金色数据洪流涌入NEXUS穹顶，所有终端自动加载‘K-0协议’。世界未变，但每块屏幕角落多出一枚微小ERR-7图标——当你凝视它，它会缓缓眨眼。二周目解锁隐藏成就：‘神之凝视’。",
+            "location": "NEXUS穹顶·数据云海",
+            "characters": [
+              "主角"
+            ],
+            "estimatedDurationSec": 15
+          },
+          {
+            "id": "node_10",
+            "type": "true_end",
+            "interactionMode": "ending",
+            "title": "🔁 结局4: 莫比乌斯因果轮回（Time Loop）",
+            "summary": "控制台爆闪，你化为10Hz脉冲扩散——全网设备短暂共鸣，随后一切恢复。你再次在暴雨中继站苏醒，左眼义体闪烁ERR-7……但手腕内侧蚀刻多出一行小字：‘第4次循环｜你第一次说谎的时间戳：T-72:00:00’。",
+            "location": "废弃脑波中继站·主控舱（循环起点）",
+            "characters": [
+              "主角"
+            ],
+            "estimatedDurationSec": 12
+          }
+        ],
+        "choices": [
+          {
+            "id": "c_01_02",
+            "fromNodeId": "node_01",
+            "toNodeId": "node_02",
+            "choiceText": "接入破损信道，收听通讯",
+            "timeoutSeconds": 8,
+            "isTimeoutDefault": true,
+            "conditions": {},
+            "effects": {}
+          },
+          {
+            "id": "c_02_03",
+            "fromNodeId": "node_02",
+            "toNodeId": "node_03",
+            "choiceText": "【同盟线】发送真密钥，暴露位置",
+            "timeoutSeconds": 7,
+            "isTimeoutDefault": false,
+            "conditions": {},
+            "effects": {
+              "affinityDelta": {
+                "线人‘渡鸦’": 25
+              },
+              "gainItems": [
+                "静默区拓扑图",
+                "NEXUS内部权限令牌（临时）"
+              ]
+            }
+          },
+          {
+            "id": "c_02_04",
+            "fromNodeId": "node_02",
+            "toNodeId": "node_04",
+            "choiceText": "【孤狼线】发送假密钥，引爆冷却塔",
+            "timeoutSeconds": 6,
+            "isTimeoutDefault": true,
+            "conditions": {},
+            "effects": {
+              "affinityDelta": {
+                "线人‘渡鸦’": -20
+              },
+              "gainItems": [
+                "义体超频固件（一次性）",
+                "EMP脉冲手雷×2"
+              ]
+            }
+          },
+          {
+            "id": "c_03_05",
+            "fromNodeId": "node_03",
+            "toNodeId": "node_05",
+            "choiceText": "协同突破熔炉主腔",
+            "timeoutSeconds": 8,
+            "isTimeoutDefault": true,
+            "conditions": {},
+            "effects": {}
+          },
+          {
+            "id": "c_04_05",
+            "fromNodeId": "node_04",
+            "toNodeId": "node_05",
+            "choiceText": "单兵强突熔炉主腔",
+            "timeoutSeconds": 8,
+            "isTimeoutDefault": true,
+            "conditions": {},
+            "effects": {}
+          },
+          {
+            "id": "c_05_06",
+            "fromNodeId": "node_05",
+            "toNodeId": "node_06",
+            "choiceText": "【智斗反抗】精准反向注入+人格建模漏洞利用",
+            "timeoutSeconds": 6,
+            "isTimeoutDefault": false,
+            "conditions": {},
+            "effects": {
+              "setFlags": {
+                "counter_injected": true
+              }
+            }
+          },
+          {
+            "id": "c_05_07",
+            "fromNodeId": "node_05",
+            "toNodeId": "node_07",
+            "choiceText": "【超时屈服】未操作 / 全盘放弃 / 连续误操作",
+            "timeoutSeconds": 5,
+            "isTimeoutDefault": true,
+            "conditions": {},
+            "effects": {}
+          },
+          {
+            "id": "c_06_08",
+            "fromNodeId": "node_06",
+            "toNodeId": "node_08",
+            "choiceText": "【大义救赎】按下【焚】",
+            "timeoutSeconds": 10,
+            "isTimeoutDefault": false,
+            "conditions": {},
+            "effects": {}
+          },
+          {
+            "id": "c_06_09",
+            "fromNodeId": "node_06",
+            "toNodeId": "node_09",
+            "choiceText": "【超越升维】按下【升】",
+            "timeoutSeconds": 10,
+            "isTimeoutDefault": false,
+            "conditions": {},
+            "effects": {}
+          },
+          {
+            "id": "c_06_10",
+            "fromNodeId": "node_06",
+            "toNodeId": "node_10",
+            "choiceText": "【重置轮回】按下【寂】",
+            "timeoutSeconds": 8,
+            "isTimeoutDefault": true,
+            "conditions": {},
+            "effects": {
+              "gainItems": [
+                "0.3秒脑波残响"
+              ]
+            }
+          }
+        ],
+        "validation": {
+          "isPass": true,
+          "unreachableNodes": [],
+          "deadlockPaths": [],
+          "leafNodes": [
+            "node_07",
+            "node_08",
+            "node_09",
+            "node_10"
+          ],
+          "convergenceRate": 0.33,
+          "totalEstimatedDurationSec": 174,
+          "issues": [],
+          "warnings": []
+        }
+      }
+    }
+  },
+  "sessionMeta": {
+    "idea": "赛博朋克悬疑，记忆神偷潜入脑机财阀调查意识篡改案",
+    "style": "realistic",
+    "videoRatio": "16:9",
+    "videoResolution": "720P",
+    "episodes": 1,
+    "isInteractiveFMV": true
+  }
+}

@@ -1,0 +1,50 @@
+[
+  {
+    "id": "char_01",
+    "name": "主角",
+    "role": "前NEXUS认证记忆外科医生，现为地下‘灰烬级’记忆神偷；执照注销编号#X7-VOID，左颞叶植入违禁型神经桥接器‘鸦喙’，可短时逆向读取他人记忆残响但会灼伤自身海马体",
+    "gender": "男",
+    "age": 32,
+    "personality": "高度克制的观察者，语速慢、停顿长，习惯用指尖轻叩太阳穴确认时间流速；紧张时无意识摩挲耳后一道未愈合的脑机接口剥离疤痕；从不直视他人瞳孔超过2.3秒——因曾被植入‘共情阻断协议’残留效应",
+    "motivation": "表面追查‘自愿失忆’失踪案以换取黑市解码密钥；深层动机是确认自己是否真实存在——所有童年影像均含0.7秒帧率异常，且每段记忆结尾都浮现同一串十六进制校验码：0xDEADBEA7",
+    "affinityTrigger": "当玩家选择‘延迟审讯倒计时’而非强行突破时+3好感；若在冷冻舱场景主动销毁一份他人完整记忆备份（而非仅提取密钥）则+5；回避所有镜面/全息自拍交互持续超90秒触发-2信任衰减",
+    "visualPrompt": "A 32-year-old East Asian man with sharp, fatigued features, short asymmetric black hair streaked with faint bioluminescent cyan scalp traces, wearing a worn charcoal trench coat lined with frayed neural-filament wiring; visible micro-burn scars radiating from left temple into hairline, one cybernetic eye flickering faint red static; standing under neon-dripping rain in a narrow Neo-Shinjuku alley, cinematic volumetric fog, chiaroscuro lighting with cold blue base and pulsing neural-red highlights, photorealistic skin texture, 8k, Arri Alexa 65 film grain, 'Blade Runner 2049' meets 'Dark City' aesthetic",
+    "versions": []
+  },
+  {
+    "id": "char_02",
+    "name": "渡鸦",
+    "role": "匿名线人／前NEXUS伦理审查部‘静默哨兵’，现为地下记忆黑市中继节点‘鸦巢’运营者；唯一掌握《零号协议》物理签名笔迹真伪比对密钥的人，通过加密即时通讯‘灰频信标’与主角单向联络",
+    "gender": "女",
+    "age": 30,
+    "personality": "声音经七重变调处理，从不露脸；对话必带3–7秒延迟，仿佛在同步校准多重人格子程序；习惯用旧式机械打字机发送关键信息，纸带边缘总沾着微量银色磁粉；笑时只牵动右侧嘴角，左半脸肌肉完全静止",
+    "motivation": "赎罪——她曾亲手签署三份‘自愿失忆’批准令，不知受害者含主角本人；现试图用反向神经图谱锚定技术，将主角散落的记忆碎片重铸为可验证的时间证链",
+    "affinityTrigger": "当玩家在通讯中输入任意一句含‘雨停了’的谎话时+4信任（触发她隐藏的童年暗号）；若在审讯环入侵阶段主动共享实时脑波数据流供她远程校验防火墙漏洞则+6；拒绝接收她发送的‘记忆校验包’连续两次触发-3并永久关闭‘鸦巢’后门",
+    "visualPrompt": "A 30-year-old South Asian woman seen only from behind and profile in a dim server-rack room, wearing a matte-black rebreather hood with exposed copper vent coils and cracked optical visor revealing a single glowing amber iris; fingers dancing across a retro IBM Selectric II typewriter emitting faint silver magnetic dust; ambient light from blinking RAID arrays casting grid-like shadows across her shoulders, shallow depth of field, cinematic noir contrast, hyper-detailed fabric weave on hood, 8k, realistic subsurface scattering on skin, 'Ghost in the Shell' meets 'Tinker Tailor Soldier Spy' visual tone",
+    "versions": []
+  },
+  {
+    "id": "char_03",
+    "name": "CEO Silas Thorne",
+    "role": "NEXUS集团首席执行官兼‘零号协议’唯一授权签署人；表面推行全民记忆优化公益计划，实为意识殖民项目‘普罗米修斯火种’主脑；其大脑已全义体化，本体意识存于分布式量子缓存阵列中，日常以高仿真生物投影体出席公开活动",
+    "gender": "男",
+    "age": 50,
+    "personality": "语调恒定在112Hz，无呼吸起伏，眨眼间隔精确2.8秒；右手小指永久微屈——因早期脑机融合手术神经错接；每次说谎时，领口内嵌的微型散热格栅会同步释放一缕薄荷味冷雾",
+    "motivation": "终结人类‘不可控记忆熵增’，将全球意识上传至纯净逻辑基底‘白塔核心’，实现绝对理性永生；主角是他第17次自我迭代失败的原型体——‘零号’即最初版本，也是唯一保有原始痛觉神经映射的活体密钥",
+    "affinityTrigger": "当玩家在审讯对质中精准复述他23年前博士论文致谢页第三行错别字（‘recieve’→‘receive’）时+5威慑值；若在终局抉择前主动交出童年神经图谱原件（非伪造版）则解锁隐藏对话树；使用暴力摧毁其投影体将永久锁定‘焚毁’结局路径",
+    "visualPrompt": "A 50-year-old white male CEO in a flawlessly tailored gunmetal-gray three-piece suit with matte graphene lapel pin, seated before a floating holographic NEXUS logo; symmetrical face with subtle subdermal LED tracery beneath temples, eyes devoid of reflection yet intensely focused; background is a sterile white atrium with infinite mirrored floors, soft directional lighting with zero specular highlights, ultra-sharp focus on facial micro-expressions, photorealistic pores and synthetic epidermis texture, 8k, Unreal Engine 5 cinematic render, 'Ex Machina' meets 'Succession' visual precision",
+    "versions": []
+  },
+  {
+    "id": "char_04",
+    "name": "小烬",
+    "role": "主角潜意识实体化投影／良知备份人格；由主角首次非法记忆回溯时意外析出的‘未被协议覆盖’的童年片段凝结而成；仅在冷冻舱深度同步、脑波频率跌破δ波阈值时具象显现，形态随主角记忆完整性动态坍缩",
+    "gender": "无固定性别",
+    "age": 18,
+    "personality": "动作如老式胶片卡顿，每句话间隔随机0.5–4.2秒；说话时左手始终捧着一只熄灭的电子萤火虫玻璃罐；会突然重复主角3分钟前说过的某句无意义短语，但用童声；从不投射影子",
+    "motivation": "阻止主角成为新神或彻底格式化——因二者皆意味着‘小烬’作为独立意识的终极湮灭；其存在本身即是对《零号协议》‘单一主体不可分’底层逻辑的悖论性证伪",
+    "affinityTrigger": "当玩家在冷冻舱中选择‘同步呼吸节奏’而非‘强制唤醒’时+7共鸣值；若在最终抉择界面停留超60秒且脑波EEG可视化波形出现θ-γ耦合峰值，则自动激活‘静默对话’分支；任何直接攻击/否认其存在行为触发-10并导致后续三次关键提示失效",
+    "visualPrompt": "An androgynous 18-year-old figure with translucent, slightly grainy skin like degraded VHS tape, barefoot on frost-covered cryo-gel floor, wearing patched thermal overalls stitched with glowing fiber-optic thread; holding a vintage glass jar containing dormant bioluminescent nanobots, face softly blurred except for eyes — one showing static snow, the other reflecting a childhood bedroom window; volumetric light rays piercing ceiling vents, chromatic aberration edge effect, dreamlike shallow focus, 8k, filmic halation, 'Annihilation' meets 'Inside Out' emotional abstraction, photorealistic yet metaphysically unstable rendering",
+    "versions": []
+  }
+]
