@@ -24,7 +24,9 @@ server/data/projects/*/
 # Logs & Temp
 *.log
 _backup/
-server_backup*/
+server_backup_v1/node_modules/
+server_backup_v1/dist/
+server_backup_v1/data/
 _cache/
 _temp/
 _trash/
