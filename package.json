@@ -15,7 +15,6 @@
     "build:client": "npm --prefix client run build",
     "start:server": "npm --prefix server run start",
     "start:client": "npm --prefix client run start",
-    "cli": "npm --prefix server run cli",
     "clean:port": "npx -y kill-port 8000 3000"
   },
   "keywords": [

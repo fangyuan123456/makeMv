@@ -19,14 +19,6 @@ export const VIDEO_GENERATION_MODES: Array<{ id: VideoGenerationMode; label: str
     { id: 'reference', label: '参考图生视频', ability: 'reference_to_video', modelKey: 'video_reference_model' },
 ];
 
-export function videoModeAbility(mode: string | undefined) {
-    return VIDEO_GENERATION_MODES.find(item => item.id === mode)?.ability || 'first_frame_i2v';
-}
-
-export function videoModeModelKey(mode: string | undefined) {
-    return VIDEO_GENERATION_MODES.find(item => item.id === mode)?.modelKey || 'video_first_frame_model';
-}
-
 export const STYLES = [
     { id: 'comic-book', label: 'Comic Book / 漫画' },
     { id: 'anime', label: 'Anime / 动漫' },

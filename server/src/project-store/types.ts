@@ -3,7 +3,7 @@
  * 项目状态快照与黑板数据契约 (Project State SSOT)
  */
 
-import type { WorkflowSession } from '../contracts/index.js';
+import type { WorkflowSession } from '../types/index.js';
 
 export interface ProjectStateSnapshot {
   project: WorkflowSession;

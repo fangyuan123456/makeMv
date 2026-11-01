@@ -61,7 +61,7 @@
 ### 2.1 彻底的“去 Agent 化”微内核设计（Declarative Pipeline）
 - **摒弃厚重 Agent 黑盒**：各个工序不再死板依赖承载复杂生命周期的厚重 Agent 实体，全面转向**声明式数据流驱动（Declarative Pipeline）**；
 - **纯数据流输入输出（Data In ➔ Data Out）**：每个工序步骤仅关心标准入参与标准产物，消除对深层 `AgentContext` 上下文对象的强依赖；
-- **支持灵活组合**：利用 `StagePipeline` 与 `TaskPipeline` 实现链式串行（`addStep`）与并发工序（`addParallel`）自由装配。
+- **支持灵活组合**：利用 `StagePipeline` 与 `ParallelStep` 实现链式串行（`addStep`）与并发工序（`addParallel`）自由装配。
 
 ### 2.2 全局统一状态黑板（ProjectStore SSOT）
 - **唯一单例门面**：统一使用 `ProjectStore.getInstance()` 凭借 `projectId` 存取所有阶段资产（`Artifacts`）、全局会话（`Session`）与工程目录；
@@ -109,9 +109,9 @@ server/src/
 ├── api/                        # HTTP 接口与控制器层（Express/Hono 路由解耦）
 │   ├── controllers/            # Workflow, Media, Config 等标准控制器
 │   └── server.ts               # 服务入口与优雅停机
-├── agent-runtime/              # 运行时微内核 (Pipeline, Events, ToolRegistry, MessageCenter)
+├── agent-runtime/              # 运行时微内核 (Pipeline, Bus, Memory, ToolRegistry, Steps)
 ├── project-store/              # 状态黑板层 (ProjectStore, IProjectStateStore, FileProjectStateStore)
-├── queue/                      # 进度与控制总线 (ProgressBus, JobAbortRegistry)
+
 ├── llm/                        # 统一大模型集成服务 (LLMService, RealLLMService, LLMRegistry)
 ├── media/                      # 音视频视听处理 (FFmpeg, Audio, Providers)
 ├── prompts/                    # 纯中文提示词模板体系

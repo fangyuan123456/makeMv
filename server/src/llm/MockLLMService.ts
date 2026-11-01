@@ -31,6 +31,17 @@ export class MockLLMService implements LLMService {
     });
   }
 
+  public async generateMultiTurnStream(
+    systemPrompt: string,
+    history: Array<{ role: 'user' | 'assistant'; content: string }>,
+    onToken: (token: string) => Promise<void> | void,
+    options?: LLMOptions
+  ): Promise<string> {
+    const text = 'Mock LLM Streamed Response';
+    await onToken(text);
+    return text;
+  }
+
   public async generateText(prompt: string, systemPrompt?: string, options?: LLMOptions): Promise<string> {
     return JSON.stringify({ success: true, message: 'Mock LLM Response' });
   }

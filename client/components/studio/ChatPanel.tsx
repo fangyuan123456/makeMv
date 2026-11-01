@@ -38,6 +38,17 @@ import {
 } from 'lucide-react';
 import { ChatMessageItem } from './studio.types';
 import { assetUrl } from '../stages/utils';
+const SKILL_DISPLAY_MAP: Record<string, string> = {
+  'story-bible': '故事世界观圣经',
+  'character-portrait': '核心角色定妆照',
+  'scene-script': '分场多分支剧本',
+  'storyboard': '导演视听分镜头',
+  'keyframe-reference': '分镜基准参考图',
+  'video-production': '动态视频切片',
+  'fmv-packaging': '影游母带封包',
+  'critic-review': '独立审查官质检',
+};
+
 import AuditModal from './AuditModal';
 import InteractiveTopologyCanvas from '../stages/InteractiveTopologyCanvas';
 
@@ -47,6 +58,10 @@ interface ChatPanelProps {
   artifacts: Record<string, any>;
   onSendMessage: (text: string) => void;
   onConfirmNext: () => void;
+  onExecuteProposal?: (proposal: any) => void;
+  onDismissProposal?: (actionId: string) => void;
+  onTriggerCriticReview?: () => void;
+  onCriticDialog?: (message: string) => Promise<any>;
   onTriggerCharacterGen: (characterIds: string[]) => void;
   onRegenerateSingleCharacter?: (
     charId: string,
@@ -116,6 +131,10 @@ export default function ChatPanel({
   artifacts,
   onSendMessage,
   onConfirmNext,
+  onExecuteProposal,
+  onDismissProposal,
+  onTriggerCriticReview,
+  onCriticDialog,
   onTriggerCharacterGen,
   onRegenerateSingleCharacter,
   onSelectCharacterVersion,
@@ -306,6 +325,46 @@ export default function ChatPanel({
     );
     return match ? match.id : null;
   }, [agentMessages, keyframes]);
+
+  const criticMsgId = useMemo(() => {
+    const match = [...agentMessages].reverse().find(
+      (m) =>
+        m.content.includes('审查官') ||
+        m.content.includes('剧本医生') ||
+        m.content.includes('终审门禁')
+    );
+    return match ? match.id : null;
+  }, [agentMessages]);
+
+  const [criticDebateText, setCriticDebateText] = useState('');
+  const [isDebating, setIsDebating] = useState(false);
+  const [debateReplies, setDebateReplies] = useState<Array<{ userText: string; replyText: string; accepted?: boolean; gate?: string }>>([]);
+
+  const handleDebateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!criticDebateText.trim() || isDebating || !onCriticDialog) return;
+    const text = criticDebateText.trim();
+    setCriticDebateText('');
+    setIsDebating(true);
+    try {
+      const res = await onCriticDialog(text);
+      if (res) {
+        setDebateReplies((prev) => [
+          ...prev,
+          {
+            userText: text,
+            replyText: res.reply,
+            accepted: res.isDefenseAccepted,
+            gate: res.reassessedGateStatus,
+          },
+        ]);
+      }
+    } catch (err: any) {
+      alert(`辩论质询异常: ${err.message}`);
+    } finally {
+      setIsDebating(false);
+    }
+  };
 
   const packagerMsgId = useMemo(() => {
     if (!packagerArtifact) return null;
@@ -1353,6 +1412,109 @@ export default function ChatPanel({
     );
   };
 
+  const renderCriticCard = () => {
+    return (
+      <div className="mt-3 rounded-2xl p-4 bg-gradient-to-b from-amber-50/50 to-orange-50/20 border border-amber-200/90 shadow-2xs space-y-3.5">
+        <div className="flex items-center justify-between border-b border-amber-200/60 pb-2.5">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center text-xs font-bold shadow-2xs">
+              <ShieldCheck className="w-3.5 h-3.5" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-amber-950 flex items-center gap-2">
+                <span>独立影视审查官与剧本医生质检审计</span>
+              </div>
+              <div className="text-[10px] text-amber-700/80">好莱坞工业级全景交叉穿透挑刺</div>
+            </div>
+          </div>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200 font-mono">
+            {currentStage}
+          </span>
+        </div>
+
+        {/* 四大维度量化评分条 */}
+        <div className="grid grid-cols-2 gap-2 text-[11px] bg-white/80 p-3 rounded-xl border border-amber-100">
+          <div className="space-y-1">
+            <div className="flex justify-between text-slate-600 text-[10px]">
+              <span>因果逻辑 (反机械降神)</span>
+              <span className="font-bold text-amber-900">85/100</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+              <div className="h-full bg-amber-500 rounded-full" style={{ width: '85%' }} />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <div className="flex justify-between text-slate-600 text-[10px]">
+              <span>角色动机 (反强行降智)</span>
+              <span className="font-bold text-amber-900">80/100</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+              <div className="h-full bg-amber-500 rounded-full" style={{ width: '80%' }} />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <div className="flex justify-between text-slate-600 text-[10px]">
+              <span>分支张力 (反伪选择)</span>
+              <span className="font-bold text-amber-900">75/100</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+              <div className="h-full bg-amber-500 rounded-full" style={{ width: '75%' }} />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <div className="flex justify-between text-slate-600 text-[10px]">
+              <span>视听落地 (AI 可控性)</span>
+              <span className="font-bold text-amber-900">90/100</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+              <div className="h-full bg-amber-500 rounded-full" style={{ width: '90%' }} />
+            </div>
+          </div>
+        </div>
+
+        {/* 创作者与独立审查官对辩对话流 */}
+        {debateReplies.length > 0 && (
+          <div className="space-y-2 pt-1 border-t border-amber-200/50">
+            <div className="text-[10px] font-bold text-amber-900 uppercase tracking-wider">质询与辩护记录：</div>
+            {debateReplies.map((d, idx) => (
+              <div key={idx} className="space-y-1 text-[11px] bg-white/90 p-2.5 rounded-xl border border-amber-100">
+                <div className="text-indigo-700 font-medium">💬 你的辩护: “{d.userText}”</div>
+                <div className="text-slate-800 leading-relaxed font-normal">
+                  🧐 审查官裁决: {d.replyText}
+                </div>
+                {d.accepted !== undefined && (
+                  <div className={`text-[10px] font-bold flex items-center gap-1 ${d.accepted ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {d.accepted ? '✔ 辩护成立，门禁放行条件已更新' : '✖ 解释仍未消解因果断裂，维持原有判定'}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 交互式质询与辩护输入表单 */}
+        <form onSubmit={handleDebateSubmit} className="pt-1 flex items-center gap-2">
+          <input
+            type="text"
+            value={criticDebateText}
+            onChange={(e) => setCriticDebateText(e.target.value)}
+            placeholder="若对上述挑刺有异议，向剧本医生提交戏剧前置因果辩护..."
+            disabled={isDebating}
+            className="flex-1 text-xs bg-white border border-amber-200 rounded-xl px-3 py-1.5 outline-none focus:border-amber-500 transition-colors shadow-2xs"
+          />
+          <button
+            type="submit"
+            disabled={!criticDebateText.trim() || isDebating}
+            className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-2xs transition-all disabled:opacity-40 cursor-pointer flex items-center gap-1 shrink-0"
+          >
+            {isDebating ? <Loader2 className="w-3 h-3 animate-spin" /> : <MessageSquare className="w-3 h-3" />}
+            <span>发起对辩</span>
+          </button>
+        </form>
+      </div>
+    );
+  };
+
   const renderPackagerCard = () => {
     if (!packagerArtifact) return null;
     return (
@@ -1401,6 +1563,17 @@ export default function ChatPanel({
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-xs shadow-emerald-500/40" />
           <span className="text-xs font-bold text-slate-800">AI 影游总制作人</span>
+          {sessionId && (
+            <button
+              onClick={onTriggerCriticReview}
+              disabled={isRunning}
+              className="ml-2 px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs disabled:opacity-50"
+              title="呼叫好莱坞独立剧本医生与审查官，对当前工序进行全景交叉客观挑刺与门禁质检"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
+              <span>🧐 呼叫审查官质检</span>
+            </button>
+          )}
         </div>
         <span className="text-[11px] text-slate-400 font-medium">
           {sessionId ? '实时对话协同' : '立项灵感'}
@@ -1420,6 +1593,7 @@ export default function ChatPanel({
           const isCharacterAttached = !isUser && msg.id === characterMsgId;
           const isKeyframesAttached = !isUser && msg.id === keyframesMsgId;
           const isPackagerAttached = !isUser && msg.id === packagerMsgId;
+          const isCriticAttached = !isUser && (msg.id === criticMsgId || msg.content.includes('审查官') || msg.content.includes('质检结论'));
 
           return (
             <div
@@ -1463,11 +1637,84 @@ export default function ChatPanel({
 
                 <div className="whitespace-pre-wrap">{msg.content}</div>
 
+                {/* 🌟 导演自主行动提案卡片 (Action Proposal Card - 完整 3 态闭环) */}
+                {msg.actionProposal && (
+                  <div className="mt-3 p-3.5 rounded-xl bg-gradient-to-r from-indigo-50/90 to-purple-50/90 border border-indigo-200/90 shadow-2xs space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-indigo-950 font-bold text-xs">
+                        <Zap className="w-3.5 h-3.5 text-indigo-600 fill-indigo-500" />
+                        <span>导演制片提案：{msg.actionProposal.label}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-700 font-bold font-mono">
+                          {SKILL_DISPLAY_MAP[msg.actionProposal.skill || ''] || msg.actionProposal.skill || '工序技能'}
+                        </span>
+                        {msg.actionProposal.status === 'executed' && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 font-bold flex items-center gap-1">
+                            <Check className="w-3 h-3" /> 已执行
+                          </span>
+                        )}
+                        {msg.actionProposal.status === 'dismissed' && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-200 text-slate-500 font-bold">
+                            已废弃
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {msg.actionProposal.description && (
+                      <p className="text-[11px] text-slate-600 leading-relaxed">
+                        {msg.actionProposal.description}
+                      </p>
+                    )}
+
+                    {/* 操作控制区：根据 status 渲染不同交互 */}
+                    {msg.actionProposal.status === 'executed' ? (
+                      <div className="pt-1 flex items-center justify-between text-[11px] text-emerald-700 bg-emerald-50/80 px-3 py-1.5 rounded-lg border border-emerald-200/80">
+                        <span className="flex items-center gap-1 font-bold">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          工序产物已编译落盘并完成同步
+                        </span>
+                        {msg.actionProposal.executedAt && (
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {new Date(msg.actionProposal.executedAt).toLocaleTimeString()}
+                          </span>
+                        )}
+                      </div>
+                    ) : msg.actionProposal.status === 'dismissed' ? (
+                      <div className="pt-1 text-[11px] text-slate-400 bg-slate-100/80 px-3 py-1.5 rounded-lg border border-slate-200 flex items-center gap-1">
+                        <X className="w-3.5 h-3.5 text-slate-400" />
+                        <span>该提案已由创作者暂缓或废弃</span>
+                      </div>
+                    ) : (
+                      /* pending 态：提供推进主按钮与废弃按钮 */
+                      <div className="pt-1 flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => onDismissProposal?.(msg.actionProposal!.actionId)}
+                          disabled={isRunning}
+                          className="px-2.5 py-1 rounded-lg hover:bg-slate-200 text-slate-500 text-xs transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          暂不推进
+                        </button>
+                        <button
+                          onClick={() => onExecuteProposal?.(msg.actionProposal!)}
+                          disabled={isRunning}
+                          className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          <span>一键确认并推进</span>
+                          <ArrowRight className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* 阶段产物卡片嵌入在对应 Agent 消息气泡内部 */}
                 {isNarrativeAttached && renderNarrativeCard()}
                 {isCharacterAttached && renderCharacterCard()}
                 {isKeyframesAttached && renderKeyframesCard()}
                 {isPackagerAttached && renderPackagerCard()}
+                {isCriticAttached && renderCriticCard()}
               </div>
             </div>
           );

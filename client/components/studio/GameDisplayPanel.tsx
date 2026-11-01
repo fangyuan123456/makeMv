@@ -30,7 +30,7 @@ export default function GameDisplayPanel({
 
   const manifest = packagerArtifact?.fmvManifest;
   const clips = videoArtifact?.renderedClips || videoArtifact?.clips || [];
-  const keyframes = referenceArtifact?.keyframes || [];
+  const keyframes = referenceArtifact?.shots || referenceArtifact?.keyframes || [];
 
   const downloadManifest = () => {
     if (!manifest) return;

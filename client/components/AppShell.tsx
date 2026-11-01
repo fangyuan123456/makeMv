@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { CheckCircle2, ChevronLeft, ChevronRight, Clapperboard, Clock, Hexagon, Home, Loader2, PanelLeftOpen, Repeat2, Settings, Trash2, UserRound } from 'lucide-react';
 import clsx from 'clsx';
 import { useEffect, useState, type CSSProperties } from 'react';
-import { clearTempCache, fetchPipelineTasks, fetchSandboxTasks, fetchSessions, type PipelineTask, type SandboxTask } from '@/lib/workflowApi';
+import { clearTempCache, fetchPipelineTasks, fetchSandboxTasks, fetchProjects, type PipelineTask, type SandboxTask } from '@/lib/workflowApi';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Video-Claw', icon: Home },
@@ -243,7 +243,7 @@ function SidebarTaskPanels({ currentPath }: { currentPath: string }) {
     try {
       const [pipelineRecords, sessions, sandboxRecords] = await Promise.all([
         fetchPipelineTasks(100).catch(() => []),
-        fetchSessions().catch(() => []),
+        fetchProjects().catch(() => []),
         fetchSandboxTasks().catch(() => []),
       ]);
       setRunningTasks([

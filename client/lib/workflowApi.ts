@@ -10,21 +10,15 @@
 export const DIRECT_API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 const STREAM_API_BASE = DIRECT_API_BASE;
 
-export interface StageInfo {
-  id: string;
-  name: string;
-  order: number;
-  description: string;
-}
-
 export interface ProjectStatus {
-  session_id: string;
-  current_stage: string;
-  status: Record<string, string>;
-  error: string | null;
+  projectId: string;
+  currentStage?: string;
+  status: any;
+  error?: string | null;
   artifacts?: Record<string, any>;
   stage_progress?: Record<string, any>;
   session?: any;
+  project?: any;
 }
 
 export interface StreamEvent {
@@ -131,17 +125,6 @@ async function parseJsonResponse<T>(resp: Response, fallback?: T): Promise<T> {
   }
 }
 
-export async function fetchStages(): Promise<StageInfo[]> {
-  try {
-    const resp = await fetch('/api/stages');
-    if (!resp.ok) return [];
-    const data = await parseJsonResponse<{ stages?: StageInfo[] }>(resp, { stages: [] });
-    return data.stages || [];
-  } catch {
-    return [];
-  }
-}
-
 export async function fetchProjects(): Promise<any[]> {
   try {
     const resp = await fetch('/api/projects');
@@ -152,8 +135,6 @@ export async function fetchProjects(): Promise<any[]> {
     return [];
   }
 }
-
-export const fetchSessions = fetchProjects;
 
 async function postPipelineTask(path: string, params: Record<string, any>): Promise<PipelineStartResponse> {
   const resp = await fetch(path, {
@@ -298,6 +279,8 @@ export async function startProject(params: {
   idea: string;
   file_path?: string;
   style?: string;
+  videoRatio?: string;
+  videoResolution?: string;
   video_ratio?: string;
   video_resolution?: string;
   llm_model?: string;
@@ -313,36 +296,32 @@ export async function startProject(params: {
   enable_concurrency?: boolean;
   web_search?: boolean;
   expand_idea?: boolean;
-}): Promise<{ session_id: string; status: string; params: any }> {
+}): Promise<{ projectId: string; status: string; params: any }> {
+  const normalizedParams = {
+    ...params,
+    videoRatio: params.videoRatio || params.video_ratio || '16:9',
+    videoResolution: params.videoResolution || params.video_resolution || '720P',
+  };
   const resp = await fetch('/api/project/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
+    body: JSON.stringify(normalizedParams),
   });
   if (!resp.ok) {
     const err = await parseJsonResponse<any>(resp, { detail: '项目创建失败' });
     throw new Error(err.detail || '项目创建失败');
   }
-  return parseJsonResponse(resp);
+  const data = await parseJsonResponse<any>(resp);
+  return { ...data, projectId: data.projectId };
 }
 
-export async function getProjectStatus(sessionId: string): Promise<ProjectStatus> {
-  const resp = await fetch(`/api/project/${sessionId}/status`);
+export async function getProjectStatus(projectId: string): Promise<ProjectStatus> {
+  const resp = await fetch(`/api/project/${projectId}/status`);
   if (!resp.ok) {
     const errText = await resp.text().catch(() => '');
     throw new Error(`Failed to get project status (${resp.status}): ${errText || resp.statusText}`);
   }
   return parseJsonResponse<ProjectStatus>(resp);
-}
-
-// 兼容旧路由名；后端实际会通过统一的 workflow state 入口返回状态。
-export async function getProjectStatusFromDisk(sessionId: string): Promise<any> {
-  const resp = await fetch(`/api/project/${sessionId}/status/from_disk`);
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => '');
-    throw new Error(`Failed to get project status snapshot (${resp.status}): ${errText || resp.statusText}`);
-  }
-  return parseJsonResponse<any>(resp);
 }
 
 export async function getArtifact(sessionId: string, stage: string): Promise<any> {
@@ -352,17 +331,6 @@ export async function getArtifact(sessionId: string, stage: string): Promise<any
     throw new Error(`Artifact for stage '${stage}' not found (${resp.status}): ${errText || resp.statusText}`);
   }
   return parseJsonResponse<any>(resp);
-}
-
-export async function checkSceneAssets(sessionId: string, sceneNumber: number): Promise<{
-  scene_number: number;
-  reference_images: number;
-  videos: number;
-  shot_count: number;
-}> {
-  const resp = await fetch(`/api/project/${sessionId}/scene/${sceneNumber}/assets`);
-  if (!resp.ok) return { scene_number: sceneNumber, reference_images: 0, videos: 0, shot_count: 0 };
-  return parseJsonResponse(resp, { scene_number: sceneNumber, reference_images: 0, videos: 0, shot_count: 0 });
 }
 
 export async function executeStage(
@@ -388,8 +356,7 @@ export async function intervene(
     ? { stage: stageOrFeedback, modifications, feedback: modifications.feedback || modifications }
     : { feedback: stageOrFeedback, modifications: { feedback: stageOrFeedback } };
 
-  // Use STREAM_API_BASE to bypass Next.js proxy (SSE endpoint)
-  return fetch(`${STREAM_API_BASE}/api/project/${sessionId}/intervene`, {
+  return fetch(`${STREAM_API_BASE}/api/project/${sessionId}/continue`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -403,22 +370,10 @@ export async function stopProject(sessionId: string): Promise<{ status: string }
   return parseJsonResponse<{ status: string }>(resp, { status: 'stopped' });
 }
 
-export async function updateModels(
-  sessionId: string,
-  models: Partial<Record<string, string | boolean>>,
-): Promise<{ status: string }> {
-  const resp = await fetch(`/api/project/${sessionId}/models`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(models),
-  });
-  return parseJsonResponse<{ status: string }>(resp, { status: 'updated' });
-}
-
 export async function deleteSession(
   sessionId: string,
 ): Promise<{ status: string }> {
-  const resp = await fetch(`/api/sessions/${sessionId}`, {
+  const resp = await fetch(`/api/project/${sessionId}`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
   });
@@ -459,16 +414,6 @@ export async function continueWorkflow(sessionId: string): Promise<{ status: str
   return parseJsonResponse<{ status: string; next_stage?: string }>(resp, { status: 'continued' });
 }
 
-export async function getProjectAudit(sessionId: string): Promise<any> {
-  try {
-    const resp = await fetch(`/api/project/${sessionId}/audit`);
-    if (!resp.ok) return null;
-    return parseJsonResponse(resp);
-  } catch {
-    return null;
-  }
-}
-
 export async function getStageAuditTrace(sessionId: string, stage: string): Promise<any> {
   try {
     const resp = await fetch(`/api/project/${sessionId}/audit/${stage}`);
@@ -489,7 +434,7 @@ export async function* parseStreamEvents(response: Response): AsyncGenerator<Str
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split('\n');
-    buffer = lines.pop() || ''; // keep incomplete trailing line in buffer
+    buffer = lines.pop() || '';
     for (const line of lines) {
       if (!line.trim()) continue;
       try {
@@ -507,7 +452,6 @@ export async function* parseStreamEvents(response: Response): AsyncGenerator<Str
       } catch { /* skip malformed */ }
     }
   }
-  // Process any remaining data in buffer after stream ends
   if (buffer.trim()) {
     try {
       const raw: any = JSON.parse(buffer);

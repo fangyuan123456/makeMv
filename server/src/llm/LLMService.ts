@@ -24,5 +24,11 @@ export interface LLMService {
     history: Array<{ role: 'user' | 'assistant'; content: string }>,
     options?: LLMOptions
   ): Promise<string>;
+  generateMultiTurnStream(
+    systemPrompt: string,
+    history: Array<{ role: 'user' | 'assistant'; content: string }>,
+    onToken: (token: string) => Promise<void> | void,
+    options?: LLMOptions
+  ): Promise<string>;
   hasVisionCapability?(): boolean;
 }

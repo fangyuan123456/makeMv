@@ -1,3 +1,5 @@
+import type { ActionProposal } from '@/lib/chatApi';
+
 export type MilestoneId =
   | 'milestone_1'
   | 'milestone_2'
@@ -79,6 +81,7 @@ export interface ChatMessageItem {
   thinkingDurationSec?: number;
   timestamp: string;
   stage?: string;
+  actionProposal?: ActionProposal;
   milestoneId?: MilestoneId;
   stopPoint?: {
     id: string;

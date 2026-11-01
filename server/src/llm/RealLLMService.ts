@@ -139,6 +139,58 @@ export class RealLLMService implements LLMService {
     }
   }
 
+  /**
+   * 🌟 真实流式多轮生成 (OpenAI 原生 stream: true，首字极速吐出)
+   */
+  public async generateMultiTurnStream(
+    systemPrompt: string,
+    history: Array<{ role: 'user' | 'assistant'; content: string }>,
+    onToken: (token: string) => Promise<void> | void,
+    options?: LLMOptions
+  ): Promise<string> {
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
+    if (systemPrompt) {
+      messages.push({ role: 'system', content: systemPrompt });
+    }
+    for (const h of history) {
+      messages.push({ role: h.role, content: h.content });
+    }
+
+    const maxTokens = options?.maxTokens ?? 16384;
+    const temperature = options?.temperature ?? 0.3;
+    const startTime = Date.now();
+    let fullText = '';
+
+    try {
+      const stream = await this.client.chat.completions.create({
+        model: this.modelName,
+        messages,
+        temperature,
+        max_tokens: maxTokens,
+        stream: true,
+      }, {
+        signal: options?.abortSignal,
+      });
+
+      for await (const chunk of stream) {
+        if (options?.abortSignal?.aborted) break;
+        const delta = chunk.choices[0]?.delta?.content || '';
+        if (delta) {
+          fullText += delta;
+          await onToken(delta);
+        }
+      }
+
+      const duration = Date.now() - startTime;
+      this.dispatchUsage(undefined, options?.stage, duration, options?.onUsage);
+
+      return fullText;
+    } catch (err: any) {
+      console.error(`[RealLLMService] generateMultiTurnStream 失败 [${this.modelName}]:`, err.message || err);
+      throw err;
+    }
+  }
+
   public async generateTextWithImages(
     prompt: string,
     images: string[],

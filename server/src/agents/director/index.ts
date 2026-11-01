@@ -2,4 +2,5 @@
  * agents/director/index.ts
  */
 
-export * from './Director.js';
+export * from './prompt.js';
+export * from './DirectorAgent.js';

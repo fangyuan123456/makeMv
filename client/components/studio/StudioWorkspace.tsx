@@ -3,18 +3,26 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   getProjectStatus,
-  continueWorkflow,
-  intervene,
   uploadArtifactImage,
   saveSelections,
 } from '@/lib/workflowApi';
+import {
+  fetchChatSessions,
+  createChatSession,
+  fetchChatMessages,
+  streamDirectorChat,
+  streamSkillExecute,
+  dismissChatProposal,
+  sendCriticReviewDialog,
+  type ActionProposal,
+} from '@/lib/chatApi';
 import { ChatMessageItem } from './studio.types';
 import StudioHeader, { HistoryItem } from './StudioHeader';
 import ChatPanel from './ChatPanel';
 import GameDisplayPanel from './GameDisplayPanel';
 
 interface StudioWorkspaceProps {
-  sessionId: string | null;
+  sessionId: string | null; // 权威定义：外部传入的 session 参数即为 projectId (SSOT)
   onNewProject: () => void;
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
@@ -25,13 +33,23 @@ interface StudioWorkspaceProps {
 const WELCOME_MESSAGE: ChatMessageItem = {
   id: 'welcome_init',
   sender: 'agent',
-  senderName: 'AI 叙事制作人',
+  senderName: 'AI 影游总制作人',
   content: '🎬 **你好！我是你的 AI 互动影游制作人。**\n\n告诉我你想创作什么故事或游戏构思（例如：*赛博朋克风格的记忆神偷，调查一起跨国企业意识篡改案*）。\n\n我将为你全自动推演网状互动剧情、角色人设、分镜故事板与关键帧，直至打包生成可交互的影视游戏！成片将直接在右侧游戏视窗实时上映并可即时试玩。',
   timestamp: '刚刚',
 };
 
+const STAGE_TO_SKILL_MAP: Record<string, { skill: string; label: string }> = {
+  narrative_design: { skill: 'story-bible', label: '故事世界观圣经推演' },
+  character_design: { skill: 'character-portrait', label: '全剧核心角色定妆照生成' },
+  scene_script: { skill: 'scene-script', label: '全剧分场多分支剧本扩写' },
+  storyboard: { skill: 'storyboard', label: '导演视听机位分镜表切分' },
+  keyframe_reference: { skill: 'keyframe-reference', label: '分镜头首帧高清参考图批量渲染' },
+  video_production: { skill: 'video-production', label: '动态视频切片批量生成与渲染' },
+  fmv_packaging: { skill: 'fmv-packaging', label: '母带工程混音与交互播放器打包' },
+};
+
 export default function StudioWorkspace({
-  sessionId,
+  sessionId, // projectId
   onNewProject,
   onSelectSession,
   onDeleteSession,
@@ -44,63 +62,36 @@ export default function StudioWorkspace({
   const [artifacts, setArtifacts] = useState<Record<string, any>>({});
   const [messages, setMessages] = useState<ChatMessageItem[]>([WELCOME_MESSAGE]);
   const [isRunning, setIsRunning] = useState(false);
+  const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(null);
 
   // 可拖拽分屏调节宽度（默认左边更大：56%）
   const [leftWidthPercent, setLeftWidthPercent] = useState<number>(56);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // 真正有产物且当前推演已结束、等待确认时，才显示确认推进条
+  // 真正有产物且当前推演已结束时，允许快速推进
   const hasDeliverables = Object.keys(artifacts).length > 0;
   const isWaitingForConfirmation =
     !isRunning &&
     hasDeliverables &&
-    (status === 'waiting' || status === 'waiting_for_intervention');
+    (status === 'waiting' || status === 'waiting_for_intervention' || status === 'idle');
 
-  // 1. Fetch & refresh project status
+  // 1. Fetch & refresh project status from ProjectStore
   const fetchStatus = useCallback(async () => {
     if (!sessionId) return;
     try {
       const data = (await getProjectStatus(sessionId)) as any;
-      const sess = data?.session || data;
-      if (sess) {
-        setProjectTitle(sess.title || sess.idea || '未命名短剧');
-        const sessionStatus = sess.status || 'idle';
-        setStatus(sessionStatus);
+      const proj = data?.project || data?.session || data;
+      if (proj) {
+        setProjectTitle(proj.title || proj.meta?.idea || '未命名短剧');
+        const projectStatus = proj.status || 'idle';
+        setStatus(projectStatus);
 
-        // 思考推演结束判定：只要后端状态脱离 running，立刻移除“思考中”状态
-        if (sessionStatus !== 'running') {
-          setIsRunning(false);
-        } else {
-          setIsRunning(true);
+        if (proj.currentStage) {
+          setCurrentStage(proj.currentStage);
         }
-
-        if (sess.currentStage || sess.current_stage) {
-          setCurrentStage(sess.currentStage || sess.current_stage);
-        }
-        if (sess.stageArtifacts || sess.artifacts) {
-          setArtifacts(sess.stageArtifacts || sess.artifacts || {});
-        }
-
-        // Sync persistent conversation history from session
-        if (Array.isArray(sess.messages) && sess.messages.length > 0) {
-          setMessages(sess.messages);
-        } else if (sess.currentStopPoint) {
-          const sp = sess.currentStopPoint;
-          setMessages((prev) => {
-            if (prev.some((m) => m.stopPoint?.id === sp.id)) return prev;
-            return [
-              ...prev,
-              {
-                id: `sp_${sp.id}_${Date.now()}`,
-                sender: 'agent',
-                senderName: 'AI 影游总制作人',
-                content: `🎯 **${sp.title}**\n\n${sp.description || '当前阶段产物已生成完毕，确认后可直接流转下一阶段。'}`,
-                timestamp: new Date().toLocaleTimeString(),
-                stopPoint: sp,
-              },
-            ];
-          });
+        if (proj.stageArtifacts || data.artifacts) {
+          setArtifacts(proj.stageArtifacts || data.artifacts || {});
         }
       }
     } catch (err) {
@@ -108,10 +99,44 @@ export default function StudioWorkspace({
     }
   }, [sessionId]);
 
-  // Handle session change or reset
+  // 2. 初始化或恢复项目的活跃对话会话 (SessionStore SSOT)
+  const initChatSession = useCallback(async (projectId: string) => {
+    try {
+      const sessions = await fetchChatSessions(projectId);
+      let targetSessionId = '';
+
+      if (sessions.length > 0) {
+        targetSessionId = sessions[sessions.length - 1].sessionId;
+      } else {
+        const newSession = await createChatSession(projectId, '主线创作会话', currentStage);
+        targetSessionId = newSession.sessionId;
+      }
+
+      setActiveChatSessionId(targetSessionId);
+
+      // 拉取该会话的消息历史流
+      const rawMessages = await fetchChatMessages(projectId, targetSessionId);
+      if (rawMessages.length > 0) {
+        const mappedMessages: ChatMessageItem[] = rawMessages.map((m) => ({
+          id: m.id,
+          sender: m.role === 'user' ? 'user' : 'agent',
+          senderName: m.role === 'user' ? '我 (创作者)' : 'AI 影游总制作人',
+          content: m.content,
+          actionProposal: m.actionProposal,
+          timestamp: m.createdAt ? (m.createdAt.includes('T') ? m.createdAt.slice(11, 16) : m.createdAt) : '刚刚',
+        }));
+        setMessages(mappedMessages);
+      }
+    } catch (err) {
+      console.warn('[StudioWorkspace] 恢复会话历史失败:', err);
+    }
+  }, [currentStage]);
+
+  // Handle project change or reset
   useEffect(() => {
     if (sessionId) {
       fetchStatus();
+      initChatSession(sessionId);
     } else {
       setProjectTitle('新建互动影游');
       setStatus('idle');
@@ -119,16 +144,16 @@ export default function StudioWorkspace({
       setArtifacts({});
       setMessages([WELCOME_MESSAGE]);
       setCurrentStage('narrative_design');
+      setActiveChatSessionId(null);
     }
-  }, [sessionId, fetchStatus]);
+  }, [sessionId, fetchStatus, initChatSession]);
 
-  // 动态心跳轮询：运行中 1.5s 快速轮询以快速捕捉思考结束信号，静止时 5s
+  // 动态心跳轮询：静止时 6s
   useEffect(() => {
     if (!sessionId) return;
-    const shouldFastPoll = isRunning || status === 'running';
-    const timer = setInterval(fetchStatus, shouldFastPoll ? 1500 : 5000);
+    const timer = setInterval(fetchStatus, 6000);
     return () => clearInterval(timer);
-  }, [isRunning, status, sessionId, fetchStatus]);
+  }, [sessionId, fetchStatus]);
 
   // 鼠标拖拽分屏调节
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -141,7 +166,6 @@ export default function StudioWorkspace({
       if (!isDragging || !containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       const newPercent = ((e.clientX - rect.left) / rect.width) * 100;
-      // 限制左侧宽度在 32% ~ 76% 之间
       const clamped = Math.max(32, Math.min(76, newPercent));
       setLeftWidthPercent(clamped);
     };
@@ -168,43 +192,123 @@ export default function StudioWorkspace({
     };
   }, [isDragging]);
 
-  // 2. Action: User confirms current milestone and proceeds to next
-  const handleConfirmNext = async () => {
+  // 🌟 3. 核心声明式工序技能执行中枢 (Skill Execution SSOT)
+  const handleExecuteSkill = async (skillName: string, params: Record<string, any> = {}) => {
     if (!sessionId || isRunning) return;
     setIsRunning(true);
 
+    const progressMsgId = `skill_prog_${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: progressMsgId,
+        sender: 'agent',
+        senderName: 'AI 影游总制作人',
+        content: `⚡ 正在启动工序技能 [${skillName}]...`,
+        timestamp: new Date().toLocaleTimeString(),
+      },
+    ]);
+
     try {
-      await continueWorkflow(sessionId);
-      await fetchStatus();
-    } catch (err: any) {
-      setMessages((prev) => [
-        ...prev,
+      await streamSkillExecute(
+        sessionId,
+        skillName,
+        activeChatSessionId || undefined,
+        params,
         {
-          id: `err_${Date.now()}`,
-          sender: 'system',
-          content: `❌ 流转下一步遇到问题: ${err.message || '请稍后重试'}`,
-          timestamp: new Date().toLocaleTimeString(),
-        },
-      ]);
-    } finally {
+          onProgress: (percent, msg) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === progressMsgId
+                  ? { ...m, content: `⚡ [${percent}%] ${msg}` }
+                  : m
+              )
+            );
+          },
+          onDone: async (result) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === progressMsgId
+                  ? { ...m, content: result.summary || `✔ 技能 [${skillName}] 执行完成！` }
+                  : m
+              )
+            );
+            setIsRunning(false);
+            await fetchStatus();
+          },
+          onError: (err) => {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `err_${Date.now()}`,
+                sender: 'system',
+                content: `❌ 工序执行遇到问题: ${err.message}`,
+                timestamp: new Date().toLocaleTimeString(),
+              },
+            ]);
+            setIsRunning(false);
+          },
+        }
+      );
+    } catch (err: any) {
+      console.error('[StudioWorkspace] 技能执行失败:', err);
       setIsRunning(false);
     }
   };
 
-  // 3. Action: User sends natural language feedback / instruction / starts new project
+  // 4. Action: User confirms current milestone and proceeds to next
+  const handleConfirmNext = async () => {
+    const currentSkillInfo = STAGE_TO_SKILL_MAP[currentStage] || { skill: 'story-bible' };
+    await handleExecuteSkill(currentSkillInfo.skill);
+  };
+
+  // 5. Action: Execute autonomous ActionProposal from Director (显式透传 actionId SSOT)
+  const handleExecuteProposal = async (proposal: ActionProposal) => {
+    const targetSkill = proposal.skill || STAGE_TO_SKILL_MAP[currentStage]?.skill || 'story-bible';
+    await handleExecuteSkill(targetSkill, {
+      actionId: proposal.actionId,
+      ...(proposal.payload || {}),
+    });
+  };
+
+  // 🌟 5.1 Action: Dismiss ActionProposal
+  const handleDismissProposal = async (actionId: string) => {
+    if (!sessionId || !activeChatSessionId) return;
+    try {
+      await dismissChatProposal(sessionId, activeChatSessionId, actionId);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.actionProposal?.actionId === actionId
+            ? {
+                ...m,
+                actionProposal: {
+                  ...m.actionProposal,
+                  status: 'dismissed',
+                },
+              }
+            : m
+        )
+      );
+    } catch (err) {
+      console.warn('[StudioWorkspace] 废弃提案失败:', err);
+    }
+  };
+
+  // 🌟 5.2 Action: Trigger Critic Reviewer Audit
+  const handleTriggerCriticReview = async () => {
+    await handleExecuteSkill('critic-review', { targetStage: currentStage });
+  };
+
+  // 🌟 5.3 Action: Dialog / Debate with Critic Reviewer (完整透传 sessionId 与阶段)
+  const handleCriticDialog = async (message: string) => {
+    if (!sessionId) return undefined;
+    return await sendCriticReviewDialog(sessionId, message, currentStage, activeChatSessionId || undefined);
+  };
+
+  // 🌟 6. Action: User sends natural language to DirectorAgent (真流式打字机推进)
   const handleSendMessage = async (text: string) => {
     if (isRunning) return;
     setIsRunning(true);
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `user_msg_${Date.now()}`,
-        sender: 'user',
-        content: text,
-        timestamp: new Date().toLocaleTimeString(),
-      },
-    ]);
 
     // If no active session, start new project from chat
     if (!sessionId) {
@@ -226,51 +330,109 @@ export default function StudioWorkspace({
       return;
     }
 
-    // If active session, send intervention feedback
-    try {
-      await intervene(sessionId, currentStage, { feedback: text, instruction: text });
-      await fetchStatus();
-    } catch (err: any) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `err_${Date.now()}`,
-          sender: 'system',
-          content: `❌ 修改执行失败: ${err.message || '系统繁忙'}`,
-          timestamp: new Date().toLocaleTimeString(),
-        },
-      ]);
-    } finally {
-      setIsRunning(false);
+    // 确保有可用的 chatSessionId
+    let targetSessionId = activeChatSessionId;
+    if (!targetSessionId) {
+      try {
+        const newSession = await createChatSession(sessionId, '主线创作会话', currentStage);
+        targetSessionId = newSession.sessionId;
+        setActiveChatSessionId(targetSessionId);
+      } catch (err: any) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `err_${Date.now()}`,
+            sender: 'system',
+            content: `❌ 初始化会话失败: ${err.message}`,
+            timestamp: new Date().toLocaleTimeString(),
+          },
+        ]);
+        setIsRunning(false);
+        return;
+      }
     }
-  };
 
-  // 4. Action: Trigger AI character portrait generation
-  const handleTriggerCharacterGen = async (characterIds: string[]) => {
-    if (!sessionId || isRunning) return;
-    setIsRunning(true);
+    const userMsgId = `user_${Date.now()}`;
+    const asstMsgId = `asst_${Date.now()}`;
 
     setMessages((prev) => [
       ...prev,
       {
-        id: `user_chargen_${Date.now()}`,
+        id: userMsgId,
         sender: 'user',
-        content: `🎨 指示：为选中的 ${characterIds.length} 个角色生成视觉定妆图...`,
+        content: text,
+        timestamp: new Date().toLocaleTimeString(),
+      },
+      {
+        id: asstMsgId,
+        sender: 'agent',
+        senderName: 'AI 影游总制作人',
+        content: '',
         timestamp: new Date().toLocaleTimeString(),
       },
     ]);
 
     try {
-      await intervene(sessionId, 'character_design', { regenerate_characters: characterIds });
-      await fetchStatus();
+      await streamDirectorChat(
+        sessionId,
+        targetSessionId,
+        text,
+        {
+          onToken: (token) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === asstMsgId ? { ...m, content: m.content + token } : m
+              )
+            );
+          },
+          onProposal: (proposal) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === asstMsgId ? { ...m, actionProposal: proposal } : m
+              )
+            );
+          },
+          onDone: (result) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === asstMsgId
+                  ? {
+                      ...m,
+                      content: result.message.content || m.content,
+                      actionProposal: result.proposal || m.actionProposal,
+                    }
+                  : m
+              )
+            );
+            setIsRunning(false);
+            fetchStatus();
+          },
+          onError: (err) => {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `err_${Date.now()}`,
+                sender: 'system',
+                content: `❌ 导演思考遇到问题: ${err.message}`,
+                timestamp: new Date().toLocaleTimeString(),
+              },
+            ]);
+            setIsRunning(false);
+          },
+        }
+      );
     } catch (err: any) {
-      alert(`生成失败: ${err.message}`);
-    } finally {
+      console.error('[StudioWorkspace] 对话流异常:', err);
       setIsRunning(false);
     }
   };
 
-  // 5. Action: Upload target or reference image for character
+  // 7. Action: Trigger AI character portrait generation
+  const handleTriggerCharacterGen = async (characterIds: string[]) => {
+    await handleExecuteSkill('character-portrait', { targetCharacterNames: characterIds });
+  };
+
+  // 8. Action: Upload target or reference image for character
   const handleUploadCharacterImage = async (
     charId: string,
     type: 'final' | 'reference',
@@ -282,7 +444,7 @@ export default function StudioWorkspace({
     await fetchStatus();
   };
 
-  // 6. Action: Switch selected version of a character
+  // 9. Action: Switch selected version of a character
   const handleSelectCharacterVersion = async (charId: string, versionUrl: string) => {
     if (!sessionId) return;
     try {
@@ -296,28 +458,18 @@ export default function StudioWorkspace({
     }
   };
 
-  // 7. Action: Regenerate single character with optional instruction, base version, and edited prompt
+  // 10. Action: Regenerate single character
   const handleRegenerateSingleCharacter = async (
     charId: string,
     instruction?: string,
     baseVersion?: string,
     editedPrompt?: string
   ) => {
-    if (!sessionId || isRunning) return;
-    setIsRunning(true);
-    try {
-      await intervene(sessionId, 'character_design', {
-        regenerate_characters: [charId],
-        instruction: instruction || '',
-        base_version: baseVersion,
-        edited_prompt: editedPrompt,
-      });
-      await fetchStatus();
-    } catch (err: any) {
-      alert(`生成失败: ${err.message}`);
-    } finally {
-      setIsRunning(false);
-    }
+    await handleExecuteSkill('character-portrait', {
+      targetCharacterNames: [charId],
+      userFeedback: instruction,
+      editedPrompt,
+    });
   };
 
   return (
@@ -346,6 +498,10 @@ export default function StudioWorkspace({
             artifacts={artifacts}
             onSendMessage={handleSendMessage}
             onConfirmNext={handleConfirmNext}
+            onExecuteProposal={handleExecuteProposal}
+            onDismissProposal={handleDismissProposal}
+            onTriggerCriticReview={handleTriggerCriticReview}
+            onCriticDialog={handleCriticDialog}
             onTriggerCharacterGen={handleTriggerCharacterGen}
             onRegenerateSingleCharacter={handleRegenerateSingleCharacter}
             onSelectCharacterVersion={handleSelectCharacterVersion}

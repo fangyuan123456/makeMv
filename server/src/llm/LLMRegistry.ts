@@ -16,15 +16,7 @@ export class LLMRegistry {
     return LLMRegistry.instance;
   }
 
-  public static getInstance(): LLMService {
-    return this.get();
-  }
-
   public static set(service: LLMService): void {
-    LLMRegistry.instance = service;
-  }
-
-  public static register(service: LLMService): void {
     LLMRegistry.instance = service;
   }
 }

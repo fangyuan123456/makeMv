@@ -15,7 +15,11 @@ const nextConfig: NextConfig = {
         source: '/api/sessions/:path*',
         destination: 'http://127.0.0.1:8000/api/sessions/:path*',
       },
-      // 工作流 API
+      // 工作流 API (支持复数 /api/projects 与单数 /api/project/*)
+      {
+        source: '/api/projects',
+        destination: 'http://127.0.0.1:8000/api/projects',
+      },
       {
         source: '/api/project/:path*',
         destination: 'http://127.0.0.1:8000/api/project/:path*',

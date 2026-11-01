@@ -4,9 +4,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   startProject,
-  fetchSessions,
+  fetchProjects,
   deleteSession,
-  continueWorkflow,
 } from '@/lib/workflowApi';
 import StudioWorkspace from './studio/StudioWorkspace';
 import { HistoryItem } from './studio/StudioHeader';
@@ -29,19 +28,27 @@ export default function WorkflowPanel() {
     }
   }, [searchParams]);
 
-  // Load project history
+  // Load project history (严格对齐后端 ProjectStore SSOT 契约)
   const loadHistory = useCallback(async () => {
     try {
-      const sessions = await fetchSessions();
+      const sessions = await fetchProjects();
       setHistory(
-        sessions.map((s: any) => ({
-          id: s.id,
-          idea: (s.title || s.idea || '未命名短剧').slice(0, 60),
-          style: s.style || '',
-          date: s.date ? new Date(s.date * 1000).toLocaleDateString('zh-CN') : '',
-          status: Object.keys(s.status || {}).length > 0 ? 'partial' : 'new',
-          stages: s.status || {},
-        }))
+        sessions.map((s: any) => {
+          const pid = s.projectId || s.id;
+          const idea = s.meta?.idea || s.title || s.idea || '未命名互动影游';
+          const style = s.meta?.style || s.style || '';
+          const dateStr = s.createdAt
+            ? new Date(s.createdAt).toLocaleDateString('zh-CN')
+            : (s.date ? new Date(s.date * 1000).toLocaleDateString('zh-CN') : '');
+          return {
+            id: pid,
+            idea: idea.slice(0, 60),
+            style,
+            date: dateStr,
+            status: typeof s.status === 'string' ? s.status : 'idle',
+            stages: s.stageArtifacts || {},
+          };
+        })
       );
     } catch (err) {
       console.warn('[WorkflowPanel] Failed to fetch session history:', err);
@@ -66,18 +73,11 @@ export default function WorkflowPanel() {
         enable_concurrency: true,
       });
 
-      const newId = result.session_id;
+      const newId = result.projectId;
       setSessionId(newId);
 
       if (typeof window !== 'undefined') {
         window.history.replaceState(null, '', `/?session=${newId}`);
-      }
-
-      // Automatically kick off Step 1 (Narrative Architecture)
-      try {
-        await continueWorkflow(newId);
-      } catch (stepErr) {
-        console.warn('[WorkflowPanel] Initial step start error:', stepErr);
       }
 
       await loadHistory();
