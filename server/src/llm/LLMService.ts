@@ -1,9 +1,15 @@
 /**
  * llm/LLMService.ts
- * 大模型集成服务统一抽象接口
+ * 大模型集成服务统一抽象接口 (Vercel AI SDK SSOT)
  */
 
 import type { LLMUsageRecord } from './telemetry/types.js';
+
+export interface LLMStreamToolCall {
+  toolCallId: string;
+  toolName: string;
+  args: any;
+}
 
 export interface LLMOptions {
   temperature?: number;
@@ -12,6 +18,9 @@ export interface LLMOptions {
   thinkingBudget?: number;
   stage?: string;
   onUsage?: (record: LLMUsageRecord) => void;
+  onThought?: (thought: string) => Promise<void> | void;
+  onToolCall?: (toolCall: LLMStreamToolCall) => Promise<void> | void;
+  tools?: Record<string, any>;
   abortSignal?: AbortSignal;
 }
 

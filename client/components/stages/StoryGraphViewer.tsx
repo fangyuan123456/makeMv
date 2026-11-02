@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   GitBranch,
   CheckCircle2,
@@ -90,8 +90,32 @@ export default function StoryGraphViewer({
   }
 
   const validation = graph.validation;
-  const nodes = graph.nodes;
-  const choices = graph.choices || [];
+  const nodes = useMemo(() => {
+    return (graph.nodes || []).map((n: any) => ({
+      ...n,
+      type: n.type || (n.isEnding ? (n.endingType === 'bad' ? 'bad_end' : 'true_end') : (n.choices && n.choices.length > 1 ? 'decision' : 'plot')),
+    }));
+  }, [graph.nodes]);
+
+  const choices: StoryChoice[] = useMemo(() => {
+    if (graph.choices && graph.choices.length > 0) return graph.choices;
+    const list: StoryChoice[] = [];
+    (graph.nodes || []).forEach((n: any) => {
+      if (Array.isArray(n.choices)) {
+        n.choices.forEach((c: any, idx: number) => {
+          list.push({
+            id: c.id || `${n.id}_c_${idx}`,
+            fromNodeId: n.id,
+            toNodeId: c.targetNodeId || c.toNodeId,
+            choiceText: c.text || c.choiceText || '继续',
+            timeoutSeconds: c.timeoutSeconds,
+            isTimeoutDefault: c.isTimeoutDefault,
+          });
+        });
+      }
+    });
+    return list;
+  }, [graph.choices, graph.nodes]);
 
   const getNodeBadge = (type: string) => {
     switch (type) {

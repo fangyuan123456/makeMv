@@ -5,10 +5,11 @@
  * 核心设计：
  * 1. 彻底去 Agent 化：技能是无状态、纯数据输入输出的可执行算子；
  * 2. 声明式元数据 (SkillManifest)：向 Director Agent 与前端暴露可用技能；
- * 3. 统一执行上下文 (SkillContext) 与标准执行产物 (SkillResult)。
+ * 3. 统一执行上下文 (SkillContext) 与标准执行产物 (SkillResult)；
+ * 4. 显式依赖装配：通过 SkillContext 显式透传 project 与 artifacts，彻底解除对底层持久化单例的隐式耦合。
  */
 
-import type { WorkflowStage } from '../types/index.js';
+import type { WorkflowStage, ProjectEntity } from '../types/index.js';
 
 export type SkillCategory =
   | 'narrative' // 叙事架构与世界观
@@ -36,9 +37,12 @@ export interface SkillContext<TParams = any> {
   projectId: string; // 项目唯一标识 (SSOT)
   sessionId?: string; // 触发该工序的会话 ID
   params: TParams; // 业务入参
+  isRefinement?: boolean; // 🌟 显式指示微调/局部重绘自愈操作（绝不推进阶段）
   userConstraints?: string[]; // 备忘录白板中的刚性禁忌/要求
   abortSignal?: AbortSignal; // 中断信号
   onProgress?: SkillProgressCallback; // 实时进度回调
+  project?: ProjectEntity; // 🌟 显式透传项目全景实体，消灭逆向依赖
+  artifacts?: Record<string, any>; // 🌟 显式透传当前所有阶段产物快照
 }
 
 export interface SkillResult<TData = any> {

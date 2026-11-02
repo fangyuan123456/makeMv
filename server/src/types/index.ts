@@ -2,11 +2,20 @@
  * types/index.ts
  * 现代 Agentic 互动影游全链路业务模型与强类型契约 (Domain Types SSOT)
  *
- * 遵循法典：
- * 1. 契约与磁盘真实代码 100% 绝对 1:1 严密对齐；
- * 2. 现代去 Agent 化架构：AI 导演对话中枢 + 7 大工序标准技能包 + 独立审查官；
+ * 核心机制：
+ * 1. 契约与磁盘真实代码 1:1 严密对齐；
+ * 2. 现代微内核架构：AI 导演对话中枢 + 7 大工序标准技能包 + 独立审查官；
  * 3. 严格全链路单一事实来源 (SSOT)。
  */
+
+import type { StoryBibleArtifact } from '../skills/story-bible/index.js';
+import type { CharacterPortraitArtifact } from '../skills/character-portrait/index.js';
+import type { SceneScriptArtifact } from '../skills/scene-script/index.js';
+import type { StoryboardArtifact } from '../skills/storyboard/index.js';
+import type { KeyframeReferenceArtifact } from '../skills/keyframe-reference/index.js';
+import type { VideoProductionArtifact } from '../skills/video-production/index.js';
+import type { FmvPackagingArtifact } from '../skills/fmv-packaging/index.js';
+import type { ReviewReport } from '../agents/reviewer/index.js';
 
 export enum WorkflowStage {
   INIT = 'init',
@@ -20,7 +29,7 @@ export enum WorkflowStage {
   COMPLETED = 'completed',
 }
 
-/** 🌟 严格对应当前系统中真实已落地的 7 大工序标准执行序列 (SSOT) */
+/** 严格对应当前系统中真实已落地的 7 大工序标准执行序列 */
 export const STAGE_SEQUENCE: WorkflowStage[] = [
   WorkflowStage.NARRATIVE_DESIGN,
   WorkflowStage.CHARACTER_DESIGN,
@@ -32,8 +41,21 @@ export const STAGE_SEQUENCE: WorkflowStage[] = [
 ];
 
 /**
- * 智能体基础输入契约规范 (BaseAgentInput SSOT)
+ * 权威工序阶段产物映射表契约 (StageArtifactMap SSOT)
+ * 彻底消除 stageArtifacts: Record<string, any>，实现强类型约束
  */
+export interface StageArtifactMap {
+  narrative_design: StoryBibleArtifact;
+  character_design: CharacterPortraitArtifact;
+  scene_script: SceneScriptArtifact;
+  storyboard: StoryboardArtifact;
+  keyframe_reference: KeyframeReferenceArtifact;
+  video_production: VideoProductionArtifact;
+  fmv_packaging: FmvPackagingArtifact;
+  critic_review: ReviewReport;
+  [key: `critic_review_${string}`]: ReviewReport | undefined;
+}
+
 export interface BaseAgentInput {
   projectId: string;
   userFeedback?: string;
@@ -54,7 +76,7 @@ export interface StopPoint {
   stage: WorkflowStage;
   title: string;
   description: string;
-  artifactSummary: any;
+  artifactSummary: Record<string, unknown> | string;
   requiresConfirmation: boolean;
   createdAt: string;
 }
@@ -64,34 +86,21 @@ export interface SessionMeta {
   style: string;
   videoRatio: '16:9' | '9:16' | '1:1';
   videoResolution: '480P' | '720P' | '1080P';
-  [key: string]: any;
-}
-
-export interface SessionChatMessage {
-  id: string;
-  sender: 'user' | 'agent' | 'system';
-  senderName?: string;
-  content: string;
-  thought?: string;
-  thinkingDurationSec?: number;
-  timestamp: string;
-  stage?: WorkflowStage | string;
-  stopPoint?: StopPoint;
+  userConstraints?: string[];
+  [key: string]: unknown;
 }
 
 /**
- * 核心工作流项目状态模型 (SSOT)
- * 全链路统一定位为 projectId
+ * 核心工作流项目聚合根领域模型 (ProjectEntity SSOT)
  */
-export interface WorkflowSession {
+export interface ProjectEntity {
   projectId: string;
   title: string;
   meta: SessionMeta;
   currentStage: WorkflowStage;
   status: SessionStatus;
   currentStopPoint?: StopPoint;
-  stageArtifacts: Record<string, any>;
-  messages?: SessionChatMessage[];
+  stageArtifacts: Partial<StageArtifactMap> & Record<string, any>;
   history: Array<{
     timestamp: string;
     stage: WorkflowStage;
@@ -101,6 +110,8 @@ export interface WorkflowSession {
   createdAt: string;
   updatedAt: string;
 }
+
+export type WorkflowSession = ProjectEntity;
 
 export interface JobContext {
   projectId: string;

@@ -5,7 +5,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { config } from '../../utils/config.js';
+import { ProjectStore } from '../../project-store/ProjectStore.js';
 import type { IImageProvider, ImageGenerationOptions } from './ImageProvider.js';
 import type { IVideoProvider, VideoGenerationOptions } from './VideoProvider.js';
 
@@ -98,7 +98,7 @@ export class DashScopeMediaProvider implements IImageProvider, IVideoProvider {
         // 🌟 解决公网模型无法访问本地相对路径：自动定位本地物理文件并编码为合规 Base64 Data URI
         try {
           const parts = refUrl.replace(/^\/media\//, '').split('/');
-          const localDiskPath = path.join(config.paths.projects, ...parts);
+          const localDiskPath = path.join(ProjectStore.getInstance().getProjectDir(parts[0]), ...parts.slice(1));
           if (fs.existsSync(localDiskPath) && fs.statSync(localDiskPath).size > 0) {
             const ext = path.extname(localDiskPath).toLowerCase();
             const mime = ext === '.png' ? 'image/png' : 'image/jpeg';

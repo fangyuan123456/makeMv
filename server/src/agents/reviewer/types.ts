@@ -37,6 +37,13 @@ export interface ReviewReport {
   polishSuggestions: string[];
   verdict: string; // 终审一句话评语
   reviewedAt: string;
+  debateLogs?: Array<{
+    userMessage: string;
+    reply: string;
+    isDefenseAccepted: boolean;
+    reassessedGateStatus?: ReviewGateStatus;
+    timestamp: string;
+  }>;
   isStale?: boolean; // 🌟 是否已因产物重新生成而失效
   staleReason?: string; // 🌟 失效原因说明
 }

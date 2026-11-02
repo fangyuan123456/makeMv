@@ -9,15 +9,84 @@ import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { config } from '../utils/config.js';
-import type { WorkflowSession } from '../types/index.js';
+import type { ProjectEntity } from '../types/index.js';
 import type { IProjectStateStore } from './IProjectStateStore.js';
 import type { ProjectStateSnapshot } from './types.js';
 import type { ChatSession, ChatMessage, ScratchpadMemory } from '../chat/session/types.js';
 
+/**
+ * 🌟 工业级原子写入助手：写入临时文件后执行原子重命名，彻底杜绝断电或崩溃导致 JSON 损坏
+ */
+function atomicWriteJsonSync(filePath: string, data: any): void {
+  const tmpPath = `${filePath}.${randomUUID().slice(0, 8)}.tmp`;
+  try {
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, filePath);
+  } catch (err) {
+    if (fs.existsSync(tmpPath)) {
+      try {
+        fs.unlinkSync(tmpPath);
+      } catch {
+        // 静默清理失败的临时文件
+      }
+    }
+    throw err;
+  }
+}
+
+/**
+ * 🌟 轻量级 LRU 有界内存缓存：防止海量历史会话与消息长期霸占内存引发 OOM
+ */
+class BoundedCache<K, V> {
+  private cache = new Map<K, V>();
+  constructor(private readonly maxSize: number = 50) {}
+
+  public get(key: K): V | undefined {
+    const value = this.cache.get(key);
+    if (value !== undefined) {
+      this.cache.delete(key);
+      this.cache.set(key, value);
+    }
+    return value;
+  }
+
+  public set(key: K, value: V): void {
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+    } else if (this.cache.size >= this.maxSize) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.cache.delete(oldestKey);
+      }
+    }
+    this.cache.set(key, value);
+  }
+
+  public has(key: K): boolean {
+    return this.cache.has(key);
+  }
+
+  public delete(key: K): boolean {
+    return this.cache.delete(key);
+  }
+
+  public deletePrefix(prefix: string): void {
+    for (const key of this.cache.keys()) {
+      if (typeof key === 'string' && key.startsWith(prefix)) {
+        this.cache.delete(key);
+      }
+    }
+  }
+
+  public clear(): void {
+    this.cache.clear();
+  }
+}
+
 export class FileProjectStateStore implements IProjectStateStore {
-  private projects = new Map<string, WorkflowSession>();
-  private sessionCache = new Map<string, ChatSession>();
-  private messageCache = new Map<string, ChatMessage[]>();
+  private projects = new Map<string, ProjectEntity>();
+  private sessionCache = new BoundedCache<string, ChatSession>(100);
+  private messageCache = new BoundedCache<string, ChatMessage[]>(100);
 
   constructor() {
     this.hydrateFromDisk();
@@ -52,7 +121,7 @@ export class FileProjectStateStore implements IProjectStateStore {
     }
   }
 
-  public getProject(projectId: string): WorkflowSession | undefined {
+  public getProject(projectId: string): ProjectEntity | undefined {
     if (this.projects.has(projectId)) {
       return this.projects.get(projectId);
     }
@@ -72,7 +141,7 @@ export class FileProjectStateStore implements IProjectStateStore {
     return undefined;
   }
 
-  public saveProject(project: WorkflowSession): void {
+  public saveProject(project: ProjectEntity): void {
     const pid = project.projectId;
     this.projects.set(pid, project);
 
@@ -82,7 +151,7 @@ export class FileProjectStateStore implements IProjectStateStore {
     }
     const filePath = path.join(dir, 'project.json');
     try {
-      fs.writeFileSync(filePath, JSON.stringify(project, null, 2), 'utf-8');
+      atomicWriteJsonSync(filePath, project);
     } catch (err) {
       console.error(`[FileProjectStateStore] 持久化项目 ${pid} 失败:`, err);
     }
@@ -90,6 +159,9 @@ export class FileProjectStateStore implements IProjectStateStore {
 
   public deleteProject(projectId: string): void {
     this.projects.delete(projectId);
+    this.sessionCache.deletePrefix(`${projectId}:`);
+    this.messageCache.deletePrefix(`${projectId}:`);
+
     const dir = path.join(config.paths.projects, projectId);
     if (fs.existsSync(dir)) {
       try {
@@ -100,7 +172,7 @@ export class FileProjectStateStore implements IProjectStateStore {
     }
   }
 
-  public listProjects(): WorkflowSession[] {
+  public listProjects(): ProjectEntity[] {
     return Array.from(this.projects.values());
   }
 
@@ -113,6 +185,13 @@ export class FileProjectStateStore implements IProjectStateStore {
     const project = this.getProject(projectId);
     if (project) {
       if (!project.stageArtifacts) project.stageArtifacts = {};
+      const now = new Date().toISOString();
+      if (artifact && typeof artifact === 'object') {
+        if (!(artifact as any).createdAt) {
+          (artifact as any).createdAt = now;
+        }
+        (artifact as any).updatedAt = now;
+      }
       project.stageArtifacts[stage] = artifact;
       project.updatedAt = new Date().toISOString();
       this.saveProject(project);
@@ -140,18 +219,62 @@ export class FileProjectStateStore implements IProjectStateStore {
   public createSession(
     projectId: string,
     title: string = '新创作会话',
-    initialStage?: string
+    initialStage?: string,
+    customSessionId?: string
   ): ChatSession {
-    const sessionId = `chat_${Date.now()}_${randomUUID().slice(0, 6)}`;
+    const sessionId = customSessionId || `chat_${Date.now()}_${randomUUID().slice(0, 6)}`;
     const now = new Date().toISOString();
     const project = this.getProject(projectId);
 
+    // 权威工序资产预热：新会话无缝继承既有故事圣经中的角色与主干，消除资产失忆
+    const bible = project?.stageArtifacts?.['narrative_design'];
+    let themeAndStyle = project?.meta?.style || '';
+    let logline = project?.meta?.idea || project?.title || '';
+    let charactersSummary = '';
+    let storySpine = '';
+
+    if (bible) {
+      if (bible.title || bible.theme || bible.style) {
+        themeAndStyle = `《${bible.title || '未命名'}》 | ${bible.theme || ''} | ${bible.style || ''}`;
+      }
+      if (bible.logline) {
+        logline = bible.logline;
+      }
+      if (Array.isArray(bible.characters) && bible.characters.length > 0) {
+        charactersSummary = bible.characters
+          .map((c: any) => `* 【${c.name}】(${c.role || '角色'}): 动机: ${c.motivation || '未详'} | 骨相特征: ${c.appearance || c.appearancePrompt || '未详'}`)
+          .join('\n');
+      }
+      if (Array.isArray(bible.goldenSpine) && bible.goldenSpine.length > 0) {
+        storySpine = bible.goldenSpine
+          .map((act: any, idx: number) => `第${idx + 1}幕 [${act.name}]: ${act.summary || ''}`)
+          .join('\n');
+      }
+    }
+
+    // 🌟 角色视觉定妆锚点预热：继承已确立的发型、服饰与视觉锚点
+    const charArtifact = project?.stageArtifacts?.['character_design'];
+    let characterVisualAnchors = '';
+    if (charArtifact && Array.isArray(charArtifact.characters) && charArtifact.characters.length > 0) {
+      characterVisualAnchors = charArtifact.characters
+        .map((c: any) => `* 【${c.name}】(${c.imageUrl ? '✓ 定妆已锁定' : '待生成'})${c.appearance ? ` | 外貌: ${c.appearance}` : ''}${c.visualPrompt ? ` | 标志性外观: ${c.visualPrompt}` : ''}`)
+        .join('\n');
+    }
+
+    // 🌟 禁忌红线无缝继承 (Project SSOT)：新会话优先继承项目元数据或前序会话中已确立的创作者禁忌要求，拒绝归零
+    const existingSessions = this.listSessions(projectId);
+    const existingConstraints = existingSessions.find((s) => Array.isArray(s.scratchpad?.userConstraints) && s.scratchpad.userConstraints.length > 0)
+      ?.scratchpad.userConstraints || [];
+    const projectConstraints = (project?.meta as any)?.userConstraints || [];
+    const inheritedConstraints = Array.from(new Set([...projectConstraints, ...existingConstraints]));
+
     const scratchpad: ScratchpadMemory = {
-      themeAndStyle: project?.meta?.style || '',
-      logline: project?.meta?.idea || project?.title || '',
-      charactersSummary: '',
-      storySpine: '',
-      userConstraints: [],
+      themeAndStyle,
+      logline,
+      charactersSummary,
+      characterVisualAnchors: characterVisualAnchors || undefined,
+      storySpine,
+      userConstraints: inheritedConstraints,
       lastUpdatedAt: now,
     };
 
@@ -214,14 +337,22 @@ export class FileProjectStateStore implements IProjectStateStore {
       for (const entry of entries) {
         if (entry.isDirectory()) {
           const s = this.getSession(projectId, entry.name);
-          if (s) sessions.push(s);
+          if (s) {
+            const messages = this.getMessages(projectId, entry.name);
+            (s as any)._messageCount = messages.length;
+            sessions.push(s);
+          }
         }
       }
     } catch (err) {
       console.warn(`[FileProjectStateStore] 遍历会话失败:`, err);
     }
 
-    return sessions.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    // 🌟 幽灵空目录自愈防御：若存在真实创作会话，自动过滤 0 消息的幽灵空会话，彻底根绝聊天记录丢失
+    const hasActiveSessions = sessions.some((s: any) => s._messageCount > 0);
+    const validSessions = hasActiveSessions ? sessions.filter((s: any) => s._messageCount > 0) : sessions;
+
+    return validSessions.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   }
 
   public saveSession(session: ChatSession): void {
@@ -236,7 +367,7 @@ export class FileProjectStateStore implements IProjectStateStore {
     const dir = this.getChatDir(session.projectId, session.sessionId);
     const sessionFile = path.join(dir, 'session.json');
     try {
-      fs.writeFileSync(sessionFile, JSON.stringify(session, null, 2), 'utf-8');
+      atomicWriteJsonSync(sessionFile, session);
     } catch (err) {
       console.error(`[FileProjectStateStore] 保存会话失败: ${sessionFile}`, err);
     }
@@ -270,7 +401,7 @@ export class FileProjectStateStore implements IProjectStateStore {
     const dir = this.getChatDir(projectId, sessionId);
     const messagesFile = path.join(dir, 'messages.json');
     try {
-      fs.writeFileSync(messagesFile, JSON.stringify(messages, null, 2), 'utf-8');
+      atomicWriteJsonSync(messagesFile, messages);
     } catch (err) {
       console.error(`[FileProjectStateStore] 保存消息流失败: ${messagesFile}`, err);
     }
@@ -314,6 +445,16 @@ export class FileProjectStateStore implements IProjectStateStore {
       lastUpdatedAt: new Date().toISOString(),
     };
 
+    // 🌟 全局禁忌项目级沉淀 (Project SSOT)
+    if (patch.userConstraints && Array.isArray(patch.userConstraints)) {
+      const project = this.getProject(projectId);
+      if (project) {
+        if (!project.meta) (project as any).meta = {};
+        (project.meta as any).userConstraints = patch.userConstraints;
+        this.saveProject(project);
+      }
+    }
+
     this.saveSession(session);
     return session.scratchpad;
   }
@@ -330,5 +471,7 @@ export class FileProjectStateStore implements IProjectStateStore {
 
   public destroy(projectId: string): void {
     this.projects.delete(projectId);
+    this.sessionCache.deletePrefix(`${projectId}:`);
+    this.messageCache.deletePrefix(`${projectId}:`);
   }
 }

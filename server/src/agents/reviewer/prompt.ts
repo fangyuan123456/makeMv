@@ -18,6 +18,135 @@ export const CRITIC_REVIEWER_SYSTEM_PROMPT = `你是一位享誉业界的资深�
 - FAIL (🔴刚性阻断)：综合评分 < 60，或存在致命逻辑断裂、角色严重降智、或者严重的假选择，必须刚性阻断并要求整改。`.trim();
 
 /**
+ * 🌟 权威视听资产轻量化语义提取器：剥离冗余参数，保留核心戏剧因果语义与精准视听细节 (对齐 7 大工序标准契约)
+ */
+function pruneAssetForAudit(stage: string, rawAsset: any): any {
+  if (!rawAsset || typeof rawAsset !== 'object') return rawAsset;
+
+  switch (stage) {
+    case 'narrative_design': {
+      const chars = Array.isArray(rawAsset.characters) ? rawAsset.characters : [];
+      return {
+        title: rawAsset.title,
+        logline: rawAsset.logline,
+        theme: rawAsset.theme,
+        style: rawAsset.style,
+        goldenSpine: rawAsset.goldenSpine?.map((g: any) => ({
+          act: g.act,
+          name: g.name,
+          summary: g.summary,
+          cliffhanger: g.cliffhanger,
+        })),
+        pivotPoints: rawAsset.pivotPoints?.macroPivotPoints?.map((p: any) => ({
+          act: p.act,
+          decisionMoment: p.decisionMoment,
+          choices: p.choices?.map((c: any) => ({
+            text: c.text,
+            dramaticImpact: c.dramaticImpact,
+          })),
+        })),
+        endingsCount: rawAsset.storyGraph?.endingsCount,
+        characters: chars.map((c: any) => ({
+          name: c.name,
+          role: c.role,
+          motivation: c.motivation,
+          personality: c.personality,
+          appearance: c.appearance,
+        })),
+      };
+    }
+    case 'character_design': {
+      const list = Array.isArray(rawAsset.characters) ? rawAsset.characters : [];
+      return {
+        totalCharacters: rawAsset.totalCharacters || list.length,
+        style: rawAsset.style,
+        characters: list.map((c: any) => ({
+          name: c.name,
+          role: c.role,
+          appearance: c.appearance,
+          visualPrompt: c.visualPrompt,
+          isRendered: Boolean(c.imageUrl),
+        })),
+      };
+    }
+    case 'scene_script': {
+      const scenes = Array.isArray(rawAsset.scenes) ? rawAsset.scenes : [];
+      return {
+        totalScenes: rawAsset.totalScenes || scenes.length,
+        scenesOverview: scenes.slice(0, 15).map((sc: any) => ({
+          nodeId: sc.nodeId,
+          act: sc.act,
+          sceneTitle: sc.sceneTitle,
+          location: sc.location,
+          timeOfDay: sc.timeOfDay,
+          actionSummary: sc.actionSummary,
+          dialoguesSummary: sc.dialogues?.map((d: any) => `${d.speaker}: ${d.line}`).slice(0, 4),
+          interactionMoment: sc.interactionMoment,
+        })),
+      };
+    }
+    case 'storyboard': {
+      const shots = Array.isArray(rawAsset.shots) ? rawAsset.shots : [];
+      return {
+        totalShots: rawAsset.totalShots || shots.length,
+        estimatedTotalDurationSec: rawAsset.estimatedTotalDurationSec,
+        shots: shots.slice(0, 25).map((s: any) => ({
+          shotId: s.shotId,
+          nodeId: s.nodeId,
+          shotNumber: s.shotNumber,
+          shotScale: s.shotScale,
+          cameraMovement: s.cameraMovement,
+          durationSec: s.durationSec,
+          visualComposition: s.visualComposition,
+          audioPrompt: s.audioPrompt,
+        })),
+      };
+    }
+    case 'keyframe_reference': {
+      const shots = Array.isArray(rawAsset.shots) ? rawAsset.shots : [];
+      return {
+        totalKeyframes: rawAsset.totalKeyframes || shots.length,
+        completedKeyframes: rawAsset.completedKeyframes,
+        keyframes: shots.slice(0, 25).map((k: any) => ({
+          shotId: k.shotId,
+          shotNumber: k.shotNumber,
+          prompt: k.prompt,
+          isRendered: Boolean(k.imageUrl),
+        })),
+      };
+    }
+    case 'video_production': {
+      const clips = Array.isArray(rawAsset.clips) ? rawAsset.clips : [];
+      return {
+        totalClips: rawAsset.totalClips || clips.length,
+        totalDurationSec: rawAsset.totalDurationSec,
+        clips: clips.slice(0, 25).map((c: any) => ({
+          clipId: c.clipId,
+          shotId: c.shotId,
+          durationSec: c.durationSec,
+          resolution: c.resolution,
+          ratio: c.ratio,
+          isRendered: Boolean(c.videoUrl),
+        })),
+      };
+    }
+    case 'fmv_packaging': {
+      return {
+        title: rawAsset.title,
+        totalNodes: rawAsset.totalNodes,
+        totalClips: rawAsset.totalClips,
+        totalEndings: rawAsset.totalEndings,
+        playableDurationSec: rawAsset.playableDurationSec,
+        status: rawAsset.status,
+        gameManifestUrl: rawAsset.gameManifestUrl,
+      };
+    }
+    default:
+      return rawAsset;
+  }
+}
+
+/**
  * 组装跨工序全景交叉穿透审计 Prompt
  */
 export function buildPanoramicAuditPrompt(
@@ -42,34 +171,41 @@ export function buildPanoramicAuditPrompt(
     prompt += `【创作者预设的刚性底线与禁忌 (Hard Constraints)】：\n${userConstraints.map((c) => `- ${c}`).join('\n')}\n\n`;
   }
 
-  prompt += `================= 🎬 项目全景资产交叉审计数据 (全链路 7 大阶段快照) =================\n\n`;
+  prompt += `================= 🎬 项目全景资产交叉审计数据 (全链路 7 大阶段精简语义快照) =================\n\n`;
 
   if (panoramicAssets.storyBible) {
-    prompt += `【1. 故事世界观圣经 (Story Bible Snapshot)】：\n\`\`\`json\n${JSON.stringify(panoramicAssets.storyBible, null, 2)}\n\`\`\`\n\n`;
+    const pruned = pruneAssetForAudit('narrative_design', panoramicAssets.storyBible);
+    prompt += `【1. 故事世界观圣经 (Story Bible Snapshot)】：\n\`\`\`json\n${JSON.stringify(pruned, null, 2)}\n\`\`\`\n\n`;
   }
 
   if (panoramicAssets.characterDesigns) {
-    prompt += `【2. 角色档案与定妆设定 (Character Designs Snapshot)】：\n\`\`\`json\n${JSON.stringify(panoramicAssets.characterDesigns, null, 2)}\n\`\`\`\n\n`;
+    const pruned = pruneAssetForAudit('character_design', panoramicAssets.characterDesigns);
+    prompt += `【2. 角色档案与定妆设定 (Character Designs Snapshot)】：\n\`\`\`json\n${JSON.stringify(pruned, null, 2)}\n\`\`\`\n\n`;
   }
 
   if (panoramicAssets.sceneScript) {
-    prompt += `【3. 分场剧本与交互抉择分支 (Scene Script Snapshot)】：\n\`\`\`json\n${JSON.stringify(panoramicAssets.sceneScript, null, 2)}\n\`\`\`\n\n`;
+    const pruned = pruneAssetForAudit('scene_script', panoramicAssets.sceneScript);
+    prompt += `【3. 分场剧本与交互抉择分支 (Scene Script Snapshot)】：\n\`\`\`json\n${JSON.stringify(pruned, null, 2)}\n\`\`\`\n\n`;
   }
 
   if (panoramicAssets.storyboard) {
-    prompt += `【4. 视听分镜与运镜构图 (Storyboard Snapshot)】：\n\`\`\`json\n${JSON.stringify(panoramicAssets.storyboard, null, 2)}\n\`\`\`\n\n`;
+    const pruned = pruneAssetForAudit('storyboard', panoramicAssets.storyboard);
+    prompt += `【4. 视听分镜与运镜构图 (Storyboard Snapshot)】：\n\`\`\`json\n${JSON.stringify(pruned, null, 2)}\n\`\`\`\n\n`;
   }
 
   if (panoramicAssets.keyframes) {
-    prompt += `【5. 关键帧渲染画面 (Keyframe References Snapshot)】：\n\`\`\`json\n${JSON.stringify(panoramicAssets.keyframes, null, 2)}\n\`\`\`\n\n`;
+    const pruned = pruneAssetForAudit('keyframe_reference', panoramicAssets.keyframes);
+    prompt += `【5. 关键帧渲染画面 (Keyframe References Snapshot)】：\n\`\`\`json\n${JSON.stringify(pruned, null, 2)}\n\`\`\`\n\n`;
   }
 
   if (panoramicAssets.videoClips) {
-    prompt += `【6. 动态视频切片 (Video Clips Snapshot)】：\n\`\`\`json\n${JSON.stringify(panoramicAssets.videoClips, null, 2)}\n\`\`\`\n\n`;
+    const pruned = pruneAssetForAudit('video_production', panoramicAssets.videoClips);
+    prompt += `【6. 动态视频切片 (Video Clips Snapshot)】：\n\`\`\`json\n${JSON.stringify(pruned, null, 2)}\n\`\`\`\n\n`;
   }
 
   if (panoramicAssets.fmvPackaging) {
-    prompt += `【7. 影游装配母带 (FMV Packaging Manifest Snapshot)】：\n\`\`\`json\n${JSON.stringify(panoramicAssets.fmvPackaging, null, 2)}\n\`\`\`\n\n`;
+    const pruned = pruneAssetForAudit('fmv_packaging', panoramicAssets.fmvPackaging);
+    prompt += `【7. 影游装配母带 (FMV Packaging Manifest Snapshot)】：\n\`\`\`json\n${JSON.stringify(pruned, null, 2)}\n\`\`\`\n\n`;
   }
 
   if (userFeedback) {
@@ -100,7 +236,8 @@ export function buildCriticDialogPrompt(
   projectName: string,
   targetStage: string,
   userMessage: string,
-  previousReport?: any
+  previousReport?: any,
+  dialogHistory?: Array<{ role: string; content: string }>
 ): string {
   let prompt = `【项目名称】：《${projectName}》\n`;
   prompt += `【审查工序】：${targetStage}\n\n`;
@@ -112,7 +249,17 @@ export function buildCriticDialogPrompt(
     prompt += `- 关键瑕疵: ${JSON.stringify(previousReport.criticalFlaws, null, 2)}\n\n`;
   }
 
-  prompt += `【创作者对上述挑刺发起的辩护或质询】：\n"${userMessage}"\n\n`;
+  if (dialogHistory && dialogHistory.length > 0) {
+    // 🌟 滑动窗口保护 (防长程 Token 爆炸)：保留最近 6 轮交锋
+    const recentHistory = dialogHistory.slice(-6);
+    prompt += `【创作者与剧本医生前续对辩历史 (最近${recentHistory.length}轮)】：\n`;
+    for (const d of recentHistory) {
+      prompt += `${d.role === 'user' ? '创作者' : '审查官'}: ${d.content}\n`;
+    }
+    prompt += `\n`;
+  }
+
+  prompt += `【创作者本次对上述挑刺发起的最新辩护或质询】：\n"${userMessage}"\n\n`;
   prompt += `请基于好莱坞高工业级编剧与叙事规律，进行专业、犀利且建设性的回应。判断创作者的辩护是否具备戏剧成立性，并输出针对性评述。`;
 
   return prompt;

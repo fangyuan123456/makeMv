@@ -7,6 +7,11 @@ const nextConfig: NextConfig = {
         source: '/code/:path*',
         destination: 'http://127.0.0.1:8000/code/:path*',
       },
+      // 🌟 双核智能体对话与审查官 API
+      {
+        source: '/api/chat/:path*',
+        destination: 'http://127.0.0.1:8000/api/chat/:path*',
+      },
       {
         source: '/api/sessions',
         destination: 'http://127.0.0.1:8000/api/sessions',

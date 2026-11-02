@@ -154,9 +154,9 @@ export class FmvPackagingSkill extends BaseSkill<FmvPackagingParams, FmvPackagin
     };
 
     // 写入状态黑板并将项目置为 COMPLETED
-    store.setArtifact(projectId, WorkflowStage.FMV_PACKAGING, artifact);
+
     if (project) {
-      project.currentStage = WorkflowStage.COMPLETED;
+
       project.status = SessionStatus.COMPLETED;
       store.saveProject(project);
     }

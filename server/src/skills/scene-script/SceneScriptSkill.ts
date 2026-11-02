@@ -11,34 +11,18 @@ import { WorkflowStage } from '../../types/index.js';
 import { ProjectStore } from '../../project-store/ProjectStore.js';
 import { LLMRegistry } from '../../llm/LLMRegistry.js';
 import { SCENE_SCRIPT_SYSTEM_PROMPT, buildSceneScriptPrompt } from './prompt.js';
+import {
+  SceneScriptBatchOutputSchema,
+  type ScriptSceneNode,
+  type SceneScriptArtifact,
+  type SceneScriptBatchOutput,
+} from './schema.js';
 
 export interface SceneScriptParams {
   userFeedback?: string;
 }
 
-export interface DialogueLine {
-  speaker: string;
-  line: string;
-  parenthetical?: string;
-}
-
-export interface ScriptSceneNode {
-  nodeId: string;
-  act: number;
-  sceneTitle: string;
-  location: string;
-  timeOfDay: string;
-  actionSummary: string;
-  dialogues: DialogueLine[];
-  interactionMoment?: string;
-}
-
-export interface SceneScriptArtifact {
-  title: string;
-  scenes: ScriptSceneNode[];
-  totalScenes: number;
-  createdAt: string;
-}
+export { type DialogueLine, type ScriptSceneNode, type SceneScriptArtifact } from './schema.js';
 
 export class SceneScriptSkill extends BaseSkill<SceneScriptParams, SceneScriptArtifact> {
   public readonly manifest: SkillManifest = {
@@ -75,41 +59,6 @@ export class SceneScriptSkill extends BaseSkill<SceneScriptParams, SceneScriptAr
     const theme = narrative.theme || '未知主题';
     const characters = narrative.characters || [];
 
-    const schema = {
-      type: 'object',
-      properties: {
-        scenes: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              nodeId: { type: 'string' },
-              act: { type: 'number' },
-              sceneTitle: { type: 'string' },
-              location: { type: 'string' },
-              timeOfDay: { type: 'string' },
-              actionSummary: { type: 'string' },
-              dialogues: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    speaker: { type: 'string' },
-                    line: { type: 'string' },
-                    parenthetical: { type: 'string' },
-                  },
-                  required: ['speaker', 'line'],
-                },
-              },
-              interactionMoment: { type: 'string' },
-            },
-            required: ['nodeId', 'sceneTitle', 'location', 'timeOfDay', 'actionSummary', 'dialogues'],
-          },
-        },
-      },
-      required: ['scenes'],
-    };
-
     // 🌟 全量分块批处理 (Chunking)，每批次最多 5 个节点，彻底避免单次大文本超限或截断
     const CHUNK_SIZE = 5;
     const allScenes: ScriptSceneNode[] = [];
@@ -126,9 +75,9 @@ export class SceneScriptSkill extends BaseSkill<SceneScriptParams, SceneScriptAr
       );
 
       const prompt = buildSceneScriptPrompt(title, theme, characters, chunk, params.userFeedback);
-      const result = await llm.generateObject<{ scenes: ScriptSceneNode[] }>(
+      const result = await llm.generateObject<SceneScriptBatchOutput>(
         prompt,
-        schema,
+        SceneScriptBatchOutputSchema,
         SCENE_SCRIPT_SYSTEM_PROMPT,
         {
           stage: 'scene_script',
@@ -150,9 +99,9 @@ export class SceneScriptSkill extends BaseSkill<SceneScriptParams, SceneScriptAr
     };
 
     // 写入状态黑板并推进项目阶段
-    store.setArtifact(projectId, WorkflowStage.SCENE_SCRIPT, artifact);
+
     if (project) {
-      project.currentStage = WorkflowStage.STORYBOARD;
+
       store.saveProject(project);
     }
 

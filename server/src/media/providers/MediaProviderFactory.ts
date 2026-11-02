@@ -7,6 +7,7 @@ import { config } from '../../utils/config.js';
 import type { IImageProvider } from './ImageProvider.js';
 import type { IVideoProvider } from './VideoProvider.js';
 import { DashScopeMediaProvider } from './DashScopeMediaProvider.js';
+import { ComfyUIMediaProvider } from './ComfyUIMediaProvider.js';
 
 export class MediaProviderFactory {
   private static imageProviderInstance?: IImageProvider | null;
@@ -22,6 +23,12 @@ export class MediaProviderFactory {
     }
 
     const providerType = config.image.provider;
+
+    // 优先匹配 ComfyUI 机床 (由本地/云端服务直接驱动，无需 API Key)
+    if (providerType === 'comfyui') {
+      this.imageProviderInstance = new ComfyUIMediaProvider(config.comfyui.baseUrl);
+      return this.imageProviderInstance;
+    }
     const apiKey = config.image.apiKey || process.env.DASHSCOPE_API_KEY || (providerType === 'dashscope' ? config.llm.apiKey : '');
 
     if (providerType === 'mock' || !apiKey) {
@@ -49,6 +56,12 @@ export class MediaProviderFactory {
     }
 
     const providerType = config.video.provider;
+
+    // 优先匹配 ComfyUI 机床 (由本地/云端服务直接驱动，无需 API Key)
+    if (providerType === 'comfyui') {
+      this.videoProviderInstance = new ComfyUIMediaProvider(config.comfyui.baseUrl);
+      return this.videoProviderInstance;
+    }
     const apiKey = config.video.apiKey || process.env.DASHSCOPE_API_KEY || (providerType === 'dashscope' ? config.llm.apiKey : '');
 
     if (providerType === 'mock' || !apiKey) {

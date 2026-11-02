@@ -4,21 +4,21 @@
  */
 
 import { randomUUID } from 'crypto';
-import type { WorkflowSession } from '../types/index.js';
+import type { ProjectEntity } from '../types/index.js';
 import type { IProjectStateStore } from './IProjectStateStore.js';
 import type { ProjectStateSnapshot } from './types.js';
 import type { ChatSession, ChatMessage, ScratchpadMemory } from '../chat/session/types.js';
 
 export class MemoryProjectStateStore implements IProjectStateStore {
-  private projects = new Map<string, WorkflowSession>();
+  private projects = new Map<string, ProjectEntity>();
   private sessions = new Map<string, ChatSession>();
   private messages = new Map<string, ChatMessage[]>();
 
-  public getProject(projectId: string): WorkflowSession | undefined {
+  public getProject(projectId: string): ProjectEntity | undefined {
     return this.projects.get(projectId);
   }
 
-  public saveProject(project: WorkflowSession): void {
+  public saveProject(project: ProjectEntity): void {
     const pid = project.projectId;
     this.projects.set(pid, project);
   }
@@ -27,7 +27,7 @@ export class MemoryProjectStateStore implements IProjectStateStore {
     this.projects.delete(projectId);
   }
 
-  public listProjects(): WorkflowSession[] {
+  public listProjects(): ProjectEntity[] {
     return Array.from(this.projects.values());
   }
 
@@ -66,9 +66,10 @@ export class MemoryProjectStateStore implements IProjectStateStore {
   public createSession(
     projectId: string,
     title: string = '新创作会话',
-    initialStage?: string
+    initialStage?: string,
+    customSessionId?: string
   ): ChatSession {
-    const sessionId = `chat_${Date.now()}_${randomUUID().slice(0, 6)}`;
+    const sessionId = customSessionId || `chat_${Date.now()}_${randomUUID().slice(0, 6)}`;
     const now = new Date().toISOString();
     const project = this.getProject(projectId);
 

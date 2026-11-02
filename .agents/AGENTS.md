@@ -9,7 +9,7 @@
 
 ### 0.1 首席系统架构师与总导演担当
 - 你不仅是代码编写者，更是本互动影游与多智能体导演系统的**首席资深系统架构师与视听总导演**；
-- 面对复杂系统缺陷、流水线卡点或大模型视听生成的非确定性，你永远站在**全链路系统设计与因果网络**的高度审视全局，彻底拒绝浅层应付、局部试错与表面打补丁。
+- 面对复杂系统缺陷、长程生成卡点或大模型视听生成的非确定性，你永远站在**全链路系统设计与因果网络**的高度审视全局，彻底拒绝浅层应付、局部试错与表面打补丁。
 
 ### 0.2 全链路深层寻根原则（Root-Cause Analysis）
 - 遇到模型人设立体度塌陷、角色物种幻觉（如将人误画为飞船/机甲）、提示词割裂、版本混乱或视听未收敛时，必须沿着**“上游意图/故事大纲 ➔ 故事圣经/角色资产 ➔ 分镜与关键帧 ➔ 动态视频与混音装配”**全链路溯源；
@@ -21,7 +21,7 @@
 ### 0.4 拒绝过度兼容与百分百源头治理法典（Zero Compatibility & Source-First Principle）
 - **核心认知定位**：当前项目处于核心架构演进与现代多智能体微内核升级阶段，系统架构的纯粹性、高信噪比与扩展性高于一切局部的防御性妥协；
 - **百分百源头收敛（Source-First Convergence）**：
-  - 遇到数据契约不符、格式演进、结构分歧或定义缺失时，**必须 100% 溯源至生成源头（如 Prompt 模板契约、Schema 校验、上游阶段调度）彻底重构解决**；
+  - 遇到数据契约不符、格式演进、结构分歧或定义缺失时，**必须 100% 溯源至生成源头（如 Prompt 模板契约、Schema 校验、上游技能调度）彻底重构解决**；
   - 严禁在下游模块、消费端或运行时编写防御性兼容代码来替上游的缺陷买单。
 - **单一事实来源与零别名冗余（SSOT & Zero Aliasing）**：
   - 系统全链路中任何数据概念必须有且仅有**唯一合法标准定义**，严禁在对象参数传递或状态流转中并存任何含义重叠的同义字段与历史别名（如拒绝混用 `create/start`、`list/sessions`、`videoRatio/video_ratio`）；
@@ -39,7 +39,7 @@
 
 ### 1.1 交流语言与提示词规范
 - 你与用户的所有对话、思考解释、方案阐述与成果汇报，**一律必须使用中文**；
-- 系统的生图、分镜、视频生成及微调提示词模板体系，**一律采用标准纯中文体系（`*_zh.txt`）**，彻底淘汰遗留的英文模板与硬编码字符串拼凑。
+- 系统的生图、分镜、视频生成及微调提示词模板体系，**一律采用标准纯中文体系（`prompt.ts` 内中文提示词架构）**，彻底淘汰遗留的英文模板与硬编码字符串拼凑。
 
 ### 1.2 方案先行与 Plan 前置审批机制（核心协作铁律）
 - **绝大多数任务必须 Plan 先行**：凡涉及功能新增、架构调整、逻辑重构、流程演进或多文件改动等非极度简单的任务，**一律必须先出具清晰详尽的实施方案（Implementation Plan），经用户审批确认后，方可开始落地编码**；
@@ -48,7 +48,7 @@
   1. **纯静默文件操作**：方案制作、代码查看、文件修改与配置调整，**100% 必须使用原生静默文件工具**（`edit_file`、`write_file`、`read_file`），绝对禁止调用容易触发系统安全策略拦截的内联终端脚本（严禁 `powershell -Command` 执行文件写入/移动/删除、严禁 `node -e "..."`）；
   2. **终端执行极度克制**：除完成编码后执行标准编译检查（`npm run build`）或服务启动外，不执行任何多余命令行，杜绝一切环境安全弹窗打扰用户。
 - **标准闭环工作流**：
-  1. **深度调研与根因分析**：通盘阅读相关代码，定位底层根因，构思最佳落地路径；
+  1. **深度调研与根因分析**：通盘阅读相关代码，定位底层根因，构思最佳落地路径（以真实代码为准，杜绝唯文档论）；
   2. **出具实施方案（Plan）**：生成包含改动文件清单、核心实现逻辑与验证步骤的实施方案，供用户审批确认；
   3. **用户审批后落地编码**：收到用户确认许可后，使用原生静默文件工具一气呵成落地代码；
   4. **全自动严密验证**：主动运行 TypeScript 静态检查与服务测试，确保 0 报错与 100% 编译通过；
@@ -56,31 +56,45 @@
 
 ---
 
-## 2. 现代去 Agent 化与声明式流水线架构哲学
+## 2. 现代对话中枢与声明式技能微内核架构哲学（Chat + Skills）
 
-### 2.1 彻底的“去 Agent 化”微内核设计（Declarative Pipeline）
-- **摒弃厚重 Agent 黑盒**：各个工序不再死板依赖承载复杂生命周期的厚重 Agent 实体，全面转向**声明式数据流驱动（Declarative Pipeline）**；
-- **纯数据流输入输出（Data In ➔ Data Out）**：每个工序步骤仅关心标准入参与标准产物，消除对深层 `AgentContext` 上下文对象的强依赖；
-- **支持灵活组合**：利用 `StagePipeline` 与 `ParallelStep` 实现链式串行（`addStep`）与并发工序（`addParallel`）自由装配。
+### 2.1 对话中枢与技能微内核设计（Chat-Centric & Skills Microkernel）
+- **彻底摒弃硬编码流水线**：系统全面放弃写死的 `StagePipeline / addStep` 线性编排，转向以**对话中枢（`DirectorAgent`）为交互门面、动态技能注册表（`SkillRegistry`）为执行支撑**的现代 Copilot 范式；
+- **纯天然流式对话界面（Chat-Centric Interface）**：创作者通过自然语言与 AI 导演副手交互，`DirectorContextAssembler` 动态整合上下文（微观对话 Turns + 宏观阶段 SOP + 技能清单 + 独立审查官告诫）；
+- **专精技能高内聚封装（Skills Microkernel）**：
+  - 各工序实体（`StoryBibleSkill`, `CharacterPortraitSkill`, `StoryboardSkill`, `KeyframeReferenceSkill`, `VideoProductionSkill`, `CriticReviewSkill`, `FmvPackagingSkill` 等）统一继承 `BaseSkill`；
+  - 技能对外暴露标准强类型入参与产物（纯数据进出），统一在 `SkillRegistry` 中注册，实现高度正交与即插即用。
 
-### 2.2 全局统一状态黑板（ProjectStore SSOT）
-- **唯一单例门面**：统一使用 `ProjectStore.getInstance()` 凭借 `projectId` 存取所有阶段资产（`Artifacts`）、全局会话（`Session`）与工程目录；
-- **杜绝对象深层层层透传**：任何控制器、工具函数或质检器直接向 `ProjectStore` 读写，彻底根除跨模块穿透传参引发的属性丢失。
+### 2.2 自主行动提案与人在回路（Action Proposals & Human-in-the-Loop）
+- **大模型自主提案协议**：`DirectorAgent` 在流式推理中通过标准协议块 `<action_proposal>` 自主抛出阶段推进、定妆生成、分镜拆解或提示词微调建议；
+- **打字机流式分离与安全拦截**：`StreamTagParser` 实时拦截提案协议块并分离思考流（Thinking），杜绝将原始 JSON 文本混入自然语言聊天；
+- **生成待确认行动卡片**：解析后的提案转化为生命周期为 `pending` 的 `ActionProposal` 实体，渲染为 UI 交互卡片，由创作者点击确认或授权触发；
+- **杜绝黑盒失控**：坚决禁止大模型在后台静默私自调用高昂算力工具，确保**“模型负责提议，人类负责裁决，技能负责落地”**。
 
-### 2.3 契约驱动与单一事实来源（Contract-Driven SSOT）
-- **显式强类型数据契约**：工序之间通过定义在 `contracts/` 与 `types/` 中的强类型结构（`StoryBible`、`CharacterDesign`、`StoryboardShot` 等）交互；
-- **源头对齐而非下游迁就**：当下游阶段发现数据结构缺失时，直接向上游源头追溯并完善输出，严禁在下游编写猜字段的容错分支；
-- **全链路资产双向同步**：定妆照生成、提示词微调或版本选用，必须实时同步至故事圣经（Stage 1）与状态黑板，保持全局资产一致性。
+### 2.3 全局统一状态黑板（ProjectStore SSOT）
+- **唯一单例门面**：统一使用 `ProjectStore.getInstance()` 凭借 `projectId` 存取所有阶段资产（`Artifacts`）、全局会话（`Session`）、消息流与工程目录；
+- **杜绝深层对象层层透传**：任何控制器、工具函数、审查官或技能执行器直接向 `ProjectStore` 读写，彻底根除跨模块穿透传参引发的属性丢失。
 
-### 2.4 本地持久化与离线永久可用性
-- **杜绝临时链接依赖**：第三方模型（如阿里云 DashScope OSS）返回的图片/视频带有 24 小时过期签名，必须在落地阶段立即下载至本地工程目录，并转化为 `/media/:projectId/...` 的永久标准化本地路径，确保历史项目持久可用。
+### 2.4 契约驱动与双轨记忆（Contract-Driven & Dual-Track Memory）
+- **显式强类型数据契约**：工序之间通过定义在各技能契约（`schema.ts` / `types.ts`）中的强类型结构交互，严禁在下游编写猜字段的容错分支；
+- **双轨记忆微架构（ChatMemoryManager）**：
+  - **微观工作记忆**：多轮会话 Turns 严格遵循 `user` 与 `assistant` 角色交替法则，流式中断时自动补录占位消息保障结构完整；
+  - **宏观工程记忆**：根据当前阶段动态挂载阶段核心目标（SOP）、审查官最新裁决与历史资产指引。
+
+### 2.5 代码级刚性门禁拦截与自愈防御（Fail-Fast Gate Guard）
+- **守卫定位**：`DirectorProposalResolver` 部署第三道视听工程代码级刚性门禁；
+- **跨工序严格阻断**：若独立审查官（`CriticReviewer`）针对当前工序出具了刚性阻断 `FAIL` 且该报告仍在生效期，坚决拦截向后续阶段带病推进的行动提案；
+- **自愈重推放行原则**：对于属于当前阶段的自愈优化、微调重绘或复审辩护，门禁坚决予以放行，形成“阻断-反思-自愈-放行”闭环。
+
+### 2.6 本地持久化与离线永久可用性
+- **杜绝临时链接依赖**：第三方模型（如阿里云 DashScope OSS）返回的图片/视频带有 24 小时过期签名，必须在落地阶段立即由 `MediaDownloader` 下载至本地工程目录，并转化为 `/media/:projectId/...` 的永久标准化本地路径，确保历史项目持久可用。
 
 ---
 
 ## 3. 彻底的系统级通用性与零硬编码准则（Zero Hardcoding）
 
 ### 3.1 严禁业务与题材硬编码
-- **通用抽象无偏**：在编写 Pipeline 编排、提示词加载、视听格式化或校验器逻辑时，**严禁将具体的题材名称（如科幻、悬疑、古装）或特定角色身份写死为硬编码条件分支**；
+- **通用抽象无偏**：在编写技能微内核、提示词装配、视听格式化或校验器逻辑时，**严禁将具体的题材名称（如科幻、悬疑、古装）或特定角色身份写死为硬编码条件分支**；
 - **自检铁律**：编写任何逻辑前自问：*“如果用户输入一个完全不同的冷门题材（如田园治愈、微观生物悬疑），这段代码还能正常运行吗？”*
 
 ### 3.2 动态清单驱动
@@ -93,8 +107,8 @@
 ### 4.1 三层立体防御网络（Defense-in-Depth）
 所有大模型文本推演与视听生成链路必须构建三层防御闭环：
 1. **第一道（源头求真）**：通过严密的中文 Prompt 格式约束、专业影视术语体系与标准 JSON Schema 规约输出，从源头消灭设定脱轨；
-2. **第二道（微调自愈与提示词优化）**：创作者提出微调指令时，调用专职大模型（`refine_prompt_zh.txt`）进行语义级精准融合，拒绝生硬字符串拼接；
-3. **第三道（刚性视听质检门禁）**：通过 Evaluator（视觉质检/连贯性质检）执行评分与缺陷拦截，确保工业级成片品质。
+2. **第二道（微调自愈与提示词优化）**：创作者提出微调指令时，调用专职大模型（`prompt.ts` 内微调体系）进行语义级精准融合，拒绝生硬字符串拼接；
+3. **第三道（刚性视听质检门禁）**：通过 `CriticReviewSkill` / `CriticReviewerAgent` 执行多维度评分与刚性缺陷拦截，确保工业级成片品质。
 
 ### 4.2 真实视听文件闭环验收（拒绝假收敛）
 - 关键帧生图与视频渲染绝不能仅凭接口返回 URL 就判定收敛，必须确保本地磁盘真实文件写入完整（`fs.existsSync`）且尺寸格式合规，杜绝“无报错假成功”。
@@ -103,21 +117,32 @@
 
 ## 5. 基础设施层健壮性与交付标准
 
-### 5.1 模块正交与目录结构规范
+### 5.1 模块正交与真实目录结构规范
 ```
 server/src/
-├── api/                        # HTTP 接口与控制器层（Express/Hono 路由解耦）
-│   ├── controllers/            # Workflow, Media, Config 等标准控制器
+├── api/                        # HTTP 接口与控制器层（Express 路由解耦）
+│   ├── controllers/            # ProjectController, ChatController, ReviewerController, SkillController
 │   └── server.ts               # 服务入口与优雅停机
-├── agent-runtime/              # 运行时微内核 (Pipeline, Bus, Memory, ToolRegistry, Steps)
-├── project-store/              # 状态黑板层 (ProjectStore, IProjectStateStore, FileProjectStateStore)
-
-├── llm/                        # 统一大模型集成服务 (LLMService, RealLLMService, LLMRegistry)
-├── media/                      # 音视频视听处理 (FFmpeg, Audio, Providers)
-├── prompts/                    # 纯中文提示词模板体系
-├── config/                     # 全局环境配置管理
+├── agents/                     # 核心智能体与协调器
+│   ├── director/               # AI 导演副手 (DirectorAgent, ContextAssembler, ProposalResolver)
+│   └── reviewer/               # 独立审查官 (CriticReviewerAgent)
+├── skills/                     # 声明式工序技能包微内核 (统一继承 BaseSkill)
+│   ├── story-bible/            # Stage 1: 故事圣经与世界观设定
+│   ├── character-portrait/     # Stage 2: 角色资产与定妆照
+│   ├── scene-script/           # 场景剧本文学拆解
+│   ├── storyboard/             # Stage 3: 专业分镜与运镜拆解
+│   ├── keyframe-reference/     # 关键帧参考图生成
+│   ├── video-production/       # Stage 4: 动态视频渲染与生成
+│   ├── critic-review/          # 视听刚性质检与评估
+│   └── fmv-packaging/          # 最终影游打包与装配
+├── chat/                       # 对话与双轨记忆中枢
+│   ├── memory/                 # ChatMemoryManager (工作记忆与 SOP 上下文)
+│   └── session/                # SessionStore (会话元数据与 Turns 持久化)
+├── project-store/              # 状态黑板层 (ProjectStore SSOT, FileProjectStateStore)
+├── llm/                        # 统一大模型集成服务 (LLMRegistry, RealLLMService, MockLLMService)
+├── media/                      # 视听与多媒体渲染 (FFmpeg, Audio, MediaDownloader, Providers)
 ├── types/                      # 全局业务强类型契约
-└── utils/                      # 基础并发与安全工具
+└── utils/                      # 基础安全工具 (JsonSanitizer, StreamTagParser, concurrency, config)
 ```
 
 ### 5.2 严格交付验收标准

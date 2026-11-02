@@ -15,7 +15,7 @@ import { BaseSkill } from '../BaseSkill.js';
 import type { SkillManifest, SkillContext } from '../types.js';
 import { WorkflowStage } from '../../types/index.js';
 import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { SessionStore } from '../../chat/session/SessionStore.js';
+
 import { LLMRegistry } from '../../llm/LLMRegistry.js';
 import type {
   StoryBibleParams,
@@ -74,7 +74,7 @@ export class StoryBibleSkill extends BaseSkill<StoryBibleParams, StoryBibleArtif
     // 自动提取全局备忘录白板中的刚性禁忌与约束 (SSOT)
     let effectiveConstraints = userConstraints;
     if ((!effectiveConstraints || effectiveConstraints.length === 0) && sessionId) {
-      const session = SessionStore.getInstance().getSession(projectId, sessionId);
+      const session = projectStore.getSession(projectId, sessionId);
       effectiveConstraints = session?.scratchpad?.userConstraints;
     }
 
@@ -155,10 +155,10 @@ export class StoryBibleSkill extends BaseSkill<StoryBibleParams, StoryBibleArtif
     };
 
     // 6. 持久化至 ProjectStore 状态黑板与推进项目阶段
-    projectStore.setArtifact(projectId, WorkflowStage.NARRATIVE_DESIGN, artifact);
+
     if (project) {
       project.title = artifact.title;
-      project.currentStage = WorkflowStage.CHARACTER_DESIGN;
+
       projectStore.saveProject(project);
     }
 
@@ -167,7 +167,7 @@ export class StoryBibleSkill extends BaseSkill<StoryBibleParams, StoryBibleArtif
 
     // 8. 实时同步更新会话备忘录白板 (Scratchpad Memory)
     if (sessionId) {
-      const sessionStore = SessionStore.getInstance();
+
       const charactersSummary = characters
         .map((c) => `- ${c.name} (${c.role}): ${c.appearance}，动机: ${c.motivation}`)
         .join('\n');
@@ -175,7 +175,7 @@ export class StoryBibleSkill extends BaseSkill<StoryBibleParams, StoryBibleArtif
         .map((act) => `第${act.act}幕 [${act.name}]: ${act.summary}`)
         .join('\n');
 
-      sessionStore.updateScratchpad(projectId, sessionId, {
+      projectStore.updateScratchpad(projectId, sessionId, {
         themeAndStyle: `${artifact.theme} | ${artifact.style}`,
         logline: artifact.logline,
         charactersSummary,

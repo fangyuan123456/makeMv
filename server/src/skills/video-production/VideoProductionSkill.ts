@@ -12,27 +12,19 @@ import { ProjectStore } from '../../project-store/ProjectStore.js';
 import { VisualMediaRenderer } from '../../media/VisualMediaRenderer.js';
 import { asyncPool } from '../../utils/concurrency.js';
 
+import {
+  type VideoClipItem,
+  type VideoProductionArtifact,
+} from './schema.js';
+
 export interface VideoProductionParams {
   userFeedback?: string;
+  targetShotId?: string;
+  isRefinement?: boolean;
+  isMock?: boolean;
 }
 
-export interface VideoClipItem {
-  clipId: string;
-  shotId: string;
-  videoUrl: string;
-  durationSec: number;
-  resolution: string;
-  ratio: string;
-  status: 'rendered';
-}
-
-export interface VideoProductionArtifact {
-  clips: VideoClipItem[];
-  totalClips: number;
-  completedClips: number;
-  totalDurationSec: number;
-  createdAt: string;
-}
+export { type VideoClipItem, type VideoProductionArtifact } from './schema.js';
 
 export class VideoProductionSkill extends BaseSkill<VideoProductionParams, VideoProductionArtifact> {
   public readonly manifest: SkillManifest = {
@@ -43,13 +35,16 @@ export class VideoProductionSkill extends BaseSkill<VideoProductionParams, Video
     targetStage: WorkflowStage.VIDEO_PRODUCTION,
     parameters: {
       userFeedback: { type: 'string', description: '运镜幅度或动态细节调整' },
+      targetShotId: { type: 'string', description: '指定单镜重做的镜头标识 (如 shot_3)' },
+      isRefinement: { type: 'boolean', description: '是否属于对既有镜头视频的自愈微调重做' },
+      isMock: { type: 'boolean', description: '是否为 Mock 模拟测试执行 (防扣费)' },
     },
   };
 
   protected async run(
     context: SkillContext<VideoProductionParams>
   ): Promise<{ data: VideoProductionArtifact; summary: string }> {
-    const { projectId } = context;
+    const { projectId, params = {} } = context;
     const store = ProjectStore.getInstance();
     const project = store.getProject(projectId);
 
@@ -68,20 +63,36 @@ export class VideoProductionSkill extends BaseSkill<VideoProductionParams, Video
       shotsMap.set(s.shotId, s);
     }
 
-    await this.notifyProgress(context, 50, `正在批量渲染生成 ${keyframes.length} 支动态视频切片...`);
+    const targetShotId = params.targetShotId;
+    const keyframesToProcess = targetShotId
+      ? keyframes.filter((k: any) => k.shotId === targetShotId)
+      : keyframes;
+
+    if (keyframesToProcess.length === 0) {
+      throw new Error(`未在关键帧资产中找到指定渲染的目标镜头 [${targetShotId}]`);
+    }
+
+    await this.notifyProgress(
+      context,
+      50,
+      targetShotId
+        ? `正在靶向渲染指定镜头 [${targetShotId}] 动态视频切片...`
+        : `正在批量渲染生成 ${keyframesToProcess.length} 支动态视频切片...`
+    );
 
     const ratio = project?.meta?.videoRatio || '16:9';
     const resolution = project?.meta?.videoResolution || '720P';
 
-    // 🌟 3路并发控制与原子断点落盘：通过 asyncPool 并发渲染动态视频切片，耗时缩短 60%
-    const clips = await asyncPool<any, VideoClipItem>(
+    // 🌟 3路并发控制与原子断点落盘 (仅渲染待处理镜头 keyframesToProcess)
+    const newlyRenderedClips = await asyncPool<any, VideoClipItem>(
       3,
-      keyframes,
+      keyframesToProcess,
       async (kf: any) => {
         const sbShot = shotsMap.get(kf.shotId);
         const duration = sbShot?.durationSec || 3;
         const clipId = `clip_${kf.shotId}`;
 
+        // 🌟 物理渲染并透传 isMock 标记防御扣费
         const physicalVideoUrl = await VisualMediaRenderer.renderVideoClip(
           projectId,
           clipId,
@@ -90,7 +101,8 @@ export class VideoProductionSkill extends BaseSkill<VideoProductionParams, Video
           resolution,
           ratio,
           sbShot?.visualComposition || kf.prompt,
-          kf.imageUrl
+          kf.imageUrl,
+          { isMock: params.isMock }
         );
 
         return {
@@ -109,27 +121,48 @@ export class VideoProductionSkill extends BaseSkill<VideoProductionParams, Video
       }
     );
 
-    const totalDuration = clips.reduce((acc, c) => acc + c.durationSec, 0);
+    // 🌟 靶向单镜视频微调与增量合并 (按 shotId 替换保全既有资产)
+    const existingArtifact = store.getArtifact<VideoProductionArtifact>(projectId, WorkflowStage.VIDEO_PRODUCTION);
+    let mergedClips: VideoClipItem[] = [];
+
+    if (targetShotId && existingArtifact && Array.isArray(existingArtifact.clips)) {
+      const updateMap = new Map(newlyRenderedClips.map((c) => [c.shotId, c]));
+      mergedClips = existingArtifact.clips.map((oldClip) => updateMap.get(oldClip.shotId) || oldClip);
+      for (const freshClip of newlyRenderedClips) {
+        if (!mergedClips.some((c) => c.shotId === freshClip.shotId)) {
+          mergedClips.push(freshClip);
+        }
+      }
+    } else {
+      mergedClips = newlyRenderedClips;
+    }
+
+    const totalDuration = mergedClips.reduce((acc, c) => acc + (c.durationSec || 0), 0);
 
     const artifact: VideoProductionArtifact = {
-      clips,
-      totalClips: clips.length,
-      completedClips: clips.length,
+      clips: mergedClips,
+      totalClips: mergedClips.length,
+      completedClips: mergedClips.filter((c) => c.videoUrl).length,
       totalDurationSec: totalDuration,
-      createdAt: new Date().toISOString(),
+      isRefinement: Boolean(targetShotId || params.isRefinement),
+      targetShotId,
+      createdAt: existingArtifact?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
 
-    // 写入状态黑板并推进项目阶段
+    // 写入状态黑板 (SSOT)
     store.setArtifact(projectId, WorkflowStage.VIDEO_PRODUCTION, artifact);
+
     if (project) {
-      project.currentStage = WorkflowStage.FMV_PACKAGING;
       store.saveProject(project);
     }
 
     // 本地持久化
     this.exportToLocalDisk(projectId, artifact);
 
-    const summary = `🎥 全剧 ${artifact.completedClips} 支动态视频切片批量渲染完成！总时长 ${artifact.totalDurationSec} 秒，画质 ${resolution} (${ratio}) 已锁定，项目推进至最终阶段【影游装配】。`;
+    const summary = targetShotId
+      ? `🎯 镜头 [${targetShotId}] 动态视频切片靶向渲染完成！已与全片既有视频片段增量合并保全。`
+      : `🎥 全剧 ${artifact.completedClips} 支动态视频切片批量渲染完成！总时长 ${artifact.totalDurationSec} 秒，画质 ${resolution} (${ratio}) 已锁定。`;
 
     return {
       data: artifact,

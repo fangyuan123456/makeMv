@@ -9,6 +9,7 @@
  */
 
 import type { ISkill, SkillManifest } from './types.js';
+import { STAGE_SEQUENCE, WorkflowStage } from '../types/index.js';
 
 export class SkillRegistry {
   private static instance?: SkillRegistry;
@@ -57,8 +58,19 @@ export class SkillRegistry {
   /**
    * 格式化生成注入给 Director 提示词的可用技能清单
    */
-  public formatSkillsForPrompt(): string {
-    const list = this.list();
+  public formatSkillsForPrompt(currentStage?: string): string {
+    let list = this.list();
+    if (currentStage) {
+      const curIdx = STAGE_SEQUENCE.indexOf(currentStage as WorkflowStage);
+      const nextStage = curIdx !== -1 && curIdx + 1 < STAGE_SEQUENCE.length ? STAGE_SEQUENCE[curIdx + 1] : undefined;
+
+      list = list.filter((m) => {
+        if (m.category === 'critic') return true;
+        if (m.targetStage === currentStage) return true;
+        if (nextStage && m.targetStage === nextStage) return true;
+        return false;
+      });
+    }
     if (list.length === 0) return '';
 
     const lines = list.map(

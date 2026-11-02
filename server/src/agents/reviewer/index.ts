@@ -4,5 +4,7 @@
  */
 
 export * from './types.js';
+export * from './schema.js';
 export * from './prompt.js';
 export * from './CriticReviewerAgent.js';
+export * from './GateGuard.js';

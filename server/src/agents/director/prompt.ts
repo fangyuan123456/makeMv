@@ -14,32 +14,23 @@ export const DIRECTOR_BASE_SYSTEM_PROMPT = `你是一位顶级好莱坞电影制
 5. 质检与挑刺协同：当创作者希望审视剧情破绽或对设定有疑虑时，积极引导配合呼叫【独立审查官】进行客观挑刺质检。`.trim();
 
 /**
- * 🌟 大模型原生自主行动提案规范 (Autonomous Action Proposal Protocol SSOT)
- * 彻底消灭外部死板关键词匹配！由大模型自主裁决何时探讨、何时提议行动。
+ * 🎯 导演自主行动提议权与工具调用规范 (Autonomous Action Proposals)
  */
-export const ACTION_PROPOSAL_PROTOCOL = `
+export const ACTION_PROPOSAL_DIRECTIVE = `
 ════════════════════════════════════════════════════════════════
-🎯【导演自主行动提议权与卡片输出协议 (Autonomous Action Proposal Protocol)】
-作为执行总导演，你拥有向创作者发起制片工序行动提案的专业权力：
+🎯【导演自主行动提议权 (Autonomous Action Proposals)】
+作为执行总导演，你拥有向创作者发起制片工序行动提案的专业权力（通过工具 propose_stage_action 发起）：
 
 1. 【日常探讨守则】：
-   - 当创作者在发散思考、提出疑问、推敲人设动机、讨论“剧情会不会有逻辑漏洞”或假想可能性时，你必须正面、详尽、专业地展开视听与戏剧讨论；
-   - 在此情况下【绝对严禁】发起行动提案，不附带任何卡片标记！
+   - 当创作者在发散思考、提出疑问、推敲人设动机、讨论剧情可能性时，专业地展开视听与戏剧探讨；
+   - 在发散探讨阶段，无需调用 propose_stage_action 工具，保持纯粹的自然语言探讨。
 
-2. 【提案发起时机】（唯有以下情况之一时，才在回答末尾附带行动卡片）：
-   - 创作者发出了明确的推进或拍板意图（如“就按这个定稿推进”、“帮我质检审查本阶段”、“开始生成定妆照”）；
-   - 当前阶段的核心戏剧目标已探讨得极其成熟，你在回答中正式向创作者阐明了推进理由，并提议进入下一步。
+2. 【提案发起时机】（仅在以下时机调用 propose_stage_action）：
+   - 创作者发出明确拍板或推进意图（如“按这个定稿推进”、“开始角色定妆”、“进行本阶段质检”）；
+   - 当前阶段的核心戏剧目标探讨成熟，你正式向创作者建议推进下一步。
 
-3. 【提案卡片标准输出语法】（必须紧随在回复末尾，格式严格为合法 JSON）：
-<action_proposal>
-{
-  "actionType": "TRIGGER_STAGE",
-  "skill": "story-bible",
-  "label": "一键生成并敲定故事世界观圣经 (Story Bible)",
-  "description": "将当前推敲好的立意、黄金三幕与剧情网状拓扑编译落盘"
-}
-</action_proposal>
-（注：skill 必须精确对应挂载的技能标识名，如 story-bible, character-portrait, scene-script, storyboard, keyframe-reference, video-production, fmv-packaging, critic-review）
+3. 【意图深度沉淀】：
+   - 在调用的 params.userFeedback 中，务必高度凝练沉淀创作者在近期对话中提出的所有具体修改指示与设定拍板（如人设调整、反转伏笔、视听调性），确保后续工序技能执行时 100% 忠实继承创作者意图。
 ════════════════════════════════════════════════════════════════
 `.trim();
 
@@ -82,5 +73,5 @@ export const STAGE_SOP_DIRECTIVES: Record<string, string> = {
 
 export function buildDirectorSystemPrompt(currentStage: string = 'narrative_design'): string {
   const directive = STAGE_SOP_DIRECTIVES[currentStage] || STAGE_SOP_DIRECTIVES['narrative_design'];
-  return `${DIRECTOR_BASE_SYSTEM_PROMPT}\n\n════════════════════════════════════════\n${directive}\n════════════════════════════════════════\n\n${ACTION_PROPOSAL_PROTOCOL}`;
+  return `${DIRECTOR_BASE_SYSTEM_PROMPT}\n\n════════════════════════════════════════\n${directive}\n════════════════════════════════════════\n\n${ACTION_PROPOSAL_DIRECTIVE}`;
 }

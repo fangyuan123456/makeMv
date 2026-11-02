@@ -42,6 +42,7 @@ export default function AssetProductionViewer({
   const [currentUploadTarget, setCurrentUploadTarget] = useState<{ charId: string; type: 'final' | 'reference' } | null>(null);
 
   const characters = characterArtifact?.characters || scriptArtifact?.characters || scriptArtifact?.bible?.characters || [];
+  const scenes = scriptArtifact?.scenes || [];
   const episodes = scriptArtifact?.episodes || [];
 
   // Handle image upload (Target vs Reference)
@@ -277,71 +278,160 @@ export default function AssetProductionViewer({
         ) : (
           /* 节点互动剧本正文视图 */
           <div className="space-y-6 max-w-4xl mx-auto">
-            {episodes.map((ep: any, eIdx: number) => (
-              <div key={eIdx} className="bg-white rounded-2xl border border-gray-200/90 p-6 shadow-xs space-y-6">
-                <div className="border-b border-gray-100 pb-4">
-                  <span className="text-xs font-bold text-indigo-600">第 {ep.episodeNumber || eIdx + 1} 集</span>
-                  <h3 className="text-lg font-bold text-gray-900 mt-0.5">{ep.title || '长文本场次详写'}</h3>
-                  {ep.logline && <p className="text-xs text-gray-500 mt-1">{ep.logline}</p>}
-                </div>
-
-                {/* 场次列表 */}
-                <div className="space-y-5">
-                  {(ep.scenes || []).map((sc: any, sIdx: number) => (
-                    <div key={sIdx} className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-3">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-bold text-gray-800 flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-indigo-500" />
-                          {sc.sceneId}: {sc.title}
-                        </span>
-                        <span className="text-gray-500">{sc.space}景 · {sc.time} · {sc.location}</span>
-                      </div>
-
-                      {/* 对白与动作条目 */}
-                      <div className="space-y-2 pt-2 border-t border-slate-200/50">
-                        {(sc.items || []).map((it: any, iIdx: number) => (
-                          <div key={iIdx} className="text-xs leading-relaxed">
-                            {it.type === 'action' ? (
-                              <p className="text-gray-600 italic pl-3 border-l-2 border-gray-300">
-                                🎬 {it.action?.description}
-                              </p>
-                            ) : (
-                              <div className="flex items-start gap-2 bg-white p-2.5 rounded-lg border border-gray-200/60 shadow-2xs">
-                                <span className="font-bold text-indigo-900 shrink-0">
-                                  {it.dialogue?.character}:
-                                </span>
-                                <span className="text-gray-800">
-                                  {it.dialogue?.text}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* 分支抉择 */}
-                      {sc.choices && sc.choices.length > 0 && (
-                        <div className="pt-2 border-t border-slate-200/60 space-y-1.5">
-                          <span className="text-[11px] font-bold text-amber-700 flex items-center gap-1">
-                            <GitBranch className="w-3 h-3" /> 互动分支抉择：
-                          </span>
-                          <div className="flex flex-wrap gap-2">
-                            {sc.choices.map((ch: any, cIdx: number) => (
-                              <div
-                                key={cIdx}
-                                className="px-3 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs font-medium"
-                              >
-                                👉 {ch.choiceText}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+            {scenes.length > 0 ? (
+              <div className="space-y-5">
+                <div className="bg-white rounded-2xl border border-gray-200/90 p-5 shadow-xs flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600">
+                      <FileText className="w-5 h-5" />
                     </div>
-                  ))}
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-900">{scriptArtifact?.title || '分场多分支剧本文学稿'}</h3>
+                      <p className="text-xs text-gray-500">共 {scenes.length} 个戏剧场次，已完成网状分支与对白对齐</p>
+                    </div>
+                  </div>
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    {scenes.length} 场戏
+                  </span>
                 </div>
+
+                {scenes.map((sc: any, sIdx: number) => (
+                  <div key={sc.nodeId || sIdx} className="bg-white rounded-2xl border border-gray-200/90 p-6 shadow-xs space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          第 {sc.act || 1} 幕
+                        </span>
+                        <h4 className="text-sm font-bold text-gray-900">
+                          {sc.sceneTitle || `场次 #${sIdx + 1}`}
+                        </h4>
+                        <span className="text-[10px] font-mono text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                          {sc.nodeId}
+                        </span>
+                      </div>
+                      <span className="text-xs text-gray-500">
+                        📍 {sc.location || '场景空间'} · ⏱️ {sc.timeOfDay || '日内'}
+                      </span>
+                    </div>
+
+                    {/* 场景氛围与动作描写 */}
+                    {sc.actionSummary && (
+                      <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/70 text-xs text-gray-700 leading-relaxed">
+                        <strong className="text-indigo-950 font-bold mr-1.5">🎬 视听动作描写:</strong>
+                        <span>{sc.actionSummary}</span>
+                      </div>
+                    )}
+
+                    {/* 角色对白交锋 */}
+                    {sc.dialogues && sc.dialogues.length > 0 && (
+                      <div className="space-y-2 pt-1">
+                        <span className="text-[11px] font-bold text-gray-700 flex items-center gap-1">
+                          <MessageSquare className="w-3 h-3 text-indigo-600" /> 核心对白交锋:
+                        </span>
+                        <div className="space-y-1.5 pl-1">
+                          {sc.dialogues.map((dlg: any, dIdx: number) => (
+                            <div key={dIdx} className="flex items-start gap-2 bg-slate-50/70 p-2.5 rounded-xl border border-slate-200/50 text-xs">
+                              <span className="font-bold text-indigo-900 shrink-0 min-w-16">
+                                {dlg.speaker}:
+                              </span>
+                              <div className="flex-1 space-x-1">
+                                {dlg.parenthetical && (
+                                  <span className="text-gray-400 italic">（{dlg.parenthetical}）</span>
+                                )}
+                                <span className="text-gray-800 font-medium">{dlg.line}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 互动关键时刻/抉择点 */}
+                    {sc.interactionMoment && (
+                      <div className="pt-2 border-t border-slate-100 flex items-center gap-2 text-xs text-amber-800 bg-amber-50/60 p-2.5 rounded-xl border border-amber-200/60">
+                        <GitBranch className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span className="font-bold shrink-0">互动时刻:</span>
+                        <span>{sc.interactionMoment}</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
+            ) : episodes.length > 0 ? (
+              episodes.map((ep: any, eIdx: number) => (
+                <div key={eIdx} className="bg-white rounded-2xl border border-gray-200/90 p-6 shadow-xs space-y-6">
+                  <div className="border-b border-gray-100 pb-4">
+                    <span className="text-xs font-bold text-indigo-600">第 {ep.episodeNumber || eIdx + 1} 集</span>
+                    <h3 className="text-lg font-bold text-gray-900 mt-0.5">{ep.title || '长文本场次详写'}</h3>
+                    {ep.logline && <p className="text-xs text-gray-500 mt-1">{ep.logline}</p>}
+                  </div>
+
+                  {/* 场次列表 */}
+                  <div className="space-y-5">
+                    {(ep.scenes || []).map((sc: any, sIdx: number) => (
+                      <div key={sIdx} className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-3">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-gray-800 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                            {sc.sceneId}: {sc.title}
+                          </span>
+                          <span className="text-gray-500">{sc.space}景 · {sc.time} · {sc.location}</span>
+                        </div>
+
+                        {/* 对白与动作条目 */}
+                        <div className="space-y-2 pt-2 border-t border-slate-200/50">
+                          {(sc.items || []).map((it: any, iIdx: number) => (
+                            <div key={iIdx} className="text-xs leading-relaxed">
+                              {it.type === 'action' ? (
+                                <p className="text-gray-600 italic pl-3 border-l-2 border-gray-300">
+                                  🎬 {it.action?.description}
+                                </p>
+                              ) : (
+                                <div className="flex items-start gap-2 bg-white p-2.5 rounded-lg border border-gray-200/60 shadow-2xs">
+                                  <span className="font-bold text-indigo-900 shrink-0">
+                                    {it.dialogue?.character}:
+                                  </span>
+                                  <span className="text-gray-800">
+                                    {it.dialogue?.text}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* 分支抉择 */}
+                        {sc.choices && sc.choices.length > 0 && (
+                          <div className="pt-2 border-t border-slate-200/60 space-y-1.5">
+                            <span className="text-[11px] font-bold text-amber-700 flex items-center gap-1">
+                              <GitBranch className="w-3 h-3" /> 互动分支抉择：
+                            </span>
+                            <div className="flex flex-wrap gap-2">
+                              {sc.choices.map((ch: any, cIdx: number) => (
+                                <div
+                                  key={cIdx}
+                                  className="px-3 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs font-medium"
+                                >
+                                  👉 {ch.choiceText}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="flex flex-col items-center justify-center p-12 text-center bg-white rounded-2xl border border-gray-200/80 shadow-xs">
+                <FileText className="w-12 h-12 text-gray-300 mb-3" />
+                <h4 className="text-sm font-bold text-gray-700">暂无分场剧本文学稿</h4>
+                <p className="text-xs text-gray-400 mt-1 max-w-sm">
+                  请先在对话区确认定妆照，并点击【推进分场剧本】提案，系统将为您拆解全节点对白与戏剧动作。
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>

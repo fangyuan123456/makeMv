@@ -19,27 +19,21 @@ import { LLMRegistry } from '../../llm/LLMRegistry.js';
 import { VisualMediaRenderer } from '../../media/VisualMediaRenderer.js';
 import { asyncPool } from '../../utils/concurrency.js';
 import { KEYFRAME_REFERENCE_SYSTEM_PROMPT, buildKeyframeReferencePrompt } from './prompt.js';
+import {
+  KeyframeBatchOutputSchema,
+  type KeyframeItem,
+  type KeyframeReferenceArtifact,
+  type KeyframeBatchOutput,
+} from './schema.js';
 
 export interface KeyframeReferenceParams {
   userFeedback?: string;
+  targetShotId?: string;
+  isRefinement?: boolean;
+  isMock?: boolean;
 }
 
-export interface KeyframeItem {
-  shotId: string;
-  shotNumber: number;
-  prompt: string;
-  imageUrl: string;
-  remoteImageUrl?: string; // 🌟 云端有效首帧图片原链 (24小时有效，供公网视频模型直连)
-  aspectRatio: string;
-  status: 'rendered' | 'ready';
-}
-
-export interface KeyframeReferenceArtifact {
-  shots: KeyframeItem[];
-  totalKeyframes: number;
-  completedKeyframes: number;
-  createdAt: string;
-}
+export { type KeyframeItem, type KeyframeReferenceArtifact } from './schema.js';
 
 export class KeyframeReferenceSkill extends BaseSkill<KeyframeReferenceParams, KeyframeReferenceArtifact> {
   public readonly manifest: SkillManifest = {
@@ -81,46 +75,44 @@ export class KeyframeReferenceSkill extends BaseSkill<KeyframeReferenceParams, K
         charList.map((c: any) => `- 【${c.name}】(${c.role}): 外貌服装【${c.appearance}】，视觉锚点提示词【${c.visualPrompt}】`).join('\n') + '\n\n';
     }
 
-    await this.notifyProgress(context, 35, `正在为全剧 ${shots.length} 个分镜头推演影视级首帧纯中文生图提示词...`);
+    // 🌟 单镜靶向过滤 (Targeted Refinement SSOT)：若指定了 targetShotId，仅推演与渲染该镜头
+    const targetShotId = params.targetShotId;
+    const shotsToProcess = targetShotId
+      ? shots.filter((s: any) => s.shotId === targetShotId)
+      : shots;
+
+    if (shotsToProcess.length === 0) {
+      throw new Error(`未在既有分镜表中找到指定修改的目标镜头 [${targetShotId}]`);
+    }
+
+    await this.notifyProgress(
+      context,
+      35,
+      targetShotId
+        ? `正在为指定镜头 [${targetShotId}] 靶向推演首帧纯中文生图提示词...`
+        : `正在为全剧 ${shots.length} 个分镜头推演影视级首帧纯中文生图提示词...`
+    );
 
     const llm = LLMRegistry.get();
-    const schema = {
-      type: 'object',
-      properties: {
-        keyframes: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              shotId: { type: 'string' },
-              prompt: { type: 'string' },
-            },
-            required: ['shotId', 'prompt'],
-          },
-        },
-      },
-      required: ['keyframes'],
-    };
-
     // 🌟 全量分块批处理 (Chunking)，彻底消灭 slice(0, 10) 硬编码截断
     const CHUNK_SIZE = 6;
     const promptsMap = new Map<string, string>();
 
-    for (let i = 0; i < shots.length; i += CHUNK_SIZE) {
-      const chunk = shots.slice(i, i + CHUNK_SIZE);
+    for (let i = 0; i < shotsToProcess.length; i += CHUNK_SIZE) {
+      const chunk = shotsToProcess.slice(i, i + CHUNK_SIZE);
       const chunkIndex = Math.floor(i / CHUNK_SIZE) + 1;
-      const totalChunks = Math.ceil(shots.length / CHUNK_SIZE);
+      const totalChunks = Math.ceil(shotsToProcess.length / CHUNK_SIZE);
 
       await this.notifyProgress(
         context,
-        35 + Math.round((i / shots.length) * 25),
-        `正在推演分镜首帧提示词批次 (${chunkIndex}/${totalChunks}): 镜头 ${i + 1} ~ ${Math.min(i + CHUNK_SIZE, shots.length)}`
+        35 + Math.round((i / shotsToProcess.length) * 25),
+        `正在推演分镜首帧提示词批次 (${chunkIndex}/${totalChunks}): 镜头 ${i + 1} ~ ${Math.min(i + CHUNK_SIZE, shotsToProcess.length)}`
       );
 
       const prompt = buildKeyframeReferencePrompt(style, charactersAnchorContext, chunk, params.userFeedback);
-      const kfResult = await llm.generateObject<{ keyframes: Array<{ shotId: string; prompt: string }> }>(
+      const kfResult = await llm.generateObject<KeyframeBatchOutput>(
         prompt,
-        schema,
+        KeyframeBatchOutputSchema,
         KEYFRAME_REFERENCE_SYSTEM_PROMPT,
         {
           stage: 'keyframe_prompt_spec',
@@ -134,18 +126,30 @@ export class KeyframeReferenceSkill extends BaseSkill<KeyframeReferenceParams, K
       }
     }
 
-    await this.notifyProgress(context, 65, `正在批量渲染生成 ${shots.length} 张物理分镜参考图...`);
+    await this.notifyProgress(
+      context,
+      65,
+      targetShotId
+        ? `正在靶向渲染指定镜头 [${targetShotId}] 物理首帧图...`
+        : `正在批量渲染生成 ${shotsToProcess.length} 张物理分镜参考图...`
+    );
 
     const ratio = project?.meta?.videoRatio || '16:9';
 
-    // 🌟 3路并发控制与原子断点落盘
-    const renderedShots = await asyncPool<any, KeyframeItem>(
+    // 🌟 3路并发控制与原子断点落盘 (仅渲染待处理镜头 shotsToProcess)
+    const newlyRenderedShots = await asyncPool<any, KeyframeItem>(
       3,
-      shots,
+      shotsToProcess,
       async (s: any) => {
         const kfPrompt = promptsMap.get(s.shotId) || `${s.visualComposition}，${s.shotScale}，${s.cameraMovement}，电影质感，超清8K`;
-        // 🌟 100% 意图透传：将推演得到的专业提示词透传给物理渲染器
-        const physicalImageUrl = await VisualMediaRenderer.renderKeyframeImage(projectId, s.shotId, ratio, kfPrompt);
+        // 🌟 100% 意图透传：将推演得到的专业提示词透传给物理渲染器，并携带 isMock 防扣费标记
+        const physicalImageUrl = await VisualMediaRenderer.renderKeyframeImage(
+          projectId,
+          s.shotId,
+          ratio,
+          kfPrompt,
+          { isMock: params.isMock }
+        );
 
         return {
           shotId: s.shotId,
@@ -162,24 +166,45 @@ export class KeyframeReferenceSkill extends BaseSkill<KeyframeReferenceParams, K
       }
     );
 
+    // 🌟 靶向单镜重做与增量合并 (按 shotId 替换，绝不破坏既有资产)
+    const existingArtifact = store.getArtifact<KeyframeReferenceArtifact>(projectId, WorkflowStage.KEYFRAME_REFERENCE);
+    let mergedShots: KeyframeItem[] = [];
+
+    if (targetShotId && existingArtifact && Array.isArray(existingArtifact.shots)) {
+      const updateMap = new Map(newlyRenderedShots.map((s) => [s.shotId, s]));
+      mergedShots = existingArtifact.shots.map((oldShot) => updateMap.get(oldShot.shotId) || oldShot);
+      for (const freshShot of newlyRenderedShots) {
+        if (!mergedShots.some((s) => s.shotId === freshShot.shotId)) {
+          mergedShots.push(freshShot);
+        }
+      }
+    } else {
+      mergedShots = newlyRenderedShots;
+    }
+
     const artifact: KeyframeReferenceArtifact = {
-      shots: renderedShots,
-      totalKeyframes: renderedShots.length,
-      completedKeyframes: renderedShots.length,
-      createdAt: new Date().toISOString(),
+      shots: mergedShots,
+      totalKeyframes: mergedShots.length,
+      completedKeyframes: mergedShots.filter((s) => s.imageUrl).length,
+      isRefinement: Boolean(targetShotId || params.isRefinement),
+      targetShotId,
+      createdAt: existingArtifact?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
 
-    // 写入状态黑板并推进项目阶段
+    // 写入状态黑板 (SSOT)
     store.setArtifact(projectId, WorkflowStage.KEYFRAME_REFERENCE, artifact);
+
     if (project) {
-      project.currentStage = WorkflowStage.VIDEO_PRODUCTION;
       store.saveProject(project);
     }
 
     // 本地持久化
     this.exportToLocalDisk(projectId, artifact);
 
-    const summary = `🖼️ 全剧 ${artifact.completedKeyframes} 张分镜头高清首帧基准图渲染完成！机位画幅 (${ratio}) 已锁定，物种与人设特征已锚定，项目推进至【视频生成】阶段。`;
+    const summary = targetShotId
+      ? `🎯 镜头 [${targetShotId}] 高清首帧基准图靶向微调完成！既有全片分镜资产已增量合并保全。`
+      : `🖼️ 全剧 ${artifact.completedKeyframes} 张分镜头高清首帧基准图渲染完成！机位画幅 (${ratio}) 已锁定，物种与人设特征已锚定。`;
 
     return {
       data: artifact,

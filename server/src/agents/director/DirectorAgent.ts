@@ -1,31 +1,24 @@
 /**
  * agents/director/DirectorAgent.ts
- * AI 导演副手核心智能体 (Director Agent SSOT)
+ * AI 导演副手对话智能体门面实体 (基于 Vercel AI SDK 原生 Tool Calling 架构)
  *
  * 核心机制：
- * 1. 纯天然对话交互界面 (Chat-Centric Interface)；
- * 2. 动态阶段感知 (Stage-Aware SOP Prompting)；
- * 3. 🌟 大模型原生自主决策与提案内生 (0 字符串匹配，彻底消灭误杀)；
- * 4. 🌟 服务端原生流式打字机推进 (OpenAI stream: true，首字毫秒级)；
- * 5. 全局状态黑板单一事实来源 (ProjectStore SSOT)。
+ * 1. 自然语言双向流式对话交互；
+ * 2. 原生 Tool Calling (propose_stage_action)：彻底废弃字符串标签解析，实现 100% 结构化提案；
+ * 3. 纯净文本与独立思考流分片 (text-delta & reasoning) 天然隔离；
+ * 4. 统一委托 GateGuard 实施刚性门禁防护；
+ * 5. 异常中断截断保全与成对角色交替保障。
  */
 
 import { randomUUID } from 'crypto';
-import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { SessionStore } from '../../chat/session/SessionStore.js';
-import { ChatMemoryManager } from '../../chat/memory/ChatMemoryManager.js';
-import { buildDirectorSystemPrompt } from './prompt.js';
 import { LLMRegistry } from '../../llm/LLMRegistry.js';
-import { SkillRegistry } from '../../skills/SkillRegistry.js';
+import { ProjectStore, ProposalStore } from '../../project-store/index.js';
+import { ChatMemoryManager } from '../../chat/memory/ChatMemoryManager.js';
+import { DirectorContextAssembler } from './DirectorContextAssembler.js';
+import { DirectorProposalResolver } from './DirectorProposalResolver.js';
+import { proposeStageActionTool, type ProposeStageActionInput } from './schema.js';
 import type { ChatMessage, ActionProposal } from '../../chat/session/types.js';
-import { CriticReviewerAgent } from '../reviewer/CriticReviewerAgent.js';
-import type { ReviewReport } from '../reviewer/types.js';
-
-export interface ChatStreamCallbacks {
-  onToken?: (token: string) => Promise<void> | void;
-  onThought?: (thought: string) => Promise<void> | void;
-  onProposal?: (proposal: ActionProposal) => Promise<void> | void;
-}
+import type { ChatStreamCallbacks, DirectorStreamResult } from './types.js';
 
 export class DirectorAgent {
   private static instance?: DirectorAgent;
@@ -38,7 +31,7 @@ export class DirectorAgent {
   }
 
   /**
-   * 🌟 核心流式对话入口 (大模型端到端自主决策与真流式打字机)
+   * 🌟 核心流式对话推演 (Vercel AI SDK 原生 Tool Call + 纯净文本流式推送)
    */
   public async chatStream(
     projectId: string,
@@ -46,254 +39,137 @@ export class DirectorAgent {
     userContent: string,
     callbacks?: ChatStreamCallbacks,
     abortSignal?: AbortSignal
-  ): Promise<{ replyMessage: ChatMessage; proposal?: ActionProposal }> {
-    const sessionStore = SessionStore.getInstance();
-    const memoryManager = ChatMemoryManager.getInstance();
+  ): Promise<DirectorStreamResult> {
     const projectStore = ProjectStore.getInstance();
+    const memoryManager = ChatMemoryManager.getInstance();
+    const contextAssembler = DirectorContextAssembler.getInstance();
+    const proposalResolver = DirectorProposalResolver.getInstance();
 
-    const project = projectStore.getProject(projectId);
-    const session = sessionStore.getSession(projectId, sessionId);
-
-    if (!session) {
-      throw new Error(`[DirectorAgent] 会话 ${sessionId} 不存在`);
-    }
-
-    // 🌟 单一事实来源 (SSOT)：项目当前工序阶段以 ProjectStore 状态黑板为准
-    const currentStage = project?.currentStage || session.currentStage || 'narrative_design';
-    const trimmedInput = userContent.trim();
-
-    // 1. 记录并持久化用户新消息 (SSOT)
+    // 1. 录入创作者 User 消息并立即持久化 (SSOT)
     const userMessage: ChatMessage = {
       id: `msg_user_${randomUUID().slice(0, 8)}`,
       role: 'user',
-      content: trimmedInput,
+      content: userContent,
       createdAt: new Date().toISOString(),
     };
-    sessionStore.appendMessage(projectId, sessionId, userMessage);
+    projectStore.appendMessage(projectId, sessionId, userMessage);
 
-    // 2. 动态组装双轨记忆上下文 (系统SOP + 外挂技能清单 + 审查官门禁拦截告诫 + 全局白板 + 滑动窗口)
-    const rawSystemPrompt = buildDirectorSystemPrompt(currentStage);
-    const skillsPrompt = SkillRegistry.getInstance().formatSkillsForPrompt();
+    // 2. 组装面向大模型的全景上下文 (SOP + 技能清单 + 权威视听交付物 + 审查官告诫 + 规范化多轮 Turns)
+    const context = contextAssembler.assemble(projectId, sessionId);
 
-    // 🌟 双核博弈自愈闭环 (Director ⇄ Critic Feedback Loop)：感知独立审查官门禁拦截报告 (自动识别时效性与阶段隔离)
-    const reviewReport = CriticReviewerAgent.getInstance().getEffectiveReport(projectId);
-    let reviewDirective = '';
-    if (
-      reviewReport &&
-      reviewReport.stageReviewed === currentStage && // 🌟 刚性阶段隔离：仅当审查报告属于当前工序时生效，彻底消除跨阶段幽灵拦截
-      reviewReport.gateStatus !== 'PASS' &&
-      reviewReport.gateStatus !== 'STALE' &&
-      reviewReport.criticalFlaws &&
-      reviewReport.criticalFlaws.length > 0
-    ) {
-      const flawsSummary = reviewReport.criticalFlaws
-        .map((f, i) => `${i + 1}. [${f.severity}] ${f.location}: ${f.description}\n   -> 审查官修改建议: ${f.suggestion}`)
-        .join('\n');
-
-      reviewDirective = `\n\n🚨【独立影视审查官与剧本医生门禁拦截告诫 (Critic Gate Alert)】\n` +
-        `审查官已针对当前工序出具了【${reviewReport.gateStatus}】决策 (总评: ${reviewReport.scores.overallScore}/100)！\n` +
-        `终审评语: "${reviewReport.verdict}"\n` +
-        `以下核心逻辑破绽已被门禁刚性拦截:\n${flawsSummary}\n\n` +
-        `【总导演本次对话应对铁律】：\n` +
-        `1. 你必须在本次自然回复中，主动且严肃地向创作者指出上述破绽，并重点引导创作者推敲具体的戏剧自愈与设定修正方案；\n` +
-        `2. 在上述致命破绽未被解决前，严禁发起推进下一阶段工序的行动提案！\n`;
-    }
-
-    const combinedSystemPrompt = `${rawSystemPrompt}${skillsPrompt}${reviewDirective}`;
-
-    const existingMessages = sessionStore.getMessages(projectId, sessionId);
-    const assembled = memoryManager.assembleContext(
-      session,
-      combinedSystemPrompt,
-      existingMessages
-    );
-
-    // 3. 规范化多轮对话 turns (滑动窗口直接映射，彻底杜绝重复压入)
-    const turns: Array<{ role: 'user' | 'assistant'; content: string }> = [];
-    for (const msg of assembled.slidingWindowMessages) {
-      if (msg.role === 'user' || msg.role === 'assistant') {
-        turns.push({ role: msg.role, content: msg.content });
-      }
-    }
-
-    // 4. 调用大模型原生真流式生成 (带双向闭环前缀滑动探视状态机，进出双向无损)
     const llm = LLMRegistry.get();
-    const OPEN_TAG = '<action_proposal>';
-    const CLOSE_TAG = '</action_proposal>';
-    let rawOutput = '';
-    let isInsideProposal = false;
-    let pendingBuffer = '';
-    let proposalBuffer = '';
+    let replyContent = '';
+    let reasoningContent = '';
+    let capturedProposalArgs: ProposeStageActionInput | null = null;
 
-    await llm.generateMultiTurnStream(
-      assembled.systemPromptWithScratchpad,
-      turns,
-      async (token) => {
-        rawOutput += token;
-
-        if (isInsideProposal) {
-          // 在提案协议块内部：缓冲并探视 CLOSE_TAG 闭合
-          proposalBuffer += token;
-          const closeIndex = proposalBuffer.indexOf(CLOSE_TAG);
-          if (closeIndex !== -1) {
-            // 协议块闭合！提取闭合标签之后的多余文本重新送入 pendingBuffer 继续发射
-            const afterClose = proposalBuffer.slice(closeIndex + CLOSE_TAG.length);
-            isInsideProposal = false;
-            proposalBuffer = '';
-            if (afterClose) {
-              pendingBuffer += afterClose;
-            }
-          } else {
-            // 仍在协议块内部，截留不上屏
-            return;
-          }
-        } else {
-          pendingBuffer += token;
-        }
-
-        // 前缀滑动探视状态机 (Prefix Lookahead State Machine)
-        while (pendingBuffer.length > 0 && !isInsideProposal) {
-          const tagIndex = pendingBuffer.indexOf(OPEN_TAG);
-          if (tagIndex !== -1) {
-            // 匹配到了完整的标签前缀，先吐出标签前的安全正文
-            const safeText = pendingBuffer.slice(0, tagIndex);
-            if (safeText && callbacks?.onToken) {
-              await callbacks.onToken(safeText);
-            }
-            // 切换为进入状态，将 OPEN_TAG 之后的内容注入 proposalBuffer 待关闭
-            proposalBuffer = pendingBuffer.slice(tagIndex + OPEN_TAG.length);
-            pendingBuffer = '';
-            isInsideProposal = true;
-
-            // 检查当前 chunk 是否已经包含了 CLOSE_TAG
-            const closeIndex = proposalBuffer.indexOf(CLOSE_TAG);
-            if (closeIndex !== -1) {
-              const afterClose = proposalBuffer.slice(closeIndex + CLOSE_TAG.length);
-              isInsideProposal = false;
-              proposalBuffer = '';
-              if (afterClose) {
-                pendingBuffer = afterClose;
-              }
-            }
-            break;
-          }
-
-          // 探视 pendingBuffer 末尾是否存在 OPEN_TAG 的前缀候选
-          let candidateIndex = -1;
-          for (let i = 0; i < pendingBuffer.length; i++) {
-            const sub = pendingBuffer.slice(i);
-            if (OPEN_TAG.startsWith(sub)) {
-              candidateIndex = i;
-              break;
-            }
-          }
-
-          if (candidateIndex === -1) {
-            // 当前缓冲区无任何疑似协议前缀，为纯安全正文，立即吐出
-            if (callbacks?.onToken) {
-              await callbacks.onToken(pendingBuffer);
-            }
-            pendingBuffer = '';
-          } else if (candidateIndex > 0) {
-            // 候选前缀之前的正文是安全的，立即吐出
-            const safeText = pendingBuffer.slice(0, candidateIndex);
-            if (callbacks?.onToken) {
-              await callbacks.onToken(safeText);
-            }
-            pendingBuffer = pendingBuffer.slice(candidateIndex);
-            break; // 挂起疑似前缀，等待后续 token 探视
-          } else {
-            // candidateIndex === 0，整个缓冲区都是潜在标签前缀，挂起探视
-            break;
-          }
-        }
-      },
-      {
-        stage: `director_chat_${currentStage}`,
-        abortSignal,
-        temperature: 0.7,
-      }
-    );
-
-    // 🌟 流式结束健全性收敛 (截断防护)：若因 Token 限制或网络中断导致未闭合 </action_proposal>
-    if (isInsideProposal) {
-      if (proposalBuffer.length > 0) {
-        rawOutput += '</action_proposal>';
-      }
-      isInsideProposal = false;
-      proposalBuffer = '';
-    }
-
-    // 流式结束收尾：若 pendingBuffer 仍有未决正文（非协议标签），全量 Flush 吐出，保证零丢字
-    if (pendingBuffer.length > 0) {
-      if (callbacks?.onToken) {
-        await callbacks.onToken(pendingBuffer);
-      }
-      pendingBuffer = '';
-    }
-
-    // 5. 提取大模型自主决定的行动提案 (Native Action Proposal Extraction)
-    let proposal: ActionProposal | undefined;
-    let cleanReplyText = rawOutput;
-
-    const proposalMatch = rawOutput.match(/<action_proposal>([\s\S]*?)<\/action_proposal>/);
-    if (proposalMatch && proposalMatch[1]) {
-      try {
-        const rawJson = proposalMatch[1].trim();
-        const parsed = JSON.parse(rawJson);
-        const resolvedSkill = parsed.skill || parsed.payload?.skill || 'story-bible';
-
-        proposal = {
-          actionId: `act_${randomUUID().slice(0, 8)}`,
-          actionType: parsed.actionType || 'TRIGGER_STAGE',
-          skill: resolvedSkill, // 🌟 顶层标准技能标识提升 (SSOT)
-          label: parsed.label || '推进当前工序',
-          description: parsed.description || '',
-          status: 'pending', // 🌟 初始生命周期状态：待确认待执行
-          payload: {
-            stage: currentStage,
-            skill: resolvedSkill,
-            ...(parsed.payload || {}),
+    try {
+      await llm.generateMultiTurnStream(
+        context.systemPromptWithScratchpad,
+        context.turns,
+        async (token) => {
+          replyContent += token;
+          if (callbacks?.onToken) await callbacks.onToken(token);
+        },
+        {
+          stage: context.currentStage,
+          abortSignal,
+          temperature: 0.7,
+          // 🌟 人在回路核心停火铁律 (Human-in-the-Loop SSOT):
+          // 1. 本调用严格遵循单步终止约定 (maxSteps: 1 语义)，大模型在流式对话中【仅产生行动建议 (Proposal)，绝对禁止在后台自动执行任何工具】；
+          // 2. 严禁为 tool 挂载 execute 执行体导致后台私自自动执行；
+          // 3. 所有工具调用均由 onToolCall 拦截转化为 pending 待确认行动卡片，必须 100% 经由创作者手动点击才可在 TaskEngine 中立项执行。
+          tools: {
+            propose_stage_action: proposeStageActionTool,
           },
-        };
-
-        // 🌟 第三道视听工程刚性门禁：代码级刚性拦截守卫 (Fail-Fast Gate Guard)
-        // 若审查官针对当前工序出具了刚性阻断 FAIL 且该报告仍在生效期
-        if (
-          proposal &&
-          reviewReport &&
-          reviewReport.stageReviewed === currentStage &&
-          reviewReport.gateStatus === 'FAIL'
-        ) {
-          const isAllowedRecovery = resolvedSkill === 'critic-review' || resolvedSkill.includes('refine');
-          if (!isAllowedRecovery) {
-            console.warn(`[DirectorAgent] 触发代码级刚性门禁拦截：当前工序 [${currentStage}] 存在 CRITICAL 破绽，阻断推进提案 [${resolvedSkill}] 下发`);
-            proposal = undefined; // 刚性阻断，绝不下发带病推进提案！
-          }
+          onThought: async (thought) => {
+            reasoningContent += thought;
+            if (callbacks?.onThought) await callbacks.onThought(thought);
+          },
+          onToolCall: async (tc) => {
+            if (tc.toolName === 'propose_stage_action') {
+              capturedProposalArgs = tc.args as ProposeStageActionInput;
+            }
+          },
         }
+      );
+    } catch (err: any) {
+      const isAborted = abortSignal?.aborted || err?.name === 'AbortError';
+      const interruptNotice = isAborted
+        ? '【创作者已主动中断本次生成】'
+        : `【导演副手生成中断: ${err.message || '网络连接中断，请重试'}】`;
 
-        if (proposal && callbacks?.onProposal) {
-          await callbacks.onProposal(proposal);
-        }
-      } catch (err) {
-        console.warn('[DirectorAgent] 解析大模型自主行动提案 JSON 警告:', err);
-      }
+      const finalContent = replyContent.trim() ? `${replyContent.trim()}\n\n${interruptNotice}` : interruptNotice;
 
-      // 从最终保存的自然语言回复中剔除 <action_proposal> 协议块
-      cleanReplyText = rawOutput.replace(/<action_proposal>[\s\S]*?<\/action_proposal>/g, '').trim();
+      const fallbackReply: ChatMessage = {
+        id: `msg_asst_${randomUUID().slice(0, 8)}`,
+        role: 'assistant',
+        content: finalContent,
+        thought: reasoningContent.trim() || undefined,
+        isError: !isAborted,
+        isAborted,
+        createdAt: new Date().toISOString(),
+      };
+      projectStore.appendMessage(projectId, sessionId, fallbackReply);
+      throw err;
     }
 
-    // 6. 组装并持久化 Assistant 回复消息
+    // 4. 解析行动提案并执行统一代码级视听刚性门禁防御
+    let proposal: ActionProposal | undefined = undefined;
+    if (capturedProposalArgs) {
+      proposal = await proposalResolver.resolveFromToolCall(
+        capturedProposalArgs,
+        context.currentStage,
+        context.reviewReport,
+        callbacks
+      );
+    }
+
+    if (proposal) {
+      ProposalStore.getInstance().saveProposal(projectId, proposal);
+
+      // 单一活跃提案互斥流转：将旧的 pending 提案置换为 superseded，杜绝卡片堆叠
+      try {
+        const existingMessages = projectStore.getMessages(projectId, sessionId);
+        let messagesUpdated = false;
+        for (const msg of existingMessages) {
+          if (msg.actionProposal && msg.actionProposal.status === 'pending' && msg.actionProposal.actionId !== proposal.actionId) {
+            msg.actionProposal.status = 'dismissed';
+            msg.actionProposal.description = `[已由最新探讨决策替代] 《${proposal.label}》`;
+            messagesUpdated = true;
+            ProposalStore.getInstance().updateProposalStatus(projectId, msg.actionProposal.actionId, 'dismissed', {
+              description: `[已由最新探讨决策替代] 《${proposal.label}》`,
+            });
+          }
+        }
+        if (messagesUpdated) {
+          projectStore.saveMessages(projectId, sessionId, existingMessages);
+        }
+      } catch (cleanErr) {
+        console.warn('[DirectorAgent] 旧提案置换清理警告:', cleanErr);
+      }
+    }
+
+    // 5. 组装并持久化 Assistant 回复消息 (纯 Tool Call 时自动注入承接语，杜绝空白气泡)
+    let finalContent = replyContent.trim();
+    if (!finalContent) {
+      if (proposal) {
+        finalContent = '🎬 当前戏剧决策推敲已成熟，我已为您生成工序落地执行方案，请查阅下方卡片确认推进。';
+      } else {
+        finalContent = '🎬 收到，我们继续推敲本阶段的视听与戏剧设计。';
+      }
+    }
+
     const replyMessage: ChatMessage = {
       id: `msg_asst_${randomUUID().slice(0, 8)}`,
       role: 'assistant',
-      content: cleanReplyText,
+      content: finalContent,
+      thought: reasoningContent.trim() || undefined,
       actionProposal: proposal,
       createdAt: new Date().toISOString(),
     };
-    sessionStore.appendMessage(projectId, sessionId, replyMessage);
+    projectStore.appendMessage(projectId, sessionId, replyMessage);
 
-    // 7. 旁路异步检查更新全局白板
+    // 6. 旁路异步检查更新全局白板
     memoryManager.maybeTriggerBackgroundSummarization(projectId, sessionId);
 
     return {

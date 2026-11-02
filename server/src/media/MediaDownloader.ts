@@ -13,7 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
-import { config } from '../utils/config.js';
+import { ProjectStore } from '../project-store/ProjectStore.js';
 
 export class MediaDownloader {
   private static instance?: MediaDownloader;
@@ -55,7 +55,7 @@ export class MediaDownloader {
       return trimmed;
     }
 
-    const projectDir = path.join(config.paths.projects, projectId);
+    const projectDir = ProjectStore.getInstance().getProjectDir(projectId);
     const targetDir = path.join(projectDir, subfolder);
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });

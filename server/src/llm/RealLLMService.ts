@@ -1,9 +1,15 @@
 /**
  * llm/RealLLMService.ts
- * 生产级大模型驱动类 (接入 BrandRouter 品牌自适应路由与 ModelPricing 遥测)
+ * 生产级大模型驱动类 (基于 Vercel AI SDK 构建，原生 Tool Calling 与结构化输出)
  */
 
-import OpenAI from 'openai';
+import { createOpenAI } from '@ai-sdk/openai';
+import {
+  generateText as aiGenerateText,
+  generateObject as aiGenerateObject,
+  streamText as aiStreamText,
+  jsonSchema,
+} from 'ai';
 import { LLMService, LLMOptions } from './LLMService.js';
 import { JsonSanitizer } from '../utils/JsonSanitizer.js';
 import { BrandRouter, ResolvedEndpoint } from './BrandRouter.js';
@@ -11,10 +17,10 @@ import { ModelPricingRegistry } from './telemetry/ModelPricing.js';
 import type { LLMUsageRecord } from './telemetry/types.js';
 
 export class RealLLMService implements LLMService {
-  private client: OpenAI;
   public readonly modelName: string;
   public readonly endpoint: ResolvedEndpoint;
   public onUsageListener?: (record: LLMUsageRecord) => void;
+  private modelInstance: any;
 
   constructor(customModelId?: string) {
     this.endpoint = BrandRouter.resolve(customModelId);
@@ -22,13 +28,72 @@ export class RealLLMService implements LLMService {
 
     const presetDesc = this.endpoint.presetName ? ` [${this.endpoint.presetName}]` : '';
     console.log(
-      `[RealLLMService] 🚀 激活大模型通道: 品牌 [${this.endpoint.brand}], 模型 [${this.endpoint.model}]${presetDesc}, 端点 [${this.endpoint.baseURL}]`
+      `[RealLLMService] 🚀 激活 Vercel AI SDK 通道: 品牌 [${this.endpoint.brand}], 模型 [${this.endpoint.model}]${presetDesc}, 端点 [${this.endpoint.baseURL}]`
     );
 
-    this.client = new OpenAI({
-      apiKey: this.endpoint.apiKey || 'dummy_key',
+    const customFetch = RealLLMService.createDynamicFetch();
+
+    const openai = createOpenAI({
       baseURL: this.endpoint.baseURL,
+      apiKey: this.endpoint.apiKey || 'dummy_key',
+      fetch: customFetch,
     });
+
+    this.modelInstance = openai.chat(this.modelName);
+  }
+
+  /**
+   * 构造具备动态参数穿透能力的自定义 Fetch 拦截器 (解决 AI SDK 默认不透传部分大模型特定思考流参数的问题)
+   */
+  private static createDynamicFetch(): typeof globalThis.fetch {
+    return async (input: any, init?: any): Promise<Response> => {
+      if (init && init.body && typeof init.body === 'string') {
+        try {
+          const headers = (init.headers as Record<string, string>) || {};
+          const isDisableThinking = headers['x-disable-thinking'] === 'true';
+          const isEnableThinking = headers['x-disable-thinking'] === 'false';
+          const thinkingBudgetHeader = headers['x-thinking-budget'];
+          const thinkingBudget = thinkingBudgetHeader ? parseInt(thinkingBudgetHeader, 10) : undefined;
+
+          const bodyObj = JSON.parse(init.body);
+
+          if (isDisableThinking) {
+            bodyObj.enable_thinking = false;
+            bodyObj.thinking = { type: 'disabled' };
+            bodyObj.chat_template_kwargs = { enable_thinking: false };
+            bodyObj.thinking_budget = 0;
+            bodyObj.reasoning_effort = 'none';
+          } else if (isEnableThinking || thinkingBudget) {
+            bodyObj.enable_thinking = true;
+            if (thinkingBudget) {
+              bodyObj.thinking = { type: 'enabled', budget_tokens: thinkingBudget };
+              bodyObj.thinking_budget = thinkingBudget;
+              bodyObj.chat_template_kwargs = { thinking_budget: thinkingBudget, enable_thinking: true };
+              bodyObj.reasoning_effort = thinkingBudget > 2048 ? 'high' : 'medium';
+            } else {
+              delete bodyObj.thinking;
+              delete bodyObj.chat_template_kwargs;
+              bodyObj.reasoning_effort = 'medium';
+            }
+          }
+
+          init.body = JSON.stringify(bodyObj);
+
+          // 清理自定义透传 Header，杜绝外网协议污染
+          if (init.headers && typeof init.headers === 'object') {
+            if ('x-disable-thinking' in (init.headers as any)) {
+              delete (init.headers as any)['x-disable-thinking'];
+            }
+            if ('x-thinking-budget' in (init.headers as any)) {
+              delete (init.headers as any)['x-thinking-budget'];
+            }
+          }
+        } catch {
+          // 忽略非 JSON 请求体解析异常
+        }
+      }
+      return fetch(input, init);
+    };
   }
 
   public hasVisionCapability(): boolean {
@@ -43,9 +108,9 @@ export class RealLLMService implements LLMService {
     customCallback?: (rec: LLMUsageRecord) => void
   ): void {
     if (!usageObj) return;
-    const promptTokens = usageObj.prompt_tokens ?? usageObj.promptTokens ?? 0;
-    const completionTokens = usageObj.completion_tokens ?? usageObj.completionTokens ?? 0;
-    const totalTokens = usageObj.total_tokens ?? usageObj.totalTokens ?? (promptTokens + completionTokens);
+    const promptTokens = usageObj.promptTokens ?? usageObj.prompt_tokens ?? 0;
+    const completionTokens = usageObj.completionTokens ?? usageObj.completion_tokens ?? 0;
+    const totalTokens = usageObj.totalTokens ?? usageObj.total_tokens ?? (promptTokens + completionTokens);
 
     const { cost, currency } = ModelPricingRegistry.calculateCost(promptTokens, completionTokens, this.modelName);
 
@@ -70,31 +135,20 @@ export class RealLLMService implements LLMService {
   }
 
   public async generateText(prompt: string, systemPrompt?: string, options?: LLMOptions): Promise<string> {
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
-    if (systemPrompt) {
-      messages.push({ role: 'system', content: systemPrompt });
-    }
-    messages.push({ role: 'user', content: prompt });
-
-    const maxTokens = options?.maxTokens ?? 16384;
-    const temperature = options?.temperature ?? 0.3;
     const startTime = Date.now();
-
     try {
-      const response = await this.client.chat.completions.create({
-        model: this.modelName,
-        messages,
-        temperature,
-        max_tokens: maxTokens,
-      }, {
-        signal: options?.abortSignal,
+      const result = await aiGenerateText({
+        model: this.modelInstance,
+        system: systemPrompt,
+        prompt,
+        temperature: options?.temperature ?? 0.3,
+        abortSignal: options?.abortSignal,
       });
 
       const duration = Date.now() - startTime;
-      const text = response.choices[0]?.message?.content || '';
-      this.dispatchUsage(response.usage, options?.stage, duration, options?.onUsage);
+      this.dispatchUsage(result.usage, options?.stage, duration, options?.onUsage);
 
-      return text;
+      return result.text;
     } catch (err: any) {
       console.error(`[RealLLMService] generateText 失败 [${this.modelName}]:`, err.message || err);
       throw err;
@@ -103,86 +157,89 @@ export class RealLLMService implements LLMService {
 
   public async generateMultiTurn(
     systemPrompt: string,
-    history: Array<{ role: 'user' | 'assistant'; content: string }>,
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>,
     options?: LLMOptions
   ): Promise<string> {
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
-    if (systemPrompt) {
-      messages.push({ role: 'system', content: systemPrompt });
-    }
-    for (const h of history) {
-      messages.push({ role: h.role, content: h.content });
-    }
-
-    const maxTokens = options?.maxTokens ?? 16384;
-    const temperature = options?.temperature ?? 0.3;
     const startTime = Date.now();
-
     try {
-      const response = await this.client.chat.completions.create({
-        model: this.modelName,
-        messages,
-        temperature,
-        max_tokens: maxTokens,
-      }, {
-        signal: options?.abortSignal,
+      const formattedMessages = messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
+      const result = await aiGenerateText({
+        model: this.modelInstance,
+        system: systemPrompt,
+        messages: formattedMessages,
+        temperature: options?.temperature ?? 0.7,
+        abortSignal: options?.abortSignal,
       });
 
       const duration = Date.now() - startTime;
-      const text = response.choices[0]?.message?.content || '';
-      this.dispatchUsage(response.usage, options?.stage, duration, options?.onUsage);
+      this.dispatchUsage(result.usage, options?.stage, duration, options?.onUsage);
 
-      return text;
+      return result.text;
     } catch (err: any) {
       console.error(`[RealLLMService] generateMultiTurn 失败 [${this.modelName}]:`, err.message || err);
       throw err;
     }
   }
 
-  /**
-   * 🌟 真实流式多轮生成 (OpenAI 原生 stream: true，首字极速吐出)
-   */
   public async generateMultiTurnStream(
     systemPrompt: string,
-    history: Array<{ role: 'user' | 'assistant'; content: string }>,
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>,
     onToken: (token: string) => Promise<void> | void,
     options?: LLMOptions
   ): Promise<string> {
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
-    if (systemPrompt) {
-      messages.push({ role: 'system', content: systemPrompt });
-    }
-    for (const h of history) {
-      messages.push({ role: h.role, content: h.content });
-    }
-
-    const maxTokens = options?.maxTokens ?? 16384;
-    const temperature = options?.temperature ?? 0.3;
     const startTime = Date.now();
-    let fullText = '';
-
     try {
-      const stream = await this.client.chat.completions.create({
-        model: this.modelName,
-        messages,
-        temperature,
-        max_tokens: maxTokens,
-        stream: true,
-      }, {
-        signal: options?.abortSignal,
+      const formattedMessages = messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
+      const result = await aiStreamText({
+        model: this.modelInstance,
+        system: systemPrompt,
+        messages: formattedMessages,
+        temperature: options?.temperature ?? 0.7,
+        abortSignal: options?.abortSignal,
+        tools: options?.tools,
       });
 
-      for await (const chunk of stream) {
-        if (options?.abortSignal?.aborted) break;
-        const delta = chunk.choices[0]?.delta?.content || '';
-        if (delta) {
-          fullText += delta;
-          await onToken(delta);
+      let fullText = '';
+      for await (const part of result.fullStream) {
+        if (options?.abortSignal?.aborted) {
+          throw new Error('LLM Stream aborted by user');
+        }
+
+        if (part.type === 'text-delta') {
+          fullText += part.text;
+          await onToken(part.text);
+        } else if (part.type === 'reasoning-delta') {
+          if (options?.onThought) {
+            await options.onThought(part.text);
+          }
+        } else if (part.type === 'tool-call') {
+          if (options?.onToolCall) {
+            const toolCallInput = (part as any).input ?? (part as any).args;
+            await options.onToolCall({
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              args: toolCallInput,
+            });
+          }
         }
       }
 
       const duration = Date.now() - startTime;
-      this.dispatchUsage(undefined, options?.stage, duration, options?.onUsage);
+      let usage: any;
+      try {
+        usage = await result.usage;
+      } catch {
+        usage = undefined;
+      }
+      this.dispatchUsage(usage, options?.stage, duration, options?.onUsage);
 
       return fullText;
     } catch (err: any) {
@@ -197,58 +254,71 @@ export class RealLLMService implements LLMService {
     systemPrompt?: string,
     options?: LLMOptions
   ): Promise<string> {
-    const contentParts: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [
-      { type: 'text', text: prompt },
-    ];
-
-    for (const img of images) {
-      const imageUrl = img.startsWith('http') || img.startsWith('data:') ? img : `data:image/jpeg;base64,${img}`;
-      contentParts.push({
-        type: 'image_url',
-        image_url: { url: imageUrl },
-      });
-    }
-
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
-    if (systemPrompt) {
-      messages.push({ role: 'system', content: systemPrompt });
-    }
-    messages.push({ role: 'user', content: contentParts });
-
     const startTime = Date.now();
     try {
-      const response = await this.client.chat.completions.create({
-        model: this.modelName,
-        messages,
+      const contentParts: any[] = [{ type: 'text', text: prompt }];
+
+      for (const img of images) {
+        const imageUrl = img.startsWith('http') || img.startsWith('data:') ? img : `data:image/jpeg;base64,${img}`;
+        contentParts.push({
+          type: 'image',
+          image: imageUrl,
+        });
+      }
+
+      const result = await aiGenerateText({
+        model: this.modelInstance,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: contentParts }],
         temperature: options?.temperature ?? 0.2,
-      }, {
-        signal: options?.abortSignal,
+        abortSignal: options?.abortSignal,
       });
 
       const duration = Date.now() - startTime;
-      const text = response.choices[0]?.message?.content || '';
-      this.dispatchUsage(response.usage, options?.stage || 'vision', duration, options?.onUsage);
+      this.dispatchUsage(result.usage, options?.stage || 'vision', duration, options?.onUsage);
 
-      return text;
+      return result.text;
     } catch (err: any) {
       console.error(`[RealLLMService] generateTextWithImages 失败 [${this.modelName}]:`, err.message || err);
       throw err;
     }
   }
 
+  /**
+   * 🌟 原生结构化输出 (Vercel AI SDK generateObject，内部处理兼容容错，杜绝防守性废话)
+   */
   public async generateObject<T>(
     prompt: string,
     schema: any,
     systemPrompt?: string,
     options?: LLMOptions
   ): Promise<T> {
-    const schemaDesc = typeof schema === 'string' ? schema : JSON.stringify(schema, null, 2);
-    const jsonPrompt = `${prompt}\n\n【强制输出规范 (JSON Schema)】：\n请严格输出一个合法的纯 JSON 对象（以 { 开头，以 } 结尾），所有字段名与数据结构必须 100% 精确遵从以下模式定义，严禁自行创造同义词或遗漏关键结构：\n\`\`\`json\n${schemaDesc}\n\`\`\`\n请直接输出纯 JSON 对象（严禁任何自然语言开场白）：`;
+    const startTime = Date.now();
+    try {
+      const zodOrJsonSchema =
+        schema && typeof schema === 'object' && ('safeParse' in schema || '_def' in schema)
+          ? schema
+          : jsonSchema(schema);
 
-    const textResponse = await this.generateText(jsonPrompt, systemPrompt, options);
+      const result = await aiGenerateObject({
+        model: this.modelInstance,
+        schema: zodOrJsonSchema,
+        system: systemPrompt,
+        prompt,
+        temperature: options?.temperature ?? 0.2,
+        abortSignal: options?.abortSignal,
+      });
 
-    const parsedObj = JsonSanitizer.extractJsonFromText<any>(textResponse);
-    const normalized = JsonSanitizer.sanitizeAndNormalize<T>(parsedObj, schema);
-    return normalized;
+      const duration = Date.now() - startTime;
+      this.dispatchUsage(result.usage, options?.stage, duration, options?.onUsage);
+
+      return result.object as T;
+    } catch (err: any) {
+      console.warn(`[RealLLMService] 原生 generateObject 解析异常，执行兼容容错:`, err.message || err);
+      const jsonPrompt = `${prompt}\n\n请按以下数据模式输出纯 JSON：\n${typeof schema === 'string' ? schema : JSON.stringify(schema, null, 2)}`;
+      const fallbackText = await this.generateText(jsonPrompt, systemPrompt, options);
+      const parsedObj = JsonSanitizer.extractJsonFromText<any>(fallbackText);
+      return JsonSanitizer.sanitizeAndNormalize<T>(parsedObj, schema);
+    }
   }
 }

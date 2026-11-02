@@ -12,7 +12,7 @@
 import fs from 'fs';
 import path from 'path';
 import { FFmpegService } from './ffmpeg.js';
-import { config } from '../utils/config.js';
+import { ProjectStore } from '../project-store/ProjectStore.js';
 import { MediaDownloader } from './MediaDownloader.js';
 import { MediaProviderFactory } from './providers/MediaProviderFactory.js';
 
@@ -26,20 +26,22 @@ export class VisualMediaRenderer {
   public static async renderCharacterPortrait(
     projectId: string,
     characterName: string,
-    prompt?: string
+    prompt?: string,
+    options?: { isMock?: boolean }
   ): Promise<string> {
-    const projectDir = path.join(config.paths.projects, projectId);
+    const projectDir = ProjectStore.getInstance().getProjectDir(projectId);
     const targetDir = path.join(projectDir, 'characters');
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
     }
 
     const safeName = encodeURIComponent(characterName);
-    const filename = `${safeName}_portrait.jpg`;
+    const baseFilename = `${safeName}_portrait`;
+    const filename = `${baseFilename}.jpg`;
     const fullPath = path.join(targetDir, filename);
 
-    // 1. 尝试调用真实文生图模型 (Wanx-T2I / SD)
-    const imageProvider = MediaProviderFactory.getImageProvider();
+    // 1. 尝试调用真实文生图模型 (Wanx-T2I / SD) (若为 Mock 模式直接跳过物理扣费)
+    const imageProvider = !options?.isMock ? MediaProviderFactory.getImageProvider() : null;
     if (imageProvider) {
       try {
         const generationPrompt = prompt || `电影角色定妆剧照，${characterName}，高画质电影布光，真实人物特写`;
@@ -52,9 +54,10 @@ export class VisualMediaRenderer {
             projectId,
             remoteUrl,
             'characters',
-            filename
+            baseFilename
           );
-          if (fs.existsSync(fullPath) && fs.statSync(fullPath).size > 0) {
+          const diskFile = path.join(projectDir, localPath.replace(`/media/${projectId}/`, ''));
+          if (fs.existsSync(diskFile) && fs.statSync(diskFile).size > 0) {
             return localPath;
           }
         }
@@ -95,15 +98,17 @@ export class VisualMediaRenderer {
     projectId: string,
     shotId: string,
     aspectRatio: string = '16:9',
-    prompt?: string
+    prompt?: string,
+    options?: { isMock?: boolean }
   ): Promise<string> {
-    const projectDir = path.join(config.paths.projects, projectId);
+    const projectDir = ProjectStore.getInstance().getProjectDir(projectId);
     const targetDir = path.join(projectDir, 'keyframes');
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
     }
 
-    const filename = `${shotId}_frame.jpg`;
+    const baseFilename = `${shotId}_frame`;
+    const filename = `${baseFilename}.jpg`;
     const fullPath = path.join(targetDir, filename);
 
     const isVertical = aspectRatio === '9:16';
@@ -111,8 +116,8 @@ export class VisualMediaRenderer {
     const height = isVertical ? 1280 : 720;
     const sizeStr = isVertical ? '720*1280' : '1280*720';
 
-    // 1. 尝试调用真实文生图模型
-    const imageProvider = MediaProviderFactory.getImageProvider();
+    // 1. 尝试调用真实文生图模型 (若为 Mock 模式直接跳过物理扣费)
+    const imageProvider = !options?.isMock ? MediaProviderFactory.getImageProvider() : null;
     if (imageProvider) {
       try {
         const generationPrompt = prompt || `电影分镜画面，机位 ${shotId}，高清影视光影，大师级构图`;
@@ -125,9 +130,10 @@ export class VisualMediaRenderer {
             projectId,
             remoteUrl,
             'keyframes',
-            filename
+            baseFilename
           );
-          if (fs.existsSync(fullPath) && fs.statSync(fullPath).size > 0) {
+          const diskFile = path.join(projectDir, localPath.replace(`/media/${projectId}/`, ''));
+          if (fs.existsSync(diskFile) && fs.statSync(diskFile).size > 0) {
             return localPath;
           }
         }
@@ -171,19 +177,21 @@ export class VisualMediaRenderer {
     resolution: string = '720P',
     aspectRatio: string = '16:9',
     prompt?: string,
-    referenceImageUrl?: string
+    referenceImageUrl?: string,
+    options?: { isMock?: boolean }
   ): Promise<string> {
-    const projectDir = path.join(config.paths.projects, projectId);
+    const projectDir = ProjectStore.getInstance().getProjectDir(projectId);
     const targetDir = path.join(projectDir, 'video');
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
     }
 
-    const filename = `${clipId}_clip.mp4`;
+    const baseFilename = `${clipId}_clip`;
+    const filename = `${baseFilename}.mp4`;
     const fullPath = path.join(targetDir, filename);
 
-    // 1. 尝试调用真实视频生成模型 (Wanx-I2V)
-    const videoProvider = MediaProviderFactory.getVideoProvider();
+    // 1. 尝试调用真实视频生成模型 (Wanx-I2V) (若为 Mock 模式直接跳过物理扣费)
+    const videoProvider = !options?.isMock ? MediaProviderFactory.getVideoProvider() : null;
     if (videoProvider) {
       try {
         const generationPrompt = prompt || `高清影视动态镜头，运镜平稳，自然光影变化`;
@@ -199,9 +207,10 @@ export class VisualMediaRenderer {
             projectId,
             remoteUrl,
             'video',
-            filename
+            baseFilename
           );
-          if (fs.existsSync(fullPath) && fs.statSync(fullPath).size > 0) {
+          const diskFile = path.join(projectDir, localPath.replace(`/media/${projectId}/`, ''));
+          if (fs.existsSync(diskFile) && fs.statSync(diskFile).size > 0) {
             return localPath;
           }
         }

@@ -14,6 +14,7 @@ import {
   streamSkillExecute,
   dismissChatProposal,
   sendCriticReviewDialog,
+  advanceProjectStage,
   type ActionProposal,
 } from '@/lib/chatApi';
 import { ChatMessageItem } from './studio.types';
@@ -26,7 +27,7 @@ interface StudioWorkspaceProps {
   onNewProject: () => void;
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
-  onStartProject: (idea: string) => Promise<void>;
+  onStartProject: (idea: string) => Promise<string | null>;
   history: HistoryItem[];
 }
 
@@ -36,16 +37,6 @@ const WELCOME_MESSAGE: ChatMessageItem = {
   senderName: 'AI 影游总制作人',
   content: '🎬 **你好！我是你的 AI 互动影游制作人。**\n\n告诉我你想创作什么故事或游戏构思（例如：*赛博朋克风格的记忆神偷，调查一起跨国企业意识篡改案*）。\n\n我将为你全自动推演网状互动剧情、角色人设、分镜故事板与关键帧，直至打包生成可交互的影视游戏！成片将直接在右侧游戏视窗实时上映并可即时试玩。',
   timestamp: '刚刚',
-};
-
-const STAGE_TO_SKILL_MAP: Record<string, { skill: string; label: string }> = {
-  narrative_design: { skill: 'story-bible', label: '故事世界观圣经推演' },
-  character_design: { skill: 'character-portrait', label: '全剧核心角色定妆照生成' },
-  scene_script: { skill: 'scene-script', label: '全剧分场多分支剧本扩写' },
-  storyboard: { skill: 'storyboard', label: '导演视听机位分镜表切分' },
-  keyframe_reference: { skill: 'keyframe-reference', label: '分镜头首帧高清参考图批量渲染' },
-  video_production: { skill: 'video-production', label: '动态视频切片批量生成与渲染' },
-  fmv_packaging: { skill: 'fmv-packaging', label: '母带工程混音与交互播放器打包' },
 };
 
 export default function StudioWorkspace({
@@ -63,6 +54,9 @@ export default function StudioWorkspace({
   const [messages, setMessages] = useState<ChatMessageItem[]>([WELCOME_MESSAGE]);
   const [isRunning, setIsRunning] = useState(false);
   const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(null);
+  // 会话初始化幂等守卫：防止手动调用与 useEffect 并发重复建会话
+  const chatSessionIdRef = useRef<string | null>(null);
+  const initializedProjectRef = useRef<string | null>(null);
 
   // 可拖拽分屏调节宽度（默认左边更大：56%）
   const [leftWidthPercent, setLeftWidthPercent] = useState<number>(56);
@@ -100,7 +94,11 @@ export default function StudioWorkspace({
   }, [sessionId]);
 
   // 2. 初始化或恢复项目的活跃对话会话 (SessionStore SSOT)
-  const initChatSession = useCallback(async (projectId: string) => {
+  const initChatSession = useCallback(async (projectId: string): Promise<string> => {
+    if (initializedProjectRef.current === projectId && chatSessionIdRef.current) {
+      return chatSessionIdRef.current;
+    }
+    initializedProjectRef.current = projectId;
     try {
       const sessions = await fetchChatSessions(projectId);
       let targetSessionId = '';
@@ -112,9 +110,10 @@ export default function StudioWorkspace({
         targetSessionId = newSession.sessionId;
       }
 
+      chatSessionIdRef.current = targetSessionId;
       setActiveChatSessionId(targetSessionId);
 
-      // 拉取该会话的消息历史流
+      // 拉取该会话的消息历史流 (拉齐 thought 字段 SSOT)
       const rawMessages = await fetchChatMessages(projectId, targetSessionId);
       if (rawMessages.length > 0) {
         const mappedMessages: ChatMessageItem[] = rawMessages.map((m) => ({
@@ -122,13 +121,17 @@ export default function StudioWorkspace({
           sender: m.role === 'user' ? 'user' : 'agent',
           senderName: m.role === 'user' ? '我 (创作者)' : 'AI 影游总制作人',
           content: m.content,
+          thought: m.thought,
           actionProposal: m.actionProposal,
           timestamp: m.createdAt ? (m.createdAt.includes('T') ? m.createdAt.slice(11, 16) : m.createdAt) : '刚刚',
         }));
         setMessages(mappedMessages);
       }
+      return targetSessionId;
     } catch (err) {
+      initializedProjectRef.current = null;
       console.warn('[StudioWorkspace] 恢复会话历史失败:', err);
+      return '';
     }
   }, [currentStage]);
 
@@ -145,6 +148,8 @@ export default function StudioWorkspace({
       setMessages([WELCOME_MESSAGE]);
       setCurrentStage('narrative_design');
       setActiveChatSessionId(null);
+      chatSessionIdRef.current = null;
+      initializedProjectRef.current = null;
     }
   }, [sessionId, fetchStatus, initChatSession]);
 
@@ -256,15 +261,46 @@ export default function StudioWorkspace({
     }
   };
 
-  // 4. Action: User confirms current milestone and proceeds to next
+  // 🌟 4. Action: 权威推进工序阶段 (Stage Advance SSOT，彻底消灭重跑旧技能的脆弱苟且)
   const handleConfirmNext = async () => {
-    const currentSkillInfo = STAGE_TO_SKILL_MAP[currentStage] || { skill: 'story-bible' };
-    await handleExecuteSkill(currentSkillInfo.skill);
+    if (!sessionId || isRunning) return;
+    try {
+      setIsRunning(true);
+      await advanceProjectStage(sessionId, currentStage);
+      await fetchStatus();
+    } catch (err: any) {
+      console.error('[StudioWorkspace] 推进工序阶段失败:', err);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `err_${Date.now()}`,
+          sender: 'system',
+          content: `❌ 推进工序失败: ${err.message || '网络异常'}`,
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ]);
+    } finally {
+      setIsRunning(false);
+    }
   };
 
   // 5. Action: Execute autonomous ActionProposal from Director (显式透传 actionId SSOT)
   const handleExecuteProposal = async (proposal: ActionProposal) => {
-    const targetSkill = proposal.skill || STAGE_TO_SKILL_MAP[currentStage]?.skill || 'story-bible';
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.actionProposal?.actionId === proposal.actionId
+          ? {
+              ...m,
+              actionProposal: {
+                ...m.actionProposal,
+                status: 'executed',
+                executedAt: new Date().toISOString(),
+              },
+            }
+          : m
+      )
+    );
+    const targetSkill = proposal.skill || 'story-bible';
     await handleExecuteSkill(targetSkill, {
       actionId: proposal.actionId,
       ...(proposal.payload || {}),
@@ -310,10 +346,16 @@ export default function StudioWorkspace({
     if (isRunning) return;
     setIsRunning(true);
 
-    // If no active session, start new project from chat
-    if (!sessionId) {
+    let activeProjectId = sessionId;
+    let targetSessionId: string = chatSessionIdRef.current || '';
+
+    // If no active session, start new project from chat, then auto-forward the idea to DirectorAgent
+    if (!activeProjectId) {
       try {
-        await onStartProject(text);
+        const newProjectId = await onStartProject(text);
+        if (!newProjectId) throw new Error('项目创建失败');
+        activeProjectId = newProjectId;
+        targetSessionId = (await initChatSession(newProjectId)) || targetSessionId;
       } catch (err: any) {
         setMessages((prev) => [
           ...prev,
@@ -324,18 +366,17 @@ export default function StudioWorkspace({
             timestamp: new Date().toLocaleTimeString(),
           },
         ]);
-      } finally {
         setIsRunning(false);
+        return;
       }
-      return;
     }
 
     // 确保有可用的 chatSessionId
-    let targetSessionId = activeChatSessionId;
     if (!targetSessionId) {
       try {
-        const newSession = await createChatSession(sessionId, '主线创作会话', currentStage);
+        const newSession = await createChatSession(activeProjectId, '主线创作会话', currentStage);
         targetSessionId = newSession.sessionId;
+        chatSessionIdRef.current = targetSessionId;
         setActiveChatSessionId(targetSessionId);
       } catch (err: any) {
         setMessages((prev) => [
@@ -374,7 +415,7 @@ export default function StudioWorkspace({
 
     try {
       await streamDirectorChat(
-        sessionId,
+        activeProjectId,
         targetSessionId,
         text,
         {
@@ -382,6 +423,13 @@ export default function StudioWorkspace({
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === asstMsgId ? { ...m, content: m.content + token } : m
+              )
+            );
+          },
+          onThought: (thought) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === asstMsgId ? { ...m, thought: (m.thought || '') + thought } : m
               )
             );
           },
@@ -398,7 +446,8 @@ export default function StudioWorkspace({
                 m.id === asstMsgId
                   ? {
                       ...m,
-                      content: result.message.content || m.content,
+                      content: result.message?.content || m.content,
+                      thought: result.message?.thought || m.thought,
                       actionProposal: result.proposal || m.actionProposal,
                     }
                   : m
@@ -408,21 +457,32 @@ export default function StudioWorkspace({
             fetchStatus();
           },
           onError: (err) => {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `err_${Date.now()}`,
-                sender: 'system',
-                content: `❌ 导演思考遇到问题: ${err.message}`,
-                timestamp: new Date().toLocaleTimeString(),
-              },
-            ]);
+            setMessages((prev) =>
+              prev
+                .filter((m) => m.id !== asstMsgId || m.content)
+                .concat({
+                  id: `err_${Date.now()}`,
+                  sender: 'system',
+                  content: `❌ 导演思考遇到问题: ${err.message}`,
+                  timestamp: new Date().toLocaleTimeString(),
+                })
+            );
             setIsRunning(false);
           },
         }
       );
     } catch (err: any) {
       console.error('[StudioWorkspace] 对话流异常:', err);
+      setMessages((prev) =>
+        prev
+          .filter((m) => m.id !== asstMsgId || m.content)
+          .concat({
+            id: `err_${Date.now()}`,
+            sender: 'system',
+            content: `❌ 对话建立失败: ${err.message || '未知异常'}`,
+            timestamp: new Date().toLocaleTimeString(),
+          })
+      );
       setIsRunning(false);
     }
   };
@@ -458,7 +518,7 @@ export default function StudioWorkspace({
     }
   };
 
-  // 10. Action: Regenerate single character
+  // 10. Action: Regenerate single character (显式透传 isRefinement，绝不越权前移阶段)
   const handleRegenerateSingleCharacter = async (
     charId: string,
     instruction?: string,
@@ -466,6 +526,7 @@ export default function StudioWorkspace({
     editedPrompt?: string
   ) => {
     await handleExecuteSkill('character-portrait', {
+      isRefinement: true,
       targetCharacterNames: [charId],
       userFeedback: instruction,
       editedPrompt,

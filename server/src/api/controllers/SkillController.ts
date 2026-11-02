@@ -1,15 +1,17 @@
 /**
  * api/controllers/SkillController.ts
  * 声明式影视工序技能执行控制器 (Skill Controller SSOT)
+ *
+ * 核心设计：
+ * 1. 暴露异步任务实体 API (TaskEngine SSOT，彻底终结长连接扛长任务脆弱架构)；
+ * 2. 兼容保留 /skill/execute SSE 门面，底层由 TaskEngine 驱动执行与落盘；
+ * 3. 统一由 GateGuard 进行刚性门禁防护。
  */
 
 import { Hono } from 'hono';
-import { randomUUID } from 'crypto';
 import { streamSSE } from 'hono/streaming';
 import { SkillRegistry } from '../../skills/SkillRegistry.js';
-import { SessionStore } from '../../chat/session/SessionStore.js';
-import { ProjectStore } from '../../project-store/ProjectStore.js';
-import type { ChatMessage } from '../../chat/session/types.js';
+import { TaskEngine } from '../../tasks/index.js';
 
 export const skillController = new Hono();
 
@@ -19,93 +21,151 @@ skillController.get('/api/skills', (c) => {
   return c.json({ success: true, skills });
 });
 
-// 执行指定影视工序技能 (SSE 流式进度与阶段双向同步)
+// 🌟 1. 异步任务提交接口 (TaskEngine 核心接口，立即返回 taskId)
+skillController.post('/api/chat/:projectId/tasks', async (c) => {
+  try {
+    const projectId = c.req.param('projectId');
+    const body = await c.req.json().catch(() => ({}));
+    const skillName = body.skillName;
+    const sessionId = body.sessionId;
+    const actionId = body.actionId;
+    // 🌟 纯净化提取业务参数 (SSOT，彻底消除传输元数据 stage/skill 污染底层技能执行)
+    const rawParams = (body.params && Object.keys(body.params).length > 0)
+      ? body.params
+      : (body.payload?.params || body.payload || {});
+    const { stage: _stage, skill: _skill, params: _nested, ...cleanParams } = rawParams;
+    const params = cleanParams;
+
+    if (!skillName) {
+      return c.json({ success: false, error: '缺少 skillName 参数' }, 400);
+    }
+
+    const task = TaskEngine.getInstance().submitTask({
+      projectId,
+      sessionId,
+      skillName,
+      params,
+      actionId,
+    });
+
+    return c.json({ success: true, task });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 400);
+  }
+});
+
+// 🌟 2. 任务状态轮询接口 (断线重连、页面刷新恢复)
+skillController.get('/api/chat/:projectId/tasks/:taskId', (c) => {
+  const projectId = c.req.param('projectId');
+  const taskId = c.req.param('taskId');
+  const task = TaskEngine.getInstance().getTask(projectId, taskId);
+
+  if (!task) {
+    return c.json({ success: false, error: '任务不存在' }, 404);
+  }
+
+  return c.json({ success: true, task });
+});
+
+// 🌟 3. 任务中断与取消接口
+skillController.post('/api/chat/:projectId/tasks/:taskId/cancel', (c) => {
+  const projectId = c.req.param('projectId');
+  const taskId = c.req.param('taskId');
+  const cancelled = TaskEngine.getInstance().cancelTask(projectId, taskId);
+
+  return c.json({ success: true, cancelled });
+});
+
+// 🌟 4. 执行指定影视工序技能 (SSE 流式门面，底层全量托管给 TaskEngine 确保落盘与防断联)
 skillController.post('/api/chat/:projectId/skill/execute', async (c) => {
   const projectId = c.req.param('projectId');
   const body = await c.req.json().catch(() => ({}));
   const skillName = body.skillName;
   const sessionId = body.sessionId;
-  const params = body.params || {};
+  const actionId = body.actionId;
+  // 🌟 纯净化提取业务参数 (SSOT，彻底消除传输元数据 stage/skill 污染底层技能执行)
+  const rawParams = (body.params && Object.keys(body.params).length > 0)
+    ? body.params
+    : (body.payload?.params || body.payload || {});
+  const { stage: _stage, skill: _skill, params: _nested, ...cleanParams } = rawParams;
+  const params = cleanParams;
 
   if (!skillName) {
     return c.json({ success: false, error: '缺少 skillName 参数' }, 400);
   }
 
-  const skill = SkillRegistry.getInstance().get(skillName);
-  if (!skill) {
-    return c.json({ success: false, error: `技能 [${skillName}] 未注册` }, 404);
-  }
-
-  const session = sessionId ? SessionStore.getInstance().getSession(projectId, sessionId) : undefined;
-  const userConstraints = session?.scratchpad?.userConstraints;
-
   return streamSSE(c, async (stream) => {
+    let task;
     try {
-      const result = await skill.execute({
+      task = TaskEngine.getInstance().submitTask({
         projectId,
         sessionId,
+        skillName,
         params,
-        userConstraints,
-        abortSignal: c.req.raw.signal,
-        onProgress: async (percent, message) => {
-          await stream.writeSSE({
-            event: 'progress',
-            data: JSON.stringify({ percent, message }),
-          });
-        },
+        actionId,
       });
-
-      // 🌟 工序推进双向同步：技能执行成功后，刚性同步权威阶段状态至 Session
-      if (sessionId && result.success) {
-        const sessionStore = SessionStore.getInstance();
-        const latestProject = ProjectStore.getInstance().getProject(projectId);
-        if (latestProject?.currentStage) {
-          const currentSession = sessionStore.getSession(projectId, sessionId);
-          if (currentSession && currentSession.currentStage !== latestProject.currentStage) {
-            currentSession.currentStage = latestProject.currentStage;
-            sessionStore.saveSession(currentSession);
-          }
-        }
-
-        // 🌟 提案生命周期闭环：将对应待处理的 ActionProposal 回标为 'executed'，彻底消除历史误触与重复提议
-        const messages = sessionStore.getMessages(projectId, sessionId);
-        let proposalUpdated = false;
-        const targetActionId = body.actionId || params.actionId;
-
-        for (let i = messages.length - 1; i >= 0; i--) {
-          const msg = messages[i];
-          if (msg.actionProposal && msg.actionProposal.status === 'pending') {
-            if (!targetActionId || msg.actionProposal.actionId === targetActionId) {
-              msg.actionProposal.status = 'executed';
-              msg.actionProposal.executedAt = new Date().toISOString();
-              msg.actionProposal.resultSummary = result.summary;
-              proposalUpdated = true;
-              break;
-            }
-          }
-        }
-        if (proposalUpdated) {
-          sessionStore.saveMessages(projectId, sessionId, messages);
-        }
-
-        const completionMessage: ChatMessage = {
-          id: `msg_skill_${randomUUID().slice(0, 8)}`,
-          role: 'assistant',
-          content: result.summary,
-          createdAt: new Date().toISOString(),
-        };
-        sessionStore.appendMessage(projectId, sessionId, completionMessage);
-      }
-
-      await stream.writeSSE({
-        event: 'done',
-        data: JSON.stringify(result),
-      });
-    } catch (err: any) {
+    } catch (submitErr: any) {
       await stream.writeSSE({
         event: 'error',
-        data: JSON.stringify({ error: err.message || 'Skill execution failed' }),
+        data: JSON.stringify({
+          error: submitErr.message || '门禁拦截或技能不可用',
+          gateStatus: 'FAIL',
+        }),
       });
+      return;
+    }
+
+    const unsubscribe = TaskEngine.getInstance().subscribeTask(task.taskId, async (updatedTask) => {
+      try {
+        if (updatedTask.status === 'running' || updatedTask.status === 'pending') {
+          await stream.writeSSE({
+            event: 'progress',
+            data: JSON.stringify({
+              taskId: updatedTask.taskId,
+              percent: updatedTask.progress,
+              message: updatedTask.message,
+            }),
+          });
+        } else if (updatedTask.status === 'completed') {
+          await stream.writeSSE({
+            event: 'done',
+            data: JSON.stringify({
+              success: true,
+              taskId: updatedTask.taskId,
+              summary: updatedTask.message,
+              data: updatedTask.result,
+            }),
+          });
+        } else if (updatedTask.status === 'failed' || updatedTask.status === 'aborted') {
+          await stream.writeSSE({
+            event: 'error',
+            data: JSON.stringify({
+              taskId: updatedTask.taskId,
+              error: updatedTask.error || updatedTask.message,
+            }),
+          });
+        }
+      } catch {
+        // SSE 客户端断开连接，无需处理，任务在后台继续安全执行
+      }
+    });
+
+    c.req.raw.signal.addEventListener('abort', () => {
+      unsubscribe();
+    });
+
+    // 维持流式直到任务完结或客户端断开
+    while (true) {
+      if (c.req.raw.signal.aborted) {
+        unsubscribe();
+        break;
+      }
+      const current = TaskEngine.getInstance().getTask(projectId, task.taskId);
+      if (!current || current.status === 'completed' || current.status === 'failed' || current.status === 'aborted') {
+        unsubscribe();
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 500));
     }
   });
 });

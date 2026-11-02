@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { Hono } from 'hono';
 import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { WorkflowStage, SessionStatus, type WorkflowSession } from '../../types/index.js';
+import { STAGE_SEQUENCE, WorkflowStage, SessionStatus, type ProjectEntity } from '../../types/index.js';
 
 export const projectController = new Hono();
 
@@ -52,7 +52,7 @@ projectController.post('/api/project/start', async (c) => {
     const projectId = `proj_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const store = ProjectStore.getInstance();
 
-    const project: WorkflowSession = {
+    const project: ProjectEntity = {
       projectId,
       title,
       meta,
@@ -67,7 +67,6 @@ projectController.post('/api/project/start', async (c) => {
           details: `Project "${title}" created`,
         },
       ],
-      messages: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -98,7 +97,7 @@ const handleListProjects = (c: any) => {
 };
 projectController.get('/api/projects', handleListProjects);
 
-// 获取项目状态快照 (对齐 workflowApi.ts 中的 /api/project/:projectId/status)
+// 获取项目状态快照
 projectController.get('/api/project/:projectId/status', (c) => {
   try {
     const projectId = c.req.param('projectId');
@@ -115,6 +114,69 @@ projectController.get('/api/project/:projectId/status', (c) => {
       project,
       artifacts: project.stageArtifacts || {},
     });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
+// 🌟 权威阶段推进接口 (Stage Advance SSOT)：创作者确认当前阶段合格，推进至下一标准阶段 (支持幂等防连跳保护)
+projectController.post('/api/project/:projectId/stage/advance', async (c) => {
+  try {
+    const projectId = c.req.param('projectId');
+    const body = await c.req.json().catch(() => ({}));
+    const fromStage = body.fromStage;
+
+    const store = ProjectStore.getInstance();
+    const project = store.getProject(projectId);
+    if (!project) {
+      return c.json({ success: false, error: 'Project not found' }, 404);
+    }
+
+    // 🌟 幂等防重跳保护：若客户端指定了原阶段 fromStage，且当前权威阶段已超越该阶段（例如 TaskEngine 已跃迁），直接幂等返回，杜绝盲目连跳
+    if (fromStage) {
+      const fromIdx = STAGE_SEQUENCE.indexOf(fromStage as any);
+      const currIdx = STAGE_SEQUENCE.indexOf(project.currentStage as any);
+      if (fromIdx !== -1 && currIdx > fromIdx) {
+        return c.json({
+          success: true,
+          previousStage: fromStage,
+          currentStage: project.currentStage,
+          idempotent: true,
+        });
+      }
+    }
+
+    const currentIndex = STAGE_SEQUENCE.indexOf(project.currentStage as any);
+    if (currentIndex !== -1 && currentIndex < STAGE_SEQUENCE.length - 1) {
+      const nextStage = STAGE_SEQUENCE[currentIndex + 1];
+      project.currentStage = nextStage;
+      store.saveProject(project);
+
+      // 同步对齐关联 Session 的阶段
+      const sessions = store.listSessions(projectId);
+      for (const sess of sessions) {
+        if (sess.currentStage !== nextStage) {
+          sess.currentStage = nextStage;
+          store.saveSession(sess);
+        }
+      }
+
+      return c.json({
+        success: true,
+        previousStage: STAGE_SEQUENCE[currentIndex],
+        currentStage: nextStage,
+      });
+    } else if (currentIndex === STAGE_SEQUENCE.length - 1) {
+      project.currentStage = WorkflowStage.COMPLETED;
+      project.status = SessionStatus.COMPLETED;
+      store.saveProject(project);
+      return c.json({
+        success: true,
+        currentStage: WorkflowStage.COMPLETED,
+      });
+    }
+
+    return c.json({ success: false, error: 'Cannot advance beyond completed stage' }, 400);
   } catch (err: any) {
     return c.json({ success: false, error: err.message }, 500);
   }
@@ -152,7 +214,7 @@ const handleSaveArtifact = async (c: any) => {
 projectController.post('/api/project/:projectId/artifact/:stage', handleSaveArtifact);
 projectController.patch('/api/project/:projectId/artifact/:stage', handleSaveArtifact);
 
-// 🌟 上传阶段媒体图片 (如角色定妆目标图、面部参考图等，消除 404)
+// 🌟 上传阶段媒体图片 (通用文件落盘与阶段产物适配器更新)
 projectController.post('/api/project/:projectId/artifact/:stage/upload_image', async (c) => {
   try {
     const projectId = c.req.param('projectId');
@@ -186,19 +248,10 @@ projectController.post('/api/project/:projectId/artifact/:stage/upload_image', a
 
     const localUrl = `/media/${projectId}/${itemType}/${filename}`;
 
-    // 🌟 自动回写并持久化该阶段资产 (如 character_design 角色列表)
+    // 🌟 统一通过适配器回写阶段资产 (OCP 开闭原则解耦，消灭侵入式硬编码)
     let artifact = store.getArtifact<any>(projectId, stage as any);
-    if (stage === 'character_design' && artifact && Array.isArray(artifact.characters)) {
-      artifact.characters = artifact.characters.map((char: any) => {
-        if (char.name === itemId || char.id === itemId) {
-          if (itemType === 'reference') {
-            return { ...char, referenceImageUrl: localUrl };
-          } else {
-            return { ...char, imageUrl: localUrl, selected: true };
-          }
-        }
-        return char;
-      });
+    if (artifact) {
+      artifact = applyMediaToStageArtifact(artifact, stage, itemId, itemType, localUrl);
       store.setArtifact(projectId, stage as any, artifact);
     }
 
@@ -239,3 +292,46 @@ projectController.delete('/api/project/:projectId', (c) => {
     return c.json({ success: false, error: err.message }, 500);
   }
 });
+
+/**
+ * 🌟 通用阶段产物媒体回写适配器 (开闭原则 OCP 解耦)
+ */
+function applyMediaToStageArtifact(
+  artifact: any,
+  stage: string,
+  itemId: string,
+  itemType: string,
+  localUrl: string
+): any {
+  if (!artifact || typeof artifact !== 'object') return artifact;
+
+  // 1. 角色定妆阶段
+  if (stage === 'character_design' && Array.isArray(artifact.characters)) {
+    return {
+      ...artifact,
+      characters: artifact.characters.map((char: any) => {
+        if (char.name === itemId || char.id === itemId) {
+          return itemType === 'reference'
+            ? { ...char, referenceImageUrl: localUrl }
+            : { ...char, imageUrl: localUrl, selected: true };
+        }
+        return char;
+      }),
+    };
+  }
+
+  // 2. 关键帧/分镜阶段的通用项匹配扩展
+  if (Array.isArray(artifact.shots)) {
+    return {
+      ...artifact,
+      shots: artifact.shots.map((shot: any) => {
+        if (shot.shotId === itemId || shot.id === itemId) {
+          return { ...shot, imageUrl: localUrl };
+        }
+        return shot;
+      }),
+    };
+  }
+
+  return artifact;
+}

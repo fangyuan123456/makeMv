@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  startProject,
   fetchProjects,
   deleteSession,
 } from '@/lib/workflowApi';
@@ -59,30 +58,20 @@ export default function WorkflowPanel() {
     loadHistory();
   }, [loadHistory]);
 
-  // Start new project
-  const handleStartProject = async (idea: string) => {
-    if (isStarting) return;
+  // Start new project: 前端本地生成 projectId，项目实体由后端在首条消息流式对话时懒创建
+  const handleStartProject = async (idea: string): Promise<string | null> => {
+    if (isStarting) return null;
     setIsStarting(true);
 
     try {
-      const result = await startProject({
-        idea,
-        style: 'realistic',
-        video_ratio: '16:9',
-        video_resolution: '720P',
-        enable_concurrency: true,
-      });
-
-      const newId = result.projectId;
+      const newId = `proj_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       setSessionId(newId);
 
       if (typeof window !== 'undefined') {
         window.history.replaceState(null, '', `/?session=${newId}`);
       }
 
-      await loadHistory();
-    } catch (err: any) {
-      alert(`创建项目失败: ${err.message || '系统繁忙'}`);
+      return newId;
     } finally {
       setIsStarting(false);
     }

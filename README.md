@@ -1,91 +1,80 @@
-# makeMv: AI 互动影视与影游导演系统 (全栈 TypeScript)
+# makeMv: 互动影游与 AI 导演制片系统
 
-基于 **TypeScript + Node.js + Next.js** 构建的互动影视游戏 (FMV) 生成引擎与 AI 导演中枢。
+基于 **TypeScript + Node.js (Hono) + Next.js** 构建的互动影游 (FMV) 生成引擎与 AI 导演中枢。
 
-本项目基于工业级多智能体流水线与人机协作（Human-in-the-Loop）架构，支持分支剧情决策树、角色一致性视觉质检、异常提示词自愈，客户端与服务端完全解耦。
+系统摒弃死板的硬编码流水线，采用**以对话中枢 (DirectorAgent) 为交互门面、动态技能微内核 (SkillRegistry) 为执行支撑、独立审查官 (CriticReviewerAgent & GateGuard) 为质量门禁、异步持久化任务引擎 (TaskEngine) 为长任务保障**的现代 Agentic 架构。
 
 ---
 
-## 📂 仓库架构说明
+## 🏛️ 核心架构与目录组织
 
 ```
-makeMv/
-├── client/                     # 💻 前端客户端 (Next.js 16 + React 19 + TailwindCSS)
-│   ├── app/                    # 页面路由与主界面 (工作台、会话管理、成片播放)
-│   ├── components/             # 交互组件 (阶段控制器、分支编辑器、视频播放器等)
-│   ├── config/                 # 客户端状态与 API 路由配置
-│   ├── package.json
-│   └── next.config.ts          # 自动反向代理 API 至服务端 (http://127.0.0.1:8000)
-│
-├── server/                     # ⚙️ 后端服务端 (Node.js 22 + TypeScript + Hono API + CLI)
-│   ├── src/
-│   │   ├── types/              # Zod 强类型契约 (工作流、FMV剧本分支、分镜头)
-│   │   ├── config/             # 配置管理 (多端环境兼容、FFmpeg 自动寻径)
-│   │   ├── media/ffmpeg.ts     # FFmpeg 视频剪辑拼接服务
-│   │   ├── providers/          # 统一模型驱动层 (LLM / 图像 / 视频驱动与 Mock)
-│   │   ├── agents/             # 6 大导演阶段智能体 (编剧/美术/分镜/参考/视频/剪辑)
-│   │   ├── prompts/            # VideoClaw 专业提示词模板库
-│   │   ├── orchestrator/       # 核心状态机与人机介入 (Session & Orchestrator)
-│   │   ├── server/             # RESTful API 服务 (Hono, 端口 8000)
-│   │   ├── cli.ts              # CLI 演示工具入口
-│   │   └── index.ts            # 后端服务启动入口
-│   ├── data/                   # 📁 影视工程输出物与会话持久化目录 (已配置 .gitkeep)
-│   │   ├── sessions/           # 导演状态机持久化会话 JSON
-│   │   └── projects/           # 剧本、分镜图、生成视频片段与 final/ 成片
-│   ├── .env                    # 服务端配置文件 (API Keys & FFmpeg 路径)
-│   ├── package.json
-│   └── tsconfig.json
-│
-├── package.json                # 🏠 根目录 Monorepo 统一调度配置
-└── FMVGames.code-workspace     # VS Code 多工作区配置
+server/src/
+├── api/                        # HTTP 接口与控制器层 (Hono RESTful & SSE)
+│   ├── controllers/            # ProjectController, ChatController, ReviewerController, SkillController
+│   └── server.ts               # 服务入口与路由挂载
+├── agents/                     # 核心双核智能体
+│   ├── director/               # AI 导演副手 (DirectorAgent, ContextAssembler, ProposalResolver)
+│   └── reviewer/               # 独立审查官与剧本医生 (CriticReviewerAgent, GateGuard)
+├── skills/                     # 声明式制片工序技能微内核 (统一继承 BaseSkill)
+│   ├── story-bible/            # Stage 1: 故事世界观圣经推演
+│   ├── character-portrait/     # Stage 2: 核心角色视觉定妆照生成
+│   ├── scene-script/           # Stage 3: 分场多分支互动剧本扩写
+│   ├── storyboard/             # Stage 4: 视听导演分镜头表切分
+│   ├── keyframe-reference/     # Stage 5: 分镜头首帧高清参考图批量渲染
+│   ├── video-production/       # Stage 6: 动态视听切片渲染 (ComfyUI / DashScope)
+│   ├── critic-review/          # 刚性影视质检与独立打分
+│   └── fmv-packaging/          # Stage 7: 影游母带与分支拓扑装配
+├── tasks/                      # 异步长耗时工序任务执行引擎 (TaskEngine SSOT，物理落盘与防断联)
+├── chat/                       # 对话与双轨记忆中枢
+│   ├── memory/                 # ChatMemoryManager (滑动窗口 + 备忘录白板)
+│   └── session/                # 会话与消息实体
+├── project-store/              # 状态黑板与独立提案持久化 (ProjectStore, ProposalStore, FileProjectStateStore)
+├── llm/                        # 统一大模型集成服务 (LLMRegistry, RealLLMService)
+├── media/                      # 视听媒体生成与本地持久化 (VisualMediaRenderer, MediaDownloader)
+└── types/                      # 全局业务强类型契约与 StageArtifactMap
 ```
+
+---
+
+## 🎬 核心系统机制
+
+1. **AI 导演副手与人在回路 (Director Co-pilot & HITL)**：
+   创作者通过自然语言与导演副手共同推敲戏剧立意、黄金四幕与人物动机。在阶段推敲成熟时，大模型自主输出携带明确执行参数的行动提案卡片（`ActionProposal`），由创作者决定是否授权推进。
+2. **独立影视审查官与统一门禁守卫 (Critic Reviewer & GateGuard)**：
+   独立评委与剧本医生对全链路资产进行因果穿透审计（四大维度量化打分）。出具 `FAIL` 时由 `GateGuard` 统一阻断跨阶段带病推进，同时支持创作者针对挑刺进行多轮对辩并持久化对辩日志。
+3. **异步持久化任务引擎 (TaskEngine)**：
+   彻底消除“HTTP 长连接扛长耗时视频渲染”的脆弱短板。视频渲染等长任务由 `TaskEngine` 在服务端独立异步调度并于磁盘持久化状态，支持断线重连、页面刷新恢复与多端轮询。
+4. **独立提案实体模型 (ProposalStore)**：
+   行动提案作为项目一等实体独立落盘管理，消灭在历史消息流中倒序遍历查找回标的反模式，支持精确生命周期回标与阶段门禁解除。
+5. **本地持久化永久可用**：
+   第三方多媒体生成链接自动由 `MediaDownloader` 抓取并转化为 `/media/:projectId/...` 本地物理文件，确保历史工程与视听资产离线永久可用。
 
 ---
 
 ## 🚀 快速启动指南
 
-### 1. 服务端配置 (Server)
-
-复制或编辑 `server/.env`，可配置各大商业大模型 API Key，也可开启 `MOCK_MODE=true` 进行零成本离线演示：
+### 1. 服务端配置 (`server/.env`)
 
 ```env
 PORT=8000
 HOST=127.0.0.1
-MOCK_MODE=true
-
-# FFmpeg 路径 (系统全局或指定绝对路径)
-FFMPEG_PATH=E:\tools\ffmpeg\bin\ffmpeg.exe
 
 # 大模型配置 (兼容 Qwen / DeepSeek / Ark / OpenAI)
 LLM_PROVIDER=openai
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-LLM_API_KEY=your_key_here
+LLM_API_KEY=your_dashscope_api_key
 LLM_MODEL=qwen-plus
 ```
 
-### 2. 根目录一键命令
+### 2. 启动与编译命令
 
-在项目根目录 `FMVGames/` 下直接运行：
+```powershell
+# 1. 编译验证
+npm --prefix server run build
+npm --prefix client run build
 
-| 命令 | 说明 |
-| :--- | :--- |
-| `npm run dev:server` | 启动后端 API 服务器（监听 `http://127.0.0.1:8000`） |
-| `npm run dev:client` | 启动前端 Web 客户端（监听 `http://localhost:3000`） |
-| `npm run cli` | 运行 CLI 交互式导演生成测试（支持离线 dry-run） |
-| `npm run build:server` | 编译后端 TypeScript 代码到 `server/dist/` |
-| `npm run build:client` | 构建前端生产版本 |
-
----
-
-## 🎬 核心特性
-
-1. **前后端清晰解耦**：客户端通过 Next.js API 代理统一桥接至服务端的 8000 端口，开箱即用。
-2. **支持 FMV 互动剧情**：原生支持剧情分支决策点（Choices），自动生成分叉视频片段与 `timeline.json` 决策图谱。
-3. **六阶段可介入流程**：
-   - Stage 1: `ScriptWriterAgent`（剧本策划、场景与分支设计）
-   - Stage 2: `CharacterDesignerAgent`（角色外观、服装设定卡与场景概念）
-   - Stage 3: `StoryboardAgent`（分镜头景别、运镜轨迹与中英文提示词规划）
-   - Stage 4: `ReferenceGeneratorAgent`（分镜首帧关键参考图生成）
-   - Stage 5: `VideoDirectorAgent`（文生视频 / 图生视频动态渲染）
-   - Stage 6: `VideoEditorAgent`（FFmpeg 自动拼接缝合与互动元数据生成）
-4. **内置 Mock / Dry-Run 安全模式**：在无 API 余额时使用本地 SVG 与 FFmpeg 调色测试片无缝闭环全流程。
+# 2. 本地开发启动
+npm run dev:server    # 启动后端 API 服务 (http://127.0.0.1:8000)
+npm run dev:client    # 启动前端 Next.js 工作台 (http://localhost:3000)
+```

@@ -6,20 +6,19 @@
  * 1. 跨工序全景资产穿透审计 (Cross-Stage Asset Auditor)；
  * 2. 思维链深度批判性推演与四大维度工业级量化打分；
  * 3. 终审刚性门禁决策 (PASS / WARN / FAIL)；
- * 4. 交互式质询与剧本辩论能力 (Interactive Critic Dialog)；
- * 5. 本地评审库物理文件持久化与自愈建议闭环。
+ * 4. 交互式质询与剧本辩论能力 (具备多轮连续对辩记忆，100% 持久化辩护记录)；
+ * 5. 多工序质检历史分槽位隔离与时效自愈。
  */
 
 import fs from 'fs';
 import path from 'path';
-import { randomUUID } from 'crypto';
 import { LLMRegistry } from '../../llm/LLMRegistry.js';
-import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { SessionStore } from '../../chat/session/SessionStore.js';
+import { ProjectStore, ProposalStore } from '../../project-store/index.js';
 import { WorkflowStage } from '../../types/index.js';
 import type {
   ReviewInput,
   ReviewReport,
+  ReviewIssue,
   ReviewGateStatus,
   CriticDialogInput,
   CriticDialogReply,
@@ -30,6 +29,12 @@ import {
   CRITIC_DIALOG_SYSTEM_PROMPT,
   buildCriticDialogPrompt,
 } from './prompt.js';
+import {
+  CriticAuditReportSchema,
+  CriticDialogReplySchema,
+  type CriticAuditReportOutput,
+  type CriticDialogReplyOutput,
+} from './schema.js';
 
 export class CriticReviewerAgent {
   private static instance?: CriticReviewerAgent;
@@ -83,78 +88,11 @@ export class CriticReviewerAgent {
       userFeedback
     );
 
-    // 3. 规约严格的工业级评审 Schema
-    const schema = {
-      type: 'object',
-      properties: {
-        projectName: { type: 'string' },
-        stageReviewed: { type: 'string' },
-        thoughtChain: {
-          type: 'string',
-          description: '审查官全景推演思维链：详尽阐述因果断裂分析过程',
-        },
-        crossStageInsights: {
-          type: 'object',
-          properties: {
-            characterConsistency: { type: 'string' },
-            branchValidity: { type: 'string' },
-            visualFeasibility: { type: 'string' },
-          },
-          required: ['characterConsistency', 'branchValidity', 'visualFeasibility'],
-        },
-        gateStatus: { type: 'string', enum: ['PASS', 'WARN', 'FAIL'] },
-        scores: {
-          type: 'object',
-          properties: {
-            narrativeLogicScore: { type: 'number' },
-            characterDepthScore: { type: 'number' },
-            branchTensionScore: { type: 'number' },
-            visualFeasibilityScore: { type: 'number' },
-            overallScore: { type: 'number' },
-          },
-          required: [
-            'narrativeLogicScore',
-            'characterDepthScore',
-            'branchTensionScore',
-            'visualFeasibilityScore',
-            'overallScore',
-          ],
-        },
-        criticalFlaws: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              severity: { type: 'string', enum: ['CRITICAL', 'MAJOR', 'MINOR'] },
-              dimension: { type: 'string', enum: ['LOGIC', 'CHARACTER', 'INTERACTIVE', 'VISUAL'] },
-              location: { type: 'string' },
-              description: { type: 'string' },
-              suggestion: { type: 'string' },
-            },
-            required: ['severity', 'dimension', 'location', 'description', 'suggestion'],
-          },
-        },
-        polishSuggestions: {
-          type: 'array',
-          items: { type: 'string' },
-        },
-        verdict: { type: 'string' },
-      },
-      required: [
-        'thoughtChain',
-        'crossStageInsights',
-        'gateStatus',
-        'scores',
-        'criticalFlaws',
-        'polishSuggestions',
-        'verdict',
-      ],
-    };
-
+    // 3. 规约严格的工业级评审 Schema 并执行推演
     const llm = LLMRegistry.get();
-    const rawReport = await llm.generateObject<any>(
+    const rawReport = await llm.generateObject<CriticAuditReportOutput>(
       prompt,
-      schema,
+      CriticAuditReportSchema,
       CRITIC_REVIEWER_SYSTEM_PROMPT,
       {
         stage: `critic_audit_${activeStage}`,
@@ -199,36 +137,44 @@ export class CriticReviewerAgent {
       polishSuggestions: Array.isArray(rawReport.polishSuggestions) ? rawReport.polishSuggestions : [],
       verdict: rawReport.verdict || '审阅完成',
       reviewedAt: new Date().toISOString(),
+      debateLogs: [],
     };
 
-    // 5. 状态黑板与本地磁盘双向落盘 (SSOT)
+    // 5. 状态黑板与本地磁盘双向落盘 (全局最新槽位 + 工序专用槽位双持久化)
     projectStore.setArtifact(projectId, 'critic_review', report);
+    projectStore.setArtifact(projectId, `critic_review_${activeStage}`, report);
     this.exportReportToDisk(projectId, report);
 
     return report;
   }
 
   /**
-   * 🌟 获取当前有效审查报告，自动识别因产物重新生成而失效的时效性 (法典隐患七治理)
+   * 🌟 获取当前有效审查报告，支持按工序阶段隔离与失效检测
    */
-  public getEffectiveReport(projectId: string): ReviewReport | null {
+  public getEffectiveReport(projectId: string, stage?: string): ReviewReport | null {
     const projectStore = ProjectStore.getInstance();
-    const report = projectStore.getArtifact<ReviewReport>(projectId, 'critic_review');
+    
+    // 优先读取指定阶段历史报告，缺省读取全局最新报告
+    const report =
+      (stage ? projectStore.getArtifact<ReviewReport>(projectId, `critic_review_${stage}`) : null) ||
+      projectStore.getArtifact<ReviewReport>(projectId, 'critic_review');
+
     if (!report) return null;
 
     const reviewedStage = report.stageReviewed;
     if (reviewedStage) {
       const stageArtifact = projectStore.getArtifact<any>(projectId, reviewedStage as any);
+      const artifactTime = stageArtifact?.updatedAt || stageArtifact?.createdAt;
       if (
-        stageArtifact?.createdAt &&
+        artifactTime &&
         report.reviewedAt &&
-        new Date(stageArtifact.createdAt).getTime() > new Date(report.reviewedAt).getTime()
+        new Date(artifactTime).getTime() > new Date(report.reviewedAt).getTime()
       ) {
         return {
           ...report,
           gateStatus: 'STALE',
           isStale: true,
-          staleReason: `工序【${reviewedStage}】产物已于 ${stageArtifact.createdAt} 重新生成，旧质检告诫已自动失效，建议重新质检。`,
+          staleReason: `工序【${reviewedStage}】产物已于 ${artifactTime} 重新生成或微调，旧质检告诫已自动失效，建议重新质检。`,
         };
       }
     }
@@ -237,61 +183,38 @@ export class CriticReviewerAgent {
   }
 
   /**
-   * 🌟 创作者与审查官的交互式辩论与质询接口
+   * 🌟 创作者与审查官的交互式辩论与质询接口 (具备多轮连续交锋记忆与 100% 驳回保全)
    */
   public async chat(input: CriticDialogInput): Promise<CriticDialogReply> {
     const { projectId, sessionId, userMessage, targetStage, currentReport, abortSignal } = input;
     const projectStore = ProjectStore.getInstance();
     const project = projectStore.getProject(projectId);
 
-    // 🌟 审查官记忆双重保障：若未显式透传 currentReport，主动向状态黑板读取最新有效报告 (消灭失忆)
-    const effectiveReport = currentReport || this.getEffectiveReport(projectId) || undefined;
+    // 🌟 审查官记忆双重保障：若未显式透传 currentReport，优先读取该阶段最新有效报告
+    const effectiveReport = currentReport || this.getEffectiveReport(projectId, targetStage) || undefined;
 
     const activeStage = targetStage || effectiveReport?.stageReviewed || project?.currentStage || WorkflowStage.NARRATIVE_DESIGN;
     const projectName = project?.title || '未命名影游项目';
+
+    // 🌟 核心突破：提取历史对辩记录作为多轮上下文，赋予审查官连续对话记忆 (滑动窗口保留最近6轮交锋防膨胀)
+    const recentDebateLogs = (effectiveReport?.debateLogs || []).slice(-6);
+    const dialogHistory = recentDebateLogs.flatMap((log) => [
+      { role: 'user', content: log.userMessage },
+      { role: 'assistant', content: log.reply },
+    ]);
 
     const prompt = buildCriticDialogPrompt(
       projectName,
       activeStage,
       userMessage,
-      effectiveReport
+      effectiveReport,
+      dialogHistory
     );
 
-    const schema = {
-      type: 'object',
-      properties: {
-        reply: {
-          type: 'string',
-          description: '审阅官针对创作者辩护的犀利专业答复，剖析其戏剧自洽性',
-        },
-        isDefenseAccepted: {
-          type: 'boolean',
-          description: '创作者的解释是否符合戏剧因果律从而被审查官采纳',
-        },
-        reassessedGateStatus: {
-          type: 'string',
-          enum: ['PASS', 'WARN', 'FAIL'],
-        },
-        adjustedFlaws: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              location: { type: 'string' },
-              severity: { type: 'string', enum: ['CRITICAL', 'MAJOR', 'MINOR'] },
-              description: { type: 'string' },
-              suggestion: { type: 'string' },
-            },
-          },
-        },
-      },
-      required: ['reply', 'isDefenseAccepted'],
-    };
-
     const llm = LLMRegistry.get();
-    const result = await llm.generateObject<any>(
+    const result = await llm.generateObject<CriticDialogReplyOutput>(
       prompt,
-      schema,
+      CriticDialogReplySchema,
       CRITIC_DIALOG_SYSTEM_PROMPT,
       {
         stage: `critic_dialog_${activeStage}`,
@@ -300,65 +223,140 @@ export class CriticReviewerAgent {
       }
     );
 
-    // 🌟 辩护真收敛：若辩护被采纳或门禁状态改变，真实同步写回磁盘 review/ 报告与状态黑板
-    if (result.isDefenseAccepted || result.reassessedGateStatus) {
-      try {
-        const reviewDir = path.join(projectStore.getProjectDir(projectId), 'review');
-        const mdFile = path.join(reviewDir, `review_${activeStage}.md`);
+    // 🌟 辩护真收敛：无论辩护是否被采纳，对辩记录 100% 持久化沉淀入库 (杜绝失败辩护静默吞噬与回退越权)
+    try {
+      const baseReport = effectiveReport;
+      const rawFlaws = result.adjustedFlaws || baseReport?.criticalFlaws || [];
+      const currentFlaws: ReviewIssue[] = rawFlaws.map((f: any, idx: number) => ({
+        id: f.id || `flaw_adj_${idx + 1}`,
+        severity: f.severity || 'MAJOR',
+        dimension: f.dimension || 'LOGIC',
+        location: f.location || '全局戏剧主干',
+        description: f.description || '',
+        suggestion: f.suggestion || '',
+      }));
 
-        // 读取原有或最新的有效 report 作为基底合并
-        const baseReport = effectiveReport;
-        const currentFlaws = result.adjustedFlaws || baseReport?.criticalFlaws || [];
-        const newGateStatus = (result.reassessedGateStatus || (result.isDefenseAccepted ? 'PASS' : baseReport?.gateStatus) || 'PASS') as ReviewGateStatus;
+      // 🌟 刚性门禁回退加固 (Fail-Fast Gate Safeguard)：辩护失败坚决保持 FAIL，杜绝空值误判为 PASS 破防
+      let fallbackStatus: ReviewGateStatus = result.isDefenseAccepted
+        ? 'PASS'
+        : (baseReport?.gateStatus || 'FAIL');
+      const newGateStatus = (result.reassessedGateStatus || fallbackStatus) as ReviewGateStatus;
 
-        const updatedReport: ReviewReport = {
-          projectName,
-          stageReviewed: activeStage,
-          gateStatus: newGateStatus,
-          thoughtChain: baseReport?.thoughtChain || '创作者已就争议漏洞完成申诉与辩护。',
-          scores: baseReport?.scores || {
-            narrativeLogicScore: 85,
-            characterDepthScore: 85,
-            branchTensionScore: 85,
-            visualFeasibilityScore: 85,
-            overallScore: 85,
-          },
-          criticalFlaws: currentFlaws,
-          polishSuggestions: baseReport?.polishSuggestions || [],
-          verdict: `【辩护已审定】${result.reply}`,
-          reviewedAt: new Date().toISOString(),
-        };
+      let finalScores = baseReport?.scores ? { ...baseReport.scores } : {
+        narrativeLogicScore: result.isDefenseAccepted ? 80 : 50,
+        characterDepthScore: result.isDefenseAccepted ? 80 : 50,
+        branchTensionScore: result.isDefenseAccepted ? 80 : 50,
+        visualFeasibilityScore: result.isDefenseAccepted ? 80 : 50,
+        overallScore: result.isDefenseAccepted ? 80 : 50,
+      };
+      let finalFlaws: ReviewIssue[] = currentFlaws;
 
-        projectStore.setArtifact(projectId, 'critic_review', updatedReport);
-        this.exportReportToDisk(projectId, updatedReport);
+      const isDefenseCleared = result.isDefenseAccepted || newGateStatus === 'PASS' || newGateStatus === 'WARN';
 
-        // 🌟 白板自愈解禁：辩护被采纳后，自动从会话白板中清除对应的刚性告诫约束
-        if (result.isDefenseAccepted) {
-          try {
-            const sessionStore = SessionStore.getInstance();
-            const sessions = sessionStore.listSessions(projectId);
-            for (const sess of sessions) {
-              if (sess.scratchpad && Array.isArray(sess.scratchpad.userConstraints)) {
-                sess.scratchpad.userConstraints = sess.scratchpad.userConstraints.filter(
-                  (c) => !c.includes('[审查官告诫]')
-                );
-                sessionStore.saveSession(sess);
+      if (isDefenseCleared) {
+        if (newGateStatus === 'PASS') {
+          finalScores = {
+            narrativeLogicScore: Math.max(80, finalScores.narrativeLogicScore),
+            characterDepthScore: Math.max(80, finalScores.characterDepthScore),
+            branchTensionScore: Math.max(80, finalScores.branchTensionScore),
+            visualFeasibilityScore: Math.max(80, finalScores.visualFeasibilityScore),
+            overallScore: Math.max(80, finalScores.overallScore),
+          };
+          finalFlaws = finalFlaws.map((f: any) =>
+            f.severity === 'CRITICAL' ? { ...f, severity: 'MINOR' as const, description: `[辩护已澄清] ${f.description}` } : f
+          );
+        } else if (newGateStatus === 'WARN') {
+          finalScores = {
+            narrativeLogicScore: Math.max(65, finalScores.narrativeLogicScore),
+            characterDepthScore: Math.max(65, finalScores.characterDepthScore),
+            branchTensionScore: Math.max(65, finalScores.branchTensionScore),
+            visualFeasibilityScore: Math.max(65, finalScores.visualFeasibilityScore),
+            overallScore: Math.max(65, finalScores.overallScore),
+          };
+          finalFlaws = finalFlaws.map((f: any) =>
+            f.severity === 'CRITICAL' ? { ...f, severity: 'MAJOR' as const, description: `[辩护已澄清] ${f.description}` } : f
+          );
+        }
+
+        // 🌟 单一事实来源 (SSOT)：审查告诫统一由状态黑板 critic_review 供给，白板专注创作者纯净意图，无旧胶水残留
+
+        // 🌟 门禁阻断卡片自愈同步：当辩护放行后，自动将历史会话中悬挂的门禁拦截待确认卡片标记为已解除 (cleared)
+        try {
+          const sessions = projectStore.listSessions(projectId);
+          for (const sess of sessions) {
+            let sessionUpdated = false;
+            const msgs = projectStore.getMessages(projectId, sess.sessionId);
+            for (const msg of msgs) {
+              const proposal = msg.actionProposal;
+              if (
+                proposal &&
+                proposal.status === 'pending' &&
+                (proposal.isGateIntercept || proposal.actionType === 'CRITIC_DEBATE' || proposal.skill === 'critic-review') &&
+                (!proposal.payload?.stage || proposal.payload?.stage === activeStage)
+              ) {
+                proposal.status = 'dismissed';
+                proposal.description = `[🛡️ 门禁已通过辩护解除] 审查官已听取创作者说明并裁决放行 (${newGateStatus})。`;
+                sessionUpdated = true;
               }
             }
-          } catch (sessionErr) {
-            console.warn('[CriticReviewerAgent] 白板告诫自愈清理异常:', sessionErr);
+            if (sessionUpdated) {
+              projectStore.saveMessages(projectId, sess.sessionId, msgs);
+            }
           }
+        } catch (proposalCleanErr) {
+          console.warn('[CriticReviewerAgent] 自愈更新门禁阻断卡片警告:', proposalCleanErr);
         }
-      } catch (err) {
-        console.warn('[CriticReviewerAgent] 辩护后同步磁盘报告警告:', err);
+
+        // 🌟 独立提案实体原子级解除 (ProposalStore SSOT)
+        ProposalStore.getInstance().dismissProposalsForStage(
+          projectId,
+          activeStage,
+          `[🛡️ 门禁已通过辩护解除] 审查官已听取创作者说明并裁决放行 (${newGateStatus})。`
+        );
       }
+
+      // 🌟 追加辩驳历史记录 (DebateLogs SSOT)
+      const newLog = {
+        userMessage,
+        reply: result.reply || '审查官已听取您的说明。',
+        isDefenseAccepted: Boolean(result.isDefenseAccepted),
+        reassessedGateStatus: newGateStatus,
+        timestamp: new Date().toISOString(),
+      };
+      const debateLogs = [...(baseReport?.debateLogs || []), newLog];
+
+      const updatedReport: ReviewReport = {
+        projectName,
+        stageReviewed: activeStage,
+        gateStatus: newGateStatus,
+        thoughtChain: baseReport?.thoughtChain || '创作者已就争议漏洞完成申诉与辩护。',
+        scores: finalScores,
+        criticalFlaws: finalFlaws,
+        polishSuggestions: baseReport?.polishSuggestions || [],
+        verdict: `【辩护已审定】${result.reply}`,
+        reviewedAt: new Date().toISOString(),
+        debateLogs,
+      };
+
+      projectStore.setArtifact(projectId, 'critic_review', updatedReport);
+      projectStore.setArtifact(projectId, `critic_review_${activeStage}`, updatedReport);
+      this.exportReportToDisk(projectId, updatedReport);
+    } catch (err) {
+      console.warn('[CriticReviewerAgent] 辩护后同步报告与日志警告:', err);
     }
 
     return {
       reply: result.reply || '审查官已听取您的说明。',
       isDefenseAccepted: Boolean(result.isDefenseAccepted),
       reassessedGateStatus: result.reassessedGateStatus,
-      adjustedFlaws: result.adjustedFlaws,
+      adjustedFlaws: result.adjustedFlaws
+        ? result.adjustedFlaws.map((f) => ({
+            location: f.location,
+            severity: f.severity,
+            description: f.description,
+            suggestion: f.suggestion || '',
+          }))
+        : undefined,
     };
   }
 
@@ -407,13 +405,6 @@ ${report.thoughtChain}
 
 ---
 
-## 跨工序全景交叉洞察 (Cross-Stage Insights)
-* **角色跨场次人设/物种一致性**: ${report.crossStageInsights?.characterConsistency || '未见异常'}
-* **互动分支有效性**: ${report.crossStageInsights?.branchValidity || '未见异常'}
-* **视听落地可行性**: ${report.crossStageInsights?.visualFeasibility || '未见异常'}
-
----
-
 ## 关键瑕疵与漏洞清单 (${report.criticalFlaws.length} 处)
 ${report.criticalFlaws.length === 0 ? '* 表现极佳，无显著硬伤。' : report.criticalFlaws.map((f, i) => `### ${i + 1}. [${f.severity}] [${f.dimension}] ${f.location}
 * **缺陷因果剖析**: ${f.description}
@@ -422,8 +413,12 @@ ${report.criticalFlaws.length === 0 ? '* 表现极佳，无显著硬伤。' : re
 
 ---
 
-## 针对性结构优化建议
-${report.polishSuggestions.map((s) => `- ${s}`).join('\n')}
+## 历史辩护与对辩交锋记录 (${(report.debateLogs || []).length} 轮)
+${(report.debateLogs || []).length === 0 ? '* 暂无辩护交锋记录。' : report.debateLogs!.map((d, i) => `### 轮次 ${i + 1} (${d.timestamp})
+* **创作者辩解**: ${d.userMessage}
+* **审查官裁定**: ${d.reply}
+* **判定状态**: ${d.isDefenseAccepted ? '✔ 辩护成立' : '✖ 驳回辩解'}
+`).join('\n')}
 `;
 
       const mdFile = path.join(reviewDir, `review_${report.stageReviewed}.md`);

@@ -100,4 +100,38 @@ export const CharacterProfilesListSchema = z.object({
   characters: z.array(CharacterProfileSchema).min(1).describe('核心角色小传列表'),
 });
 
+export type CharacterProfile = z.infer<typeof CharacterProfileSchema>;
 export type CharacterProfilesListOutput = z.infer<typeof CharacterProfilesListSchema>;
+export type GoldenSpineAct = z.infer<typeof GoldenSpineActSchema>;
+export type MacroPivotPoint = z.infer<typeof MacroPivotPointSchema>;
+export type MicroPivotPoint = z.infer<typeof MicroPivotPointSchema>;
+export type PivotPointsData = z.infer<typeof PivotPointsSchema>;
+export type StoryGraphNodeChoice = z.infer<typeof StoryGraphNodeChoiceSchema>;
+export type StoryGraphNode = z.infer<typeof StoryGraphNodeSchema>;
+export type StoryGraph = z.infer<typeof StoryGraphSchema>;
+
+// 5. 工序入参与最终落盘产物 Schema
+export const StoryBibleParamsSchema = z.object({
+  idea: z.string().optional(),
+  style: z.string().optional(),
+  userFeedback: z.string().optional(),
+  targetEpisodes: z.number().optional(),
+});
+
+export type StoryBibleParams = z.infer<typeof StoryBibleParamsSchema>;
+
+export const StoryBibleArtifactSchema = z.object({
+  title: z.string(),
+  theme: z.string(),
+  style: z.string(),
+  logline: z.string(),
+  sellingPoints: z.array(z.string()),
+  goldenSpine: z.array(GoldenSpineActSchema),
+  pivotPoints: PivotPointsSchema,
+  characters: z.array(CharacterProfileSchema),
+  characterNames: z.array(z.string()),
+  storyGraph: StoryGraphSchema,
+  createdAt: z.string(),
+});
+
+export type StoryBibleArtifact = z.infer<typeof StoryBibleArtifactSchema>;

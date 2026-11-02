@@ -5,16 +5,17 @@
 
 import { Hono } from 'hono';
 import { CriticReviewerAgent } from '../../agents/reviewer/CriticReviewerAgent.js';
-import { SessionStore } from '../../chat/session/SessionStore.js';
+import { ProjectStore } from '../../project-store/ProjectStore.js';
 
 export const reviewerController = new Hono();
 
-// 获取当前最新有效的质检报告 (自动识别时效性与过期状态)
+// 获取当前最新有效的质检报告 (支持按工序阶段隔离与失效检测)
 reviewerController.get('/api/chat/:projectId/reviewer/report', (c) => {
   try {
     const projectId = c.req.param('projectId');
+    const stage = c.req.query('stage');
     const reviewer = CriticReviewerAgent.getInstance();
-    const report = reviewer.getEffectiveReport(projectId);
+    const report = reviewer.getEffectiveReport(projectId, stage);
     if (!report) {
       return c.json({ success: false, error: '尚无质检报告' }, 404);
     }
@@ -30,10 +31,17 @@ reviewerController.post('/api/chat/:projectId/reviewer/review', async (c) => {
     const projectId = c.req.param('projectId');
     const body = await c.req.json().catch(() => ({}));
     const reviewer = CriticReviewerAgent.getInstance();
+    const store = ProjectStore.getInstance();
+    const project = store.getProject(projectId);
+    const resolvedConstraints =
+      body.userConstraints ||
+      (project?.meta as any)?.userConstraints ||
+      store.listSessions(projectId).find((s) => s.scratchpad?.userConstraints?.length)?.scratchpad.userConstraints;
+
     const report = await reviewer.review({
       projectId,
       targetStage: body.targetStage,
-      userConstraints: body.userConstraints,
+      userConstraints: resolvedConstraints,
       userFeedback: body.userFeedback,
       abortSignal: c.req.raw.signal,
     });
@@ -43,7 +51,7 @@ reviewerController.post('/api/chat/:projectId/reviewer/review', async (c) => {
   }
 });
 
-// 创作者与独立审查官对辩与质询接口
+// 创作者与独立审查官对辩与质询接口 (对辩记录统一沉淀于 ReviewReport.debateLogs SSOT，绝不污染导演会话)
 reviewerController.post('/api/chat/:projectId/reviewer/dialog', async (c) => {
   try {
     const projectId = c.req.param('projectId');
@@ -56,7 +64,7 @@ reviewerController.post('/api/chat/:projectId/reviewer/dialog', async (c) => {
     }
 
     const reviewer = CriticReviewerAgent.getInstance();
-    const effectiveReport = reviewer.getEffectiveReport(projectId);
+    const effectiveReport = reviewer.getEffectiveReport(projectId, body.targetStage);
     const reply = await reviewer.chat({
       projectId,
       sessionId,
@@ -65,22 +73,6 @@ reviewerController.post('/api/chat/:projectId/reviewer/dialog', async (c) => {
       currentReport: effectiveReport || undefined,
       abortSignal: c.req.raw.signal,
     });
-
-    // 🌟 辩护成功联动解禁：若辩护获得审查官认可（门禁改判 PASS），自动解除会话白板上的假警报告诫
-    if (sessionId && reply.reassessedGateStatus === 'PASS') {
-      try {
-        const sessionStore = SessionStore.getInstance();
-        const session = sessionStore.getSession(projectId, sessionId);
-        if (session && session.scratchpad.userConstraints) {
-          session.scratchpad.userConstraints = session.scratchpad.userConstraints.filter(
-            (c) => !c.startsWith('[审查官告诫]')
-          );
-          sessionStore.saveSession(session);
-        }
-      } catch (err) {
-        console.warn('[ReviewerController] 解除白板告诫约束警告:', err);
-      }
-    }
 
     return c.json({ success: true, ...reply });
   } catch (err: any) {

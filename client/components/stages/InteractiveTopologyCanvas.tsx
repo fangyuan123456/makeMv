@@ -88,15 +88,42 @@ export default function InteractiveTopologyCanvas({
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-  const nodes = graph?.nodes || [];
-  const choices = graph?.choices || [];
+  const nodes = useMemo(() => {
+    return (graph?.nodes || []).map((n: any) => ({
+      ...n,
+      type: n.type || (n.isEnding ? (n.endingType === 'bad' ? 'bad_end' : 'true_end') : (n.choices && n.choices.length > 1 ? 'decision' : 'plot')),
+    }));
+  }, [graph?.nodes]);
+
+  const choices: StoryChoice[] = useMemo(() => {
+    if (graph?.choices && graph.choices.length > 0) {
+      return graph.choices;
+    }
+    const list: StoryChoice[] = [];
+    (graph?.nodes || []).forEach((n: any) => {
+      if (Array.isArray(n.choices)) {
+        n.choices.forEach((c: any, idx: number) => {
+          list.push({
+            id: c.id || `${n.id}_c_${idx}`,
+            fromNodeId: n.id,
+            toNodeId: c.targetNodeId || c.toNodeId,
+            choiceText: c.text || c.choiceText || '继续',
+            timeoutSeconds: c.timeoutSeconds,
+            isTimeoutDefault: c.isTimeoutDefault,
+          });
+        });
+      }
+    });
+    return list;
+  }, [graph?.choices, graph?.nodes]);
+
   const validation = graph?.validation;
 
   // 1. 拓扑分层布局算法 (Topological Ranking & Coordinate Layout)
   const layout = useMemo(() => {
     if (!nodes.length) return { layoutNodes: [], width: 1200, height: 600, nodeMap: new Map() };
 
-    const startId = graph?.startNodeId || nodes[0]?.id;
+    const startId = graph?.startNodeId || (graph as any)?.rootNodeId || nodes[0]?.id;
     const outgoing = new Map<string, string[]>();
     const incoming = new Map<string, string[]>();
     nodes.forEach((n) => {
@@ -172,7 +199,7 @@ export default function InteractiveTopologyCanvas({
     const canvasHeight = Math.max(720, ...layoutNodes.map((n) => n.y + 220));
 
     return { layoutNodes, width: canvasWidth, height: canvasHeight, nodeMap };
-  }, [nodes, choices, graph?.startNodeId]);
+  }, [nodes, choices, graph?.startNodeId, (graph as any)?.rootNodeId]);
 
   // 2. 交互控制 (拖拽漫游与缩放)
   const handleMouseDown = (e: React.MouseEvent) => {

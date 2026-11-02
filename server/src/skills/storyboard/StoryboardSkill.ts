@@ -16,29 +16,18 @@ import { WorkflowStage } from '../../types/index.js';
 import { ProjectStore } from '../../project-store/ProjectStore.js';
 import { LLMRegistry } from '../../llm/LLMRegistry.js';
 import { STORYBOARD_SYSTEM_PROMPT, buildStoryboardPrompt } from './prompt.js';
+import {
+  StoryboardBatchOutputSchema,
+  type StoryboardShotItem,
+  type StoryboardArtifact,
+  type StoryboardBatchOutput,
+} from './schema.js';
 
 export interface StoryboardParams {
   userFeedback?: string;
 }
 
-export interface StoryboardShotItem {
-  shotId: string;
-  nodeId: string; // 🌟 唯一法定剧情节点标识 (SSOT，如 node_1, node_2)
-  shotNumber: number;
-  shotScale: '特写' | '近景' | '中景' | '全景' | '大远景' | string;
-  cameraMovement: string;
-  durationSec: number;
-  visualComposition: string;
-  audioPrompt?: string;
-}
-
-export interface StoryboardArtifact {
-  title: string;
-  shots: StoryboardShotItem[];
-  totalShots: number;
-  estimatedTotalDurationSec: number;
-  createdAt: string;
-}
+export { type StoryboardShotItem, type StoryboardArtifact } from './schema.js';
 
 export class StoryboardSkill extends BaseSkill<StoryboardParams, StoryboardArtifact> {
   public readonly manifest: SkillManifest = {
@@ -71,30 +60,6 @@ export class StoryboardSkill extends BaseSkill<StoryboardParams, StoryboardArtif
     await this.notifyProgress(context, 35, `正在为全剧 ${scenes.length} 场戏剧本全量规划专业视听机位分镜切分...`);
 
     const llm = LLMRegistry.get();
-    const schema = {
-      type: 'object',
-      properties: {
-        shots: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              shotId: { type: 'string' },
-              nodeId: { type: 'string', description: '所属网状剧情节点 ID (如 node_1, node_2)' },
-              shotNumber: { type: 'number' },
-              shotScale: { type: 'string', enum: ['特写', '近景', '中景', '全景', '大远景'] },
-              cameraMovement: { type: 'string' },
-              durationSec: { type: 'number' },
-              visualComposition: { type: 'string' },
-              audioPrompt: { type: 'string' },
-            },
-            required: ['shotId', 'nodeId', 'shotNumber', 'shotScale', 'cameraMovement', 'durationSec', 'visualComposition'],
-          },
-        },
-      },
-      required: ['shots'],
-    };
-
     // 🌟 全量分块批处理 (Chunking)，彻底消灭 slice(0, 8) 截断丢戏问题
     const CHUNK_SIZE = 5;
     const allShots: StoryboardShotItem[] = [];
@@ -111,9 +76,9 @@ export class StoryboardSkill extends BaseSkill<StoryboardParams, StoryboardArtif
       );
 
       const prompt = buildStoryboardPrompt(scriptArtifact.title || '互动影游', chunk, params.userFeedback);
-      const result = await llm.generateObject<{ shots: StoryboardShotItem[] }>(
+      const result = await llm.generateObject<StoryboardBatchOutput>(
         prompt,
-        schema,
+        StoryboardBatchOutputSchema,
         STORYBOARD_SYSTEM_PROMPT,
         {
           stage: 'storyboard_segmentation',
@@ -146,9 +111,9 @@ export class StoryboardSkill extends BaseSkill<StoryboardParams, StoryboardArtif
     };
 
     // 写入状态黑板并推进项目阶段
-    store.setArtifact(projectId, WorkflowStage.STORYBOARD, artifact);
+
     if (project) {
-      project.currentStage = WorkflowStage.KEYFRAME_REFERENCE;
+
       store.saveProject(project);
     }
 

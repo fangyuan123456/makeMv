@@ -24,6 +24,14 @@ import {
   REFINE_CHARACTER_SYSTEM_PROMPT,
   buildRefineCharacterPrompt,
 } from './prompt.js';
+import {
+  RefineCharacterVisualPromptSchema,
+  CharacterVisualSpecsListSchema,
+  type CharacterSheetItem,
+  type CharacterPortraitArtifact,
+  type RefineCharacterVisualPromptOutput,
+  type CharacterVisualSpecsListOutput,
+} from './schema.js';
 
 export interface CharacterPortraitParams {
   styleOverride?: string;
@@ -31,27 +39,7 @@ export interface CharacterPortraitParams {
   userFeedback?: string;
 }
 
-export interface CharacterSheetItem {
-  name: string;
-  role: string;
-  gender?: string;
-  age?: number | string;
-  appearance: string;
-  personality?: string;
-  motivation?: string;
-  visualPrompt: string;
-  imageUrl?: string;
-  referenceImageUrl?: string;
-  selected?: boolean;
-}
-
-export interface CharacterPortraitArtifact {
-  characters: CharacterSheetItem[];
-  totalCharacters: number;
-  completedCharacters: number;
-  style: string;
-  createdAt: string;
-}
+export { type CharacterSheetItem, type CharacterPortraitArtifact } from './schema.js';
 
 export class CharacterPortraitSkill extends BaseSkill<CharacterPortraitParams, CharacterPortraitArtifact> {
   public readonly manifest: SkillManifest = {
@@ -102,18 +90,9 @@ export class CharacterPortraitSkill extends BaseSkill<CharacterPortraitParams, C
         const currentChar = updatedList[charIdx];
         const refinePrompt = buildRefineCharacterPrompt(currentChar, params.userFeedback || '优化五官精细度与电影质感', style);
 
-        const refineSchema = {
-          type: 'object',
-          properties: {
-            refinedVisualPrompt: { type: 'string' },
-            designNotes: { type: 'string' },
-          },
-          required: ['refinedVisualPrompt'],
-        };
-
-        const refineRes = await llm.generateObject<{ refinedVisualPrompt: string }>(
+        const refineRes = await llm.generateObject<RefineCharacterVisualPromptOutput>(
           refinePrompt,
-          refineSchema,
+          RefineCharacterVisualPromptSchema,
           REFINE_CHARACTER_SYSTEM_PROMPT,
           { stage: 'character_refine', abortSignal, temperature: 0.3 }
         );
@@ -152,27 +131,9 @@ export class CharacterPortraitSkill extends BaseSkill<CharacterPortraitParams, C
 
     const prompt = buildCharacterVisualSpecPrompt(style, rawCharacters, params.userFeedback);
 
-    const schema = {
-      type: 'object',
-      properties: {
-        specs: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              name: { type: 'string' },
-              visualPrompt: { type: 'string' },
-            },
-            required: ['name', 'visualPrompt'],
-          },
-        },
-      },
-      required: ['specs'],
-    };
-
-    const specsResult = await llm.generateObject<{ specs: Array<{ name: string; visualPrompt: string }> }>(
+    const specsResult = await llm.generateObject<CharacterVisualSpecsListOutput>(
       prompt,
-      schema,
+      CharacterVisualSpecsListSchema,
       CHARACTER_VISUAL_SPEC_SYSTEM_PROMPT,
       {
         stage: 'character_visual_spec',
@@ -226,9 +187,9 @@ export class CharacterPortraitSkill extends BaseSkill<CharacterPortraitParams, C
     };
 
     // 写入状态黑板并推进项目阶段
-    store.setArtifact(projectId, WorkflowStage.CHARACTER_DESIGN, artifact);
+
     if (project) {
-      project.currentStage = WorkflowStage.SCENE_SCRIPT;
+
       store.saveProject(project);
     }
 

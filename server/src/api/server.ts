@@ -11,6 +11,7 @@ import { serve } from '@hono/node-server';
 import { cors } from 'hono/cors';
 import pc from 'picocolors';
 import { config } from '../utils/config.js';
+import { ProjectStore } from '../project-store/ProjectStore.js';
 import {
   SkillRegistry,
   StoryBibleSkill,
@@ -50,7 +51,12 @@ export function createServer(): Hono {
   app.get('/media/:projectId/*', (c) => {
     const projectId = c.req.param('projectId');
     const relativePath = c.req.path.replace(`/media/${projectId}/`, '');
-    const fullPath = path.join(config.paths.projects, projectId, relativePath);
+    const projectDir = ProjectStore.getInstance().getProjectDir(projectId);
+    const fullPath = path.resolve(projectDir, relativePath);
+
+    if (!fullPath.startsWith(projectDir)) {
+      return c.text('Forbidden: Access denied', 403);
+    }
 
     if (fs.existsSync(fullPath)) {
       const ext = path.extname(fullPath).toLowerCase();
@@ -89,6 +95,7 @@ export function startServer(port: number = config.port) {
   console.log(pc.cyan(`\n🎬 [FMV-Agent] 启动现代化 Agentic 微内核服务器...`));
   console.log(pc.gray(`--------------------------------------------------`));
   console.log(pc.green(`✔ Server listening on: http://${config.host}:${port}`));
+  console.log(pc.yellow(`ℹ Architecture Mode: Node 单进程内存黑板 + 原子磁盘持久化 (多副本需单写节点)`));
   console.log(pc.gray(`--------------------------------------------------\n`));
 
   return serve({

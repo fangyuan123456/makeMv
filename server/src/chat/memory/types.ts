@@ -14,6 +14,6 @@ export interface MemoryConfig {
 
 export interface AssembledContext {
   systemPromptWithScratchpad: string;
-  slidingWindowMessages: Array<{ role: 'user' | 'assistant' | 'system' | 'tool'; content: string }>;
+  slidingWindowMessages: ChatMessage[];
   scratchpad: ScratchpadMemory;
 }

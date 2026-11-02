@@ -5,7 +5,7 @@
 
 export const DIRECT_API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
-export type ActionProposalStatus = 'pending' | 'executed' | 'dismissed';
+export type ActionProposalStatus = 'pending' | 'executed' | 'dismissed' | 'failed';
 
 export interface ActionProposal {
   actionId: string;
@@ -14,15 +14,19 @@ export interface ActionProposal {
   label: string;
   description: string;
   status: ActionProposalStatus; // 🌟 显式状态机 (pending | executed | dismissed)
+  isGateIntercept?: boolean; // 🌟 显式指示该提案是否为审查官门禁拦截自愈卡片 (SSOT)
   payload?: Record<string, any>;
   executedAt?: string;
   resultSummary?: string;
+  failedAt?: string;
+  error?: string;
 }
 
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
+  thought?: string;
   actionProposal?: ActionProposal;
   createdAt: string;
 }
@@ -344,4 +348,21 @@ export async function streamSkillExecute(
         break;
     }
   });
+}
+
+
+/**
+ * 🌟 权威推进项目阶段 (Stage Advance SSOT)
+ */
+export async function advanceProjectStage(projectId: string, fromStage?: string): Promise<{ success: boolean; currentStage: string }> {
+  const resp = await fetch(`${DIRECT_API_BASE}/api/project/${projectId}/stage/advance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fromStage }),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => '');
+    throw new Error(`推进阶段失败: ${errText}`);
+  }
+  return resp.json();
 }

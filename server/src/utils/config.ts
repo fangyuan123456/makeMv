@@ -94,6 +94,12 @@ export const config = {
     crf: parseInt(process.env.VIDEO_CRF || '32', 10),
   },
 
+  // ComfyUI 本地/云端机床专属配置 (ComfyUI Provider SSOT)
+  comfyui: {
+    baseUrl: process.env.COMFYUI_BASE_URL || process.env.IMAGE_BASE_URL || 'https://u1248922-be10-709e627c.westd.seetacloud.com:8443',
+    timeoutMs: parseInt(process.env.COMFYUI_TIMEOUT_MS || '180000', 10),
+  },
+
   // 本地数据与项目资产存储路径
   paths: {
     root: serverDir,

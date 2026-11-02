@@ -7,23 +7,23 @@
  * 产物存取解耦业务枚举，接受通用 stage: string。
  */
 
-import type { WorkflowSession } from '../types/index.js';
+import type { ProjectEntity } from '../types/index.js';
 import type { ProjectStateSnapshot } from './types.js';
 import type { ChatSession, ChatMessage, ScratchpadMemory } from '../chat/session/types.js';
 
 export interface IProjectStateStore {
-  // 项目生命周期存取 (统一概念: projectId)
-  getProject(projectId: string): WorkflowSession | undefined;
-  saveProject(project: WorkflowSession): void;
+  // 项目生命周期存取 (统一概念: projectId，标准聚合根: ProjectEntity)
+  getProject(projectId: string): ProjectEntity | undefined;
+  saveProject(project: ProjectEntity): void;
   deleteProject(projectId: string): void;
-  listProjects(): WorkflowSession[];
+  listProjects(): ProjectEntity[];
 
   // 阶段产物单点存取 (Artifacts)：通用 stage 标识
   getArtifact<T = any>(projectId: string, stage: string): T | undefined;
   setArtifact<T = any>(projectId: string, stage: string, artifact: T): void;
 
   // 🌟 会话与白板统合存取 (Sessions & Scratchpad SSOT)
-  createSession(projectId: string, title?: string, initialStage?: string): ChatSession;
+  createSession(projectId: string, title?: string, initialStage?: string, customSessionId?: string): ChatSession;
   getSession(projectId: string, sessionId: string): ChatSession | undefined;
   listSessions(projectId: string): ChatSession[];
   saveSession(session: ChatSession): void;

@@ -21,8 +21,8 @@ export class SessionStore {
     return ProjectStore.getInstance();
   }
 
-  public createSession(projectId: string, title?: string, initialStage?: string): ChatSession {
-    return this.store.createSession(projectId, title, initialStage);
+  public createSession(projectId: string, title?: string, initialStage?: string, customSessionId?: string): ChatSession {
+    return this.store.createSession(projectId, title, initialStage, customSessionId);
   }
 
   public getSession(projectId: string, sessionId: string): ChatSession | undefined {
