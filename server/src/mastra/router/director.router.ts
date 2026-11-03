@@ -5,8 +5,7 @@
 
 import { LLMRegistry } from '../../llm/LLMRegistry.js';
 import { ProjectStore, ProposalStore } from '../../project-store/index.js';
-import { WorkflowStage } from '../../types/index.js';
-import type { ActionProposal } from '../../types/proposal.js';
+import { WorkflowStage, type ActionProposal } from '../../types/index.js';
 import {
   DirectorRouterDecisionSchema,
   type DirectorRouterDecision,

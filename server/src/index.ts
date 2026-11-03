@@ -53,16 +53,32 @@ async function bootstrap() {
     const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     const pathname = parsedUrl.pathname;
 
+    const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB 请求体上限保护 (P2 DOS 防御)
     const readBody = (): Promise<any> => {
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         let body = '';
-        req.on('data', (chunk) => { body += chunk; });
+        let receivedBytes = 0;
+
+        req.on('data', (chunk) => {
+          receivedBytes += chunk.length;
+          if (receivedBytes > MAX_BODY_SIZE) {
+            req.destroy(new Error('Payload Too Large'));
+            reject(new Error('请求体超出 10MB 上限'));
+            return;
+          }
+          body += chunk;
+        });
+
         req.on('end', () => {
           try {
             resolve(JSON.parse(body || '{}'));
           } catch {
             resolve({});
           }
+        });
+
+        req.on('error', (err) => {
+          reject(err);
         });
       });
     };
@@ -312,8 +328,9 @@ async function bootstrap() {
           proposal: routeResult.proposal,
         }));
       } catch (err: any) {
+        console.error('[HTTP API] 对话调度异常:', err);
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, error: err.message || '对话调度异常' }));
+        res.end(JSON.stringify({ success: false, error: '对话调度异常，请稍后重试' }));
       }
       return;
     }
@@ -333,8 +350,9 @@ async function bootstrap() {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, runStatus }));
       } catch (err: any) {
+        console.error('[HTTP API] 工作流恢复异常:', err);
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, error: err.message || '工作流恢复异常' }));
+        res.end(JSON.stringify({ success: false, error: '工作流恢复异常，请检查工序参数' }));
       }
       return;
     }
@@ -363,8 +381,9 @@ async function bootstrap() {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(execResult));
       } catch (err: any) {
+        console.error('[HTTP API] 执行提案异常:', err);
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, error: err.message || '执行提案异常' }));
+        res.end(JSON.stringify({ success: false, error: '执行提案异常，请检查工序参数' }));
       }
       return;
     }
@@ -389,8 +408,9 @@ async function bootstrap() {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, proposal }));
       } catch (err: any) {
+        console.error('[HTTP API] 驳回提案异常:', err);
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, error: err.message || '驳回提案异常' }));
+        res.end(JSON.stringify({ success: false, error: '驳回提案异常，请稍后重试' }));
       }
       return;
     }

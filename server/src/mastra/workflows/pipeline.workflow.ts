@@ -39,4 +39,58 @@ pipelineWorkflow
   .then(fmvPackagingStep)
   .commit();
 
+/**
+ * 8 大视听工序标准 Mastra Workflow 映射表 (Mastra Workflow Run SSOT)
+ * 让每个工序都具有合法的 Mastra 微内核生命周期、Run 追踪与原生契约校验
+ */
+export const stageWorkflows: Record<string, ReturnType<typeof createWorkflow>> = {
+  'story-bible': createWorkflow({
+    id: 'wf-story-bible',
+    inputSchema: WorkflowContextSchema,
+    outputSchema: WorkflowContextSchema,
+  }).then(storyBibleStep).commit(),
+
+  'character-portrait': createWorkflow({
+    id: 'wf-character-portrait',
+    inputSchema: WorkflowContextSchema,
+    outputSchema: WorkflowContextSchema,
+  }).then(characterPortraitStep).commit(),
+
+  'scene-script': createWorkflow({
+    id: 'wf-scene-script',
+    inputSchema: WorkflowContextSchema,
+    outputSchema: WorkflowContextSchema,
+  }).then(sceneScriptStep).commit(),
+
+  'storyboard': createWorkflow({
+    id: 'wf-storyboard',
+    inputSchema: WorkflowContextSchema,
+    outputSchema: WorkflowContextSchema,
+  }).then(storyboardStep).commit(),
+
+  'keyframe-reference': createWorkflow({
+    id: 'wf-keyframe-reference',
+    inputSchema: WorkflowContextSchema,
+    outputSchema: WorkflowContextSchema,
+  }).then(keyframeReferenceStep).commit(),
+
+  'video-production': createWorkflow({
+    id: 'wf-video-production',
+    inputSchema: WorkflowContextSchema,
+    outputSchema: WorkflowContextSchema,
+  }).then(videoProductionStep).commit(),
+
+  'critic-review': createWorkflow({
+    id: 'wf-critic-review',
+    inputSchema: WorkflowContextSchema,
+    outputSchema: WorkflowContextSchema,
+  }).then(criticReviewStep).commit(),
+
+  'fmv-packaging': createWorkflow({
+    id: 'wf-fmv-packaging',
+    inputSchema: WorkflowContextSchema,
+    outputSchema: WorkflowContextSchema,
+  }).then(fmvPackagingStep).commit(),
+};
+
 export * from './steps/stage-steps.js';

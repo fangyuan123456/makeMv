@@ -9,20 +9,10 @@
  * 4. 阶段推进权统筹收拢：工序完成后统一推进 project.currentStage。
  */
 
-import {
-  storyBibleTool,
-  characterPortraitTool,
-  sceneScriptTool,
-  storyboardTool,
-  keyframeReferenceTool,
-  videoProductionTool,
-  criticReviewTool,
-  fmvPackagingTool,
-} from '../tools/index.js';
+import { stageWorkflows } from '../workflows/pipeline.workflow.js';
 import { ProjectStore, ProposalStore } from '../../project-store/index.js';
 import { ProjectLockManager } from '../../utils/projectLock.js';
-import { WorkflowStage, SessionStatus } from '../../types/index.js';
-import type { ActionProposal } from '../../types/proposal.js';
+import { WorkflowStage, SessionStatus, type ActionProposal } from '../../types/index.js';
 
 export interface ExecuteProposalOptions {
   projectId: string;
@@ -37,6 +27,19 @@ export interface ExecuteProposalResult {
   error?: string;
 }
 
+/**
+ * 影视生产各工序到下一阶段的权威推进映射表 (Stage Transition Map SSOT)
+ */
+const STAGE_TRANSITION_MAP: Record<string, WorkflowStage> = {
+  'story-bible': WorkflowStage.CHARACTER_DESIGN,
+  'character-portrait': WorkflowStage.SCENE_SCRIPT,
+  'scene-script': WorkflowStage.STORYBOARD,
+  'storyboard': WorkflowStage.KEYFRAME_REFERENCE,
+  'keyframe-reference': WorkflowStage.VIDEO_PRODUCTION,
+  'video-production': WorkflowStage.FMV_PACKAGING,
+  'fmv-packaging': WorkflowStage.COMPLETED,
+};
+
 export class ProposalExecutor {
   private static instance?: ProposalExecutor;
 
@@ -48,7 +51,7 @@ export class ProposalExecutor {
   }
 
   /**
-   * 恢复并执行已批准的提案 (Resume Suspended State)
+   * 恢复并执行已批准的提案 (真正走 Mastra Workflow Run 驱动)
    */
   public async executeProposal(options: ExecuteProposalOptions): Promise<ExecuteProposalResult> {
     const { projectId, proposalId, overrideParameters } = options;
@@ -68,75 +71,71 @@ export class ProposalExecutor {
         throw new Error(`[ProposalExecutor] 提案处于非可执行状态 [${proposal.status}]，禁止执行！`);
       }
 
+      if (!proposal.skill) {
+        throw new Error(`[ProposalExecutor] 提案 [${proposalId}] 缺少合法的 skill 工序标识`);
+      }
+      const skill = proposal.skill;
+
+      // 规范化入参，保证 targetStage 严密传递以支持阶段隔离 (P0-3 修复)
+      const rawPayload = proposal.payload || {};
+      const targetStage = rawPayload.targetStage || rawPayload.stage;
+      const cleanPayload = { ...rawPayload };
+      if (targetStage) {
+        cleanPayload.targetStage = targetStage;
+      }
+
       // 2. 审查官刚性门禁与跨工序守卫
       const project = projectStore.getProject(projectId);
       if (project) {
         const stageGate = projectStore.getArtifact<any>(projectId, `critic_review_${project.currentStage}`);
-        const isSelfHealing = proposal.skill === 'critic-review' || proposal.payload?.stage === project.currentStage;
+        const isSelfHealing = skill === 'critic-review' || cleanPayload.targetStage === project.currentStage;
         if (stageGate?.gateStatus === 'FAIL' && !isSelfHealing) {
-          throw new Error(`[ProposalExecutor] 当前阶段 ${project.currentStage} 审查未通过 (FAIL)，禁止跨工序执行 ${proposal.skill}！请先优化当前阶段。`);
+          throw new Error(`[ProposalExecutor] 当前阶段 ${project.currentStage} 审查未通过 (FAIL)，禁止跨工序执行 ${skill}！请先优化当前阶段。`);
         }
       }
 
-      // 剥离元数据标记，保证严格契约
-      const { stage: _unusedStage, ...cleanPayload } = proposal.payload || {};
-
-      const mergedPayload = {
-        projectId,
-        ...cleanPayload,
-        ...(overrideParameters || {}),
-      };
-
-      let toolResult: any;
+      // 3. 获取对应的 Mastra 官方 Workflow 微内核实例并启动 Run
+      const workflow = stageWorkflows[skill];
+      if (!workflow) {
+        throw new Error(`[ProposalExecutor] 未找到工序标识对应的 Mastra 工作流: ${skill}`);
+      }
 
       try {
-        switch (proposal.skill) {
-          case 'story-bible': {
-            toolResult = await (storyBibleTool.execute as any)(mergedPayload);
-            break;
-          }
-          case 'character-portrait': {
-            toolResult = await (characterPortraitTool.execute as any)(mergedPayload);
-            break;
-          }
-          case 'scene-script': {
-            toolResult = await (sceneScriptTool.execute as any)(mergedPayload);
-            break;
-          }
-          case 'storyboard': {
-            toolResult = await (storyboardTool.execute as any)(mergedPayload);
-            break;
-          }
-          case 'keyframe-reference': {
-            toolResult = await (keyframeReferenceTool.execute as any)(mergedPayload);
-            break;
-          }
-          case 'video-production': {
-            toolResult = await (videoProductionTool.execute as any)(mergedPayload);
-            break;
-          }
-          case 'critic-review': {
-            toolResult = await (criticReviewTool.execute as any)(mergedPayload);
-            break;
-          }
-          case 'fmv-packaging': {
-            toolResult = await (fmvPackagingTool.execute as any)(mergedPayload);
-            // 推进权由执行器统一确认收拢
-            if (project) {
-              project.currentStage = WorkflowStage.COMPLETED;
-              project.status = SessionStatus.COMPLETED;
-              project.updatedAt = new Date().toISOString();
-              projectStore.saveProject(project);
-            }
-            break;
-          }
-          default:
-            throw new Error(`[ProposalExecutor] 未知工具标识: ${proposal.skill}`);
+        console.log(`[ProposalExecutor] 触发 Mastra 原生 Run: skill=${skill}, project=${projectId}`);
+        const run = await workflow.createRun();
+        const runResult = await run.start({
+          inputData: {
+            projectId,
+            activeStage: project?.currentStage,
+            payload: cleanPayload,
+            overrideParams: overrideParameters,
+          },
+        });
+
+        // 4. 工作流执行状态与失败防御
+        if (runResult.status !== 'success') {
+          const errorMsg = (runResult as any).error || `Mastra 工作流执行异常 (状态: ${runResult.status})`;
+          proposalStore.updateProposalStatus(projectId, proposalId, 'failed', {
+            failedAt: new Date().toISOString(),
+            error: errorMsg,
+          });
+
+          return {
+            success: false,
+            proposal,
+            error: errorMsg,
+            result: runResult,
+          };
         }
 
-        // 检查工具返回的失败标识
+        const stepResults = (runResult as any).results || {};
+        const firstStepOutput = Object.values(stepResults)[0] as any;
+        const stepOutput = firstStepOutput?.output || (runResult as any).output || {};
+        const toolResult = stepOutput.toolResult;
+
+        // 检查底层工具显式返回的业务错误
         if (toolResult?.error || toolResult?.success === false) {
-          const errorMsg = toolResult?.message || toolResult?.error || '工具内部返回执行失败';
+          const errorMsg = toolResult?.message || toolResult?.error || '工序工具返回执行失败';
           proposalStore.updateProposalStatus(projectId, proposalId, 'failed', {
             failedAt: new Date().toISOString(),
             error: errorMsg,
@@ -150,7 +149,21 @@ export class ProposalExecutor {
           };
         }
 
-        const summary = toolResult?.summary || '工序执行完成';
+        // 5. 成功判定后，统筹推进 project.currentStage 与状态机生命周期 (P0-2 & P0-4 修复)
+        if (project) {
+          const nextStage = STAGE_TRANSITION_MAP[skill];
+          if (nextStage) {
+            project.currentStage = nextStage;
+            if (nextStage === WorkflowStage.COMPLETED) {
+              project.status = SessionStatus.COMPLETED;
+            }
+            project.updatedAt = new Date().toISOString();
+            projectStore.saveProject(project);
+            console.log(`[ProposalExecutor] 项目 [${projectId}] 成功推进阶段至: ${nextStage}`);
+          }
+        }
+
+        const summary = stepOutput.lastSummary || toolResult?.summary || '工序执行完成';
         const updatedProposal = proposalStore.updateProposalStatus(projectId, proposalId, 'executed', {
           executedAt: new Date().toISOString(),
           resultSummary: summary,
@@ -159,7 +172,7 @@ export class ProposalExecutor {
         return {
           success: true,
           proposal: updatedProposal || proposal,
-          result: toolResult,
+          result: toolResult || stepOutput,
         };
       } catch (err: any) {
         proposalStore.updateProposalStatus(projectId, proposalId, 'failed', {

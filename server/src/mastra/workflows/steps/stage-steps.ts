@@ -27,11 +27,13 @@ import { WorkflowStage } from '../../../types/index.js';
 // 通用工作流数据载体 Schema
 export const WorkflowContextSchema = z.object({
   projectId: z.string(),
-  activeStage: z.nativeEnum(WorkflowStage).optional(),
+  activeStage: z.string().optional(),
   feedback: z.string().optional(),
+  payload: z.record(z.any()).optional(),
   overrideParams: z.record(z.any()).optional(),
   criticGateStatus: z.string().optional(),
   lastSummary: z.string().optional(),
+  toolResult: z.any().optional(),
 });
 
 export type WorkflowContext = z.infer<typeof WorkflowContextSchema>;
@@ -42,13 +44,14 @@ export const storyBibleStep = createStep({
   description: '推演网状剧情世界观、黄金三幕主干、DAG互动拓扑图与全剧角色小传档案',
   inputSchema: WorkflowContextSchema,
   outputSchema: WorkflowContextSchema,
-  execute: async ({ inputData, suspend }) => {
+  execute: async ({ inputData }) => {
     const { projectId, feedback } = inputData;
-    const store = ProjectStore.getInstance();
 
+    const { stage, targetStage, ...cleanPayload } = (inputData.payload || {}) as any;
     const toolResult: any = await (storyBibleTool.execute as any)({
       projectId,
       userFeedback: feedback,
+      ...cleanPayload,
       ...(inputData.overrideParams || {}),
     });
 
@@ -58,12 +61,12 @@ export const storyBibleStep = createStep({
 
     const summary = toolResult.summary || '故事圣经生成落盘完成';
 
-    // 人在回路原语：故事圣经推演完成后挂起，等待创作者审核确认
     return {
       projectId,
       activeStage: WorkflowStage.NARRATIVE_DESIGN,
       lastSummary: summary,
       criticGateStatus: 'NONE',
+      toolResult,
     };
   },
 });
@@ -79,6 +82,7 @@ export const characterPortraitStep = createStep({
 
     const toolResult: any = await (characterPortraitTool.execute as any)({
       projectId,
+      ...(inputData.payload || {}),
       ...(inputData.overrideParams || {}),
     });
 
@@ -91,6 +95,7 @@ export const characterPortraitStep = createStep({
       activeStage: WorkflowStage.CHARACTER_DESIGN,
       lastSummary: toolResult.summary || '角色定妆照渲染落盘完成',
       criticGateStatus: 'NONE',
+      toolResult,
     };
   },
 });
@@ -106,6 +111,7 @@ export const sceneScriptStep = createStep({
 
     const toolResult: any = await (sceneScriptTool.execute as any)({
       projectId,
+      ...(inputData.payload || {}),
       ...(inputData.overrideParams || {}),
     });
 
@@ -118,6 +124,7 @@ export const sceneScriptStep = createStep({
       activeStage: WorkflowStage.SCENE_SCRIPT,
       lastSummary: toolResult.summary || '分场剧本拆解完成',
       criticGateStatus: 'NONE',
+      toolResult,
     };
   },
 });
@@ -133,6 +140,7 @@ export const storyboardStep = createStep({
 
     const toolResult: any = await (storyboardTool.execute as any)({
       projectId,
+      ...(inputData.payload || {}),
       ...(inputData.overrideParams || {}),
     });
 
@@ -145,6 +153,7 @@ export const storyboardStep = createStep({
       activeStage: WorkflowStage.STORYBOARD,
       lastSummary: toolResult.summary || '视听镜头分镜设计完成',
       criticGateStatus: 'NONE',
+      toolResult,
     };
   },
 });
@@ -160,6 +169,7 @@ export const keyframeReferenceStep = createStep({
 
     const toolResult: any = await (keyframeReferenceTool.execute as any)({
       projectId,
+      ...(inputData.payload || {}),
       ...(inputData.overrideParams || {}),
     });
 
@@ -172,6 +182,7 @@ export const keyframeReferenceStep = createStep({
       activeStage: WorkflowStage.KEYFRAME_REFERENCE,
       lastSummary: toolResult.summary || '关键帧参考图生成完成',
       criticGateStatus: 'NONE',
+      toolResult,
     };
   },
 });
@@ -187,6 +198,7 @@ export const videoProductionStep = createStep({
 
     const toolResult: any = await (videoProductionTool.execute as any)({
       projectId,
+      ...(inputData.payload || {}),
       ...(inputData.overrideParams || {}),
     });
 
@@ -199,6 +211,7 @@ export const videoProductionStep = createStep({
       activeStage: WorkflowStage.VIDEO_PRODUCTION,
       lastSummary: toolResult.summary || '动态视频切片渲染完成',
       criticGateStatus: 'NONE',
+      toolResult,
     };
   },
 });
@@ -211,11 +224,12 @@ export const criticReviewStep = createStep({
   outputSchema: WorkflowContextSchema,
   execute: async ({ inputData, suspend }) => {
     const { projectId, activeStage } = inputData;
-    const stageToReview = activeStage || WorkflowStage.NARRATIVE_DESIGN;
+    const stageToReview = inputData.payload?.targetStage || activeStage || WorkflowStage.NARRATIVE_DESIGN;
 
     const toolResult: any = await (criticReviewTool.execute as any)({
       projectId,
-      stage: stageToReview,
+      targetStage: stageToReview,
+      userFeedback: inputData.feedback || inputData.payload?.userFeedback,
       ...(inputData.overrideParams || {}),
     });
 
@@ -241,6 +255,7 @@ export const criticReviewStep = createStep({
       activeStage: stageToReview,
       lastSummary: `质检完成，门禁状态: ${gateStatus} (综合评分: ${report?.scores?.overallScore ?? 'N/A'})`,
       criticGateStatus: gateStatus,
+      toolResult,
     };
   },
 });
@@ -256,6 +271,7 @@ export const fmvPackagingStep = createStep({
 
     const toolResult: any = await (fmvPackagingTool.execute as any)({
       projectId,
+      ...(inputData.payload || {}),
       ...(inputData.overrideParams || {}),
     });
 
@@ -263,20 +279,12 @@ export const fmvPackagingStep = createStep({
       throw new Error(`[fmvPackagingStep] 打包失败: ${toolResult?.error || '未知异常'}`);
     }
 
-    // 推进权由 Step 显式确认完成
-    const store = ProjectStore.getInstance();
-    const project = store.getProject(projectId);
-    if (project) {
-      project.currentStage = WorkflowStage.COMPLETED;
-      project.updatedAt = new Date().toISOString();
-      store.saveProject(project);
-    }
-
     return {
       projectId,
       activeStage: WorkflowStage.COMPLETED,
       lastSummary: toolResult.summary || '🎉 互动影游母带打包编译完成！',
       criticGateStatus: 'PASS',
+      toolResult,
     };
   },
 });

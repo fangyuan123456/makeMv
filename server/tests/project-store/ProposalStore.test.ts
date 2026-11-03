@@ -5,8 +5,7 @@ import path from 'path';
 import { ProposalStore } from '../../src/project-store/ProposalStore.js';
 import { ProjectStore } from '../../src/project-store/ProjectStore.js';
 import { config } from '../../src/utils/config.js';
-import { WorkflowStage } from '../../src/types/index.js';
-import type { ActionProposal } from '../../src/chat/session/types.js';
+import { WorkflowStage, type ActionProposal } from '../../src/types/index.js';
 
 describe('ProposalStore 独立行动提案持久化管理 (Proposal Store SSOT)', () => {
   const store = ProposalStore.getInstance();

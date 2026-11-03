@@ -7,9 +7,8 @@
  * 产物存取解耦业务枚举，接受通用 stage: string。
  */
 
-import type { ProjectEntity } from '../types/index.js';
+import type { ProjectEntity, ChatSession, ChatMessage, ScratchpadMemory } from '../types/index.js';
 import type { ProjectStateSnapshot } from './types.js';
-import type { ChatSession, ChatMessage, ScratchpadMemory } from '../chat/session/types.js';
 
 export interface IProjectStateStore {
   // 项目生命周期存取 (统一概念: projectId，标准聚合根: ProjectEntity)

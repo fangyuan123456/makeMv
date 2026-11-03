@@ -4,10 +4,9 @@
  */
 
 import { randomUUID } from 'crypto';
-import type { ProjectEntity } from '../types/index.js';
+import type { ProjectEntity, ChatSession, ChatMessage, ScratchpadMemory } from '../types/index.js';
 import type { IProjectStateStore } from './IProjectStateStore.js';
 import type { ProjectStateSnapshot } from './types.js';
-import type { ChatSession, ChatMessage, ScratchpadMemory } from '../chat/session/types.js';
 
 export class MemoryProjectStateStore implements IProjectStateStore {
   private projects = new Map<string, ProjectEntity>();

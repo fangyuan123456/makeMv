@@ -151,7 +151,6 @@ makeMv/
         │       ├── critic-review/
         │       └── fmv-packaging/
         ├── project-store/      # 全局状态黑板层 (ProjectStore SSOT, FileProjectStateStore, ProposalStore)
-        ├── chat/               # 会话管理与多轮上下文 (SessionStore)
         ├── media/              # 视听与多媒体渲染 (ComfyUI / DashScope / FFmpeg)
         ├── llm/                # 统一大模型集成服务 (LLMRegistry, RealLLMService, MockLLMService)
         ├── types/              # 全局业务强类型契约

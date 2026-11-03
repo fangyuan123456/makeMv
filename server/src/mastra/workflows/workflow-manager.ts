@@ -43,65 +43,72 @@ export class WorkflowManager {
     const lock = ProjectLockManager.getInstance();
 
     return await lock.withLock(projectId, async () => {
-      const store = ProjectStore.getInstance();
-      const project = store.getProject(projectId);
-      if (!project) {
-        throw new Error(`[WorkflowManager] 项目不存在: ${projectId}`);
-      }
+      return await this.startWorkflowInternal(projectId, feedback);
+    });
+  }
 
-      // 检查当前阶段门禁
-      const currentStage = project.currentStage;
-      const stageGate = store.getArtifact<any>(projectId, `critic_review_${currentStage}`);
-      if (stageGate?.gateStatus === 'FAIL') {
-        throw new Error(`[WorkflowManager] 当前阶段 ${currentStage} 审查未通过 (FAIL)，禁止向下推进！请先针对瑕疵优化自愈。`);
-      }
+  /**
+   * 启动工作流核心内部逻辑（无锁版，避免内部调用时非重入死锁）
+   */
+  private async startWorkflowInternal(projectId: string, feedback?: string): Promise<WorkflowRunStatus> {
+    const store = ProjectStore.getInstance();
+    const project = store.getProject(projectId);
+    if (!project) {
+      throw new Error(`[WorkflowManager] 项目不存在: ${projectId}`);
+    }
 
-      const run = await pipelineWorkflow.createRun();
-      const runId = run.runId;
+    // 检查当前阶段门禁
+    const currentStage = project.currentStage;
+    const stageGate = store.getArtifact<any>(projectId, `critic_review_${currentStage}`);
+    if (stageGate?.gateStatus === 'FAIL') {
+      throw new Error(`[WorkflowManager] 当前阶段 ${currentStage} 审查未通过 (FAIL)，禁止向下推进！请先针对瑕疵优化自愈。`);
+    }
 
-      console.log(`[WorkflowManager] 启动 Mastra Pipeline Workflow Run: ${runId} (项目: ${projectId})`);
+    const run = await pipelineWorkflow.createRun();
+    const runId = run.runId;
 
-      const statusObj: WorkflowRunStatus = {
-        runId,
-        projectId,
-        status: 'running',
-        updatedAt: new Date().toISOString(),
-      };
-      this.activeRuns.set(projectId, { run, status: statusObj });
+    console.log(`[WorkflowManager] 启动 Mastra Pipeline Workflow Run: ${runId} (项目: ${projectId})`);
 
-      try {
-        const result = await run.start({
-          inputData: {
-            projectId,
-            activeStage: currentStage,
-            feedback,
-          },
-        });
+    const statusObj: WorkflowRunStatus = {
+      runId,
+      projectId,
+      status: 'running',
+      updatedAt: new Date().toISOString(),
+    };
+    this.activeRuns.set(projectId, { run, status: statusObj });
 
-        if (result.status === 'suspended') {
-          const suspendedStep = (result as any).suspendedStep || 'unknown-step';
-          statusObj.status = 'suspended';
-          statusObj.currentStepId = suspendedStep;
-          statusObj.suspendedPayload = (result as any).suspendPayload;
-          statusObj.suspendedReason = (result as any).suspendPayload?.summary || '等待创作者确认授权';
-          statusObj.updatedAt = new Date().toISOString();
+    try {
+      const result = await run.start({
+        inputData: {
+          projectId,
+          activeStage: currentStage,
+          feedback,
+        },
+      });
 
-          console.log(`[WorkflowManager] 工作流在步骤 [${suspendedStep}] 挂起，等待人在回路裁决`);
-        } else if (result.status === 'success') {
-          statusObj.status = 'success';
-          statusObj.updatedAt = new Date().toISOString();
-        } else {
-          statusObj.status = 'failed';
-          statusObj.updatedAt = new Date().toISOString();
-        }
+      if (result.status === 'suspended') {
+        const suspendedStep = (result as any).suspendedStep || 'unknown-step';
+        statusObj.status = 'suspended';
+        statusObj.currentStepId = suspendedStep;
+        statusObj.suspendedPayload = (result as any).suspendPayload;
+        statusObj.suspendedReason = (result as any).suspendPayload?.summary || '等待创作者确认授权';
+        statusObj.updatedAt = new Date().toISOString();
 
-        return statusObj;
-      } catch (err: any) {
+        console.log(`[WorkflowManager] 工作流在步骤 [${suspendedStep}] 挂起，等待人在回路裁决`);
+      } else if (result.status === 'success') {
+        statusObj.status = 'success';
+        statusObj.updatedAt = new Date().toISOString();
+      } else {
         statusObj.status = 'failed';
         statusObj.updatedAt = new Date().toISOString();
-        throw err;
       }
-    });
+
+      return statusObj;
+    } catch (err: any) {
+      statusObj.status = 'failed';
+      statusObj.updatedAt = new Date().toISOString();
+      throw err;
+    }
   }
 
   /**
@@ -113,8 +120,8 @@ export class WorkflowManager {
     return await lock.withLock(projectId, async () => {
       const active = this.activeRuns.get(projectId);
       if (!active) {
-        // 如果没有内存活动 Run，支持优雅重启或启动
-        return await this.startWorkflow(projectId, overrideData?.feedback);
+        // 如果没有内存活动 Run，无锁调用内部启动方法，避免非重入死锁
+        return await this.startWorkflowInternal(projectId, overrideData?.feedback);
       }
 
       const { run, status } = active;

@@ -18,7 +18,7 @@ import { WorkflowStage } from '../../../types/index.js';
 import { ProjectStore } from '../../../project-store/ProjectStore.js';
 import type { IProjectStateStore } from '../../../project-store/IProjectStateStore.js';
 import { LLMRegistry } from '../../../llm/LLMRegistry.js';
-import { atomicWriteJsonSync } from '../../../utils/atomicFile.js';
+import { atomicWriteJsonSync, atomicWriteStringSync } from '../../../utils/atomicFile.js';
 import {
   StoryBibleInputSchema,
   StoryBibleOutputSchema,
@@ -44,47 +44,6 @@ import {
 } from './prompt.js';
 
 const PROJECT_ID_REGEX = /^[a-zA-Z0-9_\-]+$/;
-
-function atomicWriteStringSync(filePath: string, content: string): void {
-  const tmpPath = `${filePath}.${randomUUID().slice(0, 8)}.tmp`;
-  try {
-    fs.writeFileSync(tmpPath, content, 'utf-8');
-    let renamed = false;
-    let lastErr: any;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        fs.renameSync(tmpPath, filePath);
-        renamed = true;
-        break;
-      } catch (err: any) {
-        lastErr = err;
-        if (err.code === 'EPERM' || err.code === 'EBUSY' || err.code === 'EACCES') {
-          try {
-            fs.copyFileSync(tmpPath, filePath);
-            renamed = true;
-            try {
-              fs.unlinkSync(tmpPath);
-            } catch {}
-            break;
-          } catch {}
-        }
-      }
-      if (attempt < 4) {
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
-      }
-    }
-    if (!renamed && lastErr) {
-      throw lastErr;
-    }
-  } catch (err) {
-    if (fs.existsSync(tmpPath)) {
-      try {
-        fs.unlinkSync(tmpPath);
-      } catch {}
-    }
-    throw err;
-  }
-}
 
 function exportToLocalDisk(projectId: string, artifact: StoryBibleArtifact, projectStore: IProjectStateStore): void {
   const projectDir = projectStore.getProjectDir(projectId);

@@ -1,6 +1,6 @@
 /**
- * chat/session/types.ts
- * 现代 Agentic 架构会话与消息强类型契约 (Session & Message SSOT)
+ * types/session.ts
+ * 现代 Agentic 架构会话、消息与人在回路提案强类型契约 (Session & Message Domain SSOT)
  */
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';

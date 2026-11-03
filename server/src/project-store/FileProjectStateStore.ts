@@ -10,10 +10,9 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { config } from '../utils/config.js';
 import { atomicWriteJsonSync, trace } from '../utils/index.js';
-import type { ProjectEntity } from '../types/index.js';
+import type { ProjectEntity, ChatSession, ChatMessage, ScratchpadMemory } from '../types/index.js';
 import type { IProjectStateStore } from './IProjectStateStore.js';
 import type { ProjectStateSnapshot } from './types.js';
-import type { ChatSession, ChatMessage, ScratchpadMemory } from '../chat/session/types.js';
 
 /**
  * 轻量级 LRU 有界内存缓存：防止海量历史会话与消息长期霸占内存引发 OOM
@@ -196,6 +195,12 @@ export class FileProjectStateStore implements IProjectStateStore {
       throw new Error(`[FileProjectStateStore] setArtifact 失败: stage 必须为非空字符串`);
     }
 
+    // 防御文件名穿越与非法字符 (P2 路径穿越安全防护)
+    const sanitizedStage = path.basename(stage.trim());
+    if (sanitizedStage !== stage.trim() || !/^[a-zA-Z0-9_\-]+$/.test(sanitizedStage)) {
+      throw new Error(`[FileProjectStateStore] setArtifact 失败: stage 包含非法字符或路径遍历风险 [${stage}]`);
+    }
+
     const project = this.getProject(projectId);
     if (!project) {
       throw new Error(`[FileProjectStateStore] setArtifact 失败: 未找到项目 [${projectId}]`);
@@ -213,7 +218,11 @@ export class FileProjectStateStore implements IProjectStateStore {
         if (!fs.existsSync(artifactsDir)) {
           fs.mkdirSync(artifactsDir, { recursive: true });
         }
-        const snapshotFile = path.join(artifactsDir, `${stage}.${Date.now()}.json`);
+        const snapshotFile = path.join(artifactsDir, `${sanitizedStage}.${Date.now()}.json`);
+        const relative = path.relative(artifactsDir, snapshotFile);
+        if (relative.startsWith('..') || path.isAbsolute(relative)) {
+          throw new Error(`[FileProjectStateStore] 快照路径逃逸沙箱检测拦截`);
+        }
         atomicWriteJsonSync(snapshotFile, prev);
       } catch (snapshotErr) {
         console.warn('[FileProjectStateStore] 产物历史快照存档警告:', snapshotErr);

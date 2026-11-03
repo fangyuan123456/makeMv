@@ -28,8 +28,9 @@ export class ProjectLockManager {
       releaseLock = resolve;
     });
 
-    // 链接队列
-    this.locks.set(projectId, currentLock.then(() => nextLock));
+    // 链接队列并保存 tailPromise 引用，保证清理时引用完全一致
+    const tailPromise = currentLock.then(() => nextLock);
+    this.locks.set(projectId, tailPromise);
 
     try {
       await currentLock;
@@ -37,7 +38,7 @@ export class ProjectLockManager {
     } finally {
       releaseLock!();
       // 如果当前没有后续锁在等待，清理 map
-      if (this.locks.get(projectId) === nextLock) {
+      if (this.locks.get(projectId) === tailPromise) {
         this.locks.delete(projectId);
       }
     }

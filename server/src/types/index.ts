@@ -130,5 +130,5 @@ export interface JobContext {
   episodes?: number;
 }
 
-export * from './proposal.js';
+export * from './session.js';
 

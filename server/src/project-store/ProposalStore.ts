@@ -11,7 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { config } from '../utils/config.js';
 import { atomicWriteJsonSync } from '../utils/index.js';
-import type { ActionProposal, ActionProposalStatus } from '../chat/session/types.js';
+import type { ActionProposal, ActionProposalStatus } from '../types/index.js';
 
 export class ProposalStore {
   private static instance?: ProposalStore;

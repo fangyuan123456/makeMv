@@ -65,3 +65,51 @@ export function atomicWriteJsonSync(filePath: string, data: any): void {
     throw err;
   }
 }
+
+/**
+ * 工业级纯文本文件原子写入
+ */
+export function atomicWriteStringSync(filePath: string, content: string): void {
+  const tmpPath = `${filePath}.${randomUUID().slice(0, 8)}.tmp`;
+  try {
+    fs.writeFileSync(tmpPath, content, 'utf-8');
+
+    let renamed = false;
+    let lastErr: any;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        fs.renameSync(tmpPath, filePath);
+        renamed = true;
+        break;
+      } catch (err: any) {
+        lastErr = err;
+        if (err.code === 'EPERM' || err.code === 'EBUSY' || err.code === 'EACCES') {
+          try {
+            fs.copyFileSync(tmpPath, filePath);
+            renamed = true;
+            try {
+              fs.unlinkSync(tmpPath);
+            } catch {}
+            break;
+          } catch {}
+        }
+      }
+
+      if (attempt < 4) {
+        const start = Date.now();
+        while (Date.now() - start < 2) {}
+      }
+    }
+
+    if (!renamed && lastErr) {
+      throw lastErr;
+    }
+  } catch (err) {
+    if (fs.existsSync(tmpPath)) {
+      try {
+        fs.unlinkSync(tmpPath);
+      } catch {}
+    }
+    throw err;
+  }
+}
