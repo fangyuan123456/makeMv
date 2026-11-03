@@ -16,6 +16,7 @@ import path from 'path';
 import { ProjectStore } from '../../../project-store/ProjectStore.js';
 import { VisualMediaRenderer } from '../../../media/VisualMediaRenderer.js';
 import { asyncPoolSettled } from '../../../utils/concurrency.js';
+import { assembleDeltaMotionPrompt } from '../../../knowledge/motion-dialects.js';
 import { WorkflowStage } from '../../../types/index.js';
 import {
   VideoProductionArtifactSchema,
@@ -84,9 +85,14 @@ export const videoProductionTool = createTool({
           const sbShot = shotsMap.get(kf.shotId);
           const duration = sbShot?.durationSec || 3;
           const clipId = `clip_${kf.shotId}`;
-          const prompt = userFeedback
-            ? `${kf.prompt}，运镜动态：${sbShot?.cameraMovement || '稳定推进'}，${userFeedback}`
-            : `${kf.prompt}，运镜动态：${sbShot?.cameraMovement || '稳定推进'}`;
+          // 采用 OpenMontage 纯动量时序增量组装 (彻底剔除静图长相污染，只灌注动作与物理运镜)
+          const prompt = assembleDeltaMotionPrompt({
+            rawKeyframePrompt: kf.prompt,
+            subjectMotion: sbShot?.subjectMotion,
+            cameraTrajectory: sbShot?.cameraTrajectory || sbShot?.cameraMovement,
+            sceneDynamics: sbShot?.sceneDynamics,
+            userFeedback,
+          });
 
           const renderRes = await VisualMediaRenderer.renderVideoClip(
             projectId,

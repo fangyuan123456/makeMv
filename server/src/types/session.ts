@@ -22,6 +22,7 @@ export interface ActionProposal {
   status: ActionProposalStatus; // 生命周期状态机 (pending | executed | dismissed | failed)
   isGateIntercept?: boolean; // 显式指示该提案是否为审查官门禁拦截自愈卡片 (SSOT)
   payload?: Record<string, any>;
+  createdAt?: string;
   executedAt?: string;
   failedAt?: string;
   resultSummary?: string;

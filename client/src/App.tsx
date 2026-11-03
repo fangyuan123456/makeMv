@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { MASTRA_SERVER_URL } from './lib/mastra';
+import { CinematicControls, type CinematicParams } from './components';
 
 interface ActionProposal {
   actionId: string;
@@ -41,12 +43,13 @@ export function App() {
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [cinematicOverrides, setCinematicOverrides] = useState<Record<string, CinematicParams>>({});
 
   // 刷新状态图拓扑
   async function fetchGraph(pId: string) {
     if (!pId) return;
     try {
-      const res = await fetch(`http://localhost:4111/api/projects/${pId}/graph`);
+      const res = await fetch(`${MASTRA_SERVER_URL}/api/projects/${pId}/graph`);
       if (res.ok) {
         const data = await res.json();
         if (data.nodes) setGraphNodes(data.nodes);
@@ -59,7 +62,7 @@ export function App() {
   useEffect(() => {
     async function init() {
       try {
-        const res = await fetch('http://localhost:4111/api/projects');
+        const res = await fetch(`${MASTRA_SERVER_URL}/api/projects`);
         if (res.ok) {
           const data = await res.json();
           if (data.projects && data.projects.length > 0) {
@@ -83,10 +86,23 @@ export function App() {
     setInput('');
     setIsSending(true);
 
+    const assistantMsgId = (Date.now() + 1).toString();
+    // 预置占位消息用于打字机动态追加
+    const assistantMsg: Message = {
+      id: assistantMsgId,
+      role: 'assistant',
+      content: '',
+      thought: '',
+    };
+    setMessages((prev) => [...prev, assistantMsg]);
+
     try {
-      const res = await fetch('http://localhost:4111/api/chat', {
+      const res = await fetch(`${MASTRA_SERVER_URL}/api/chat?stream=true`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+        },
         body: JSON.stringify({
           message: userText,
           projectId: projectId || undefined,
@@ -97,47 +113,113 @@ export function App() {
         throw new Error(`服务器响应异常: ${res.status}`);
       }
 
-      const data = await res.json();
-      if (data.projectId && data.projectId !== projectId) {
-        setProjectId(data.projectId);
+      if (res.headers.get('content-type')?.includes('text/event-stream') && res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('data:')) continue;
+            const dataStr = trimmed.replace(/^data:\s*/, '');
+            if (dataStr === '[DONE]') break;
+
+            try {
+              const parsed = JSON.parse(dataStr);
+              if (parsed.type === 'reply') {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId
+                      ? { ...m, content: m.content + parsed.text }
+                      : m
+                  )
+                );
+              } else if (parsed.type === 'thought') {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId
+                      ? { ...m, thought: (m.thought || '') + parsed.text }
+                      : m
+                  )
+                );
+              } else if (parsed.type === 'proposal') {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId
+                      ? { ...m, proposal: parsed.proposal }
+                      : m
+                  )
+                );
+              }
+            } catch {}
+          }
+        }
+      } else {
+        const data = await res.json();
+        if (data.projectId && data.projectId !== projectId) {
+          setProjectId(data.projectId);
+        }
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsgId
+              ? {
+                  ...m,
+                  content: data.reply || '导演副手已完成推演。',
+                  thought: data.thought,
+                  proposal: data.proposal,
+                }
+              : m
+          )
+        );
       }
 
-      const assistantMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: data.reply || '导演副手已完成推演。',
-        thought: data.thought,
-        proposal: data.proposal,
-      };
-
-      setMessages((prev) => [...prev, assistantMsg]);
-      if (data.projectId) {
-        fetchGraph(data.projectId);
+      if (projectId) {
+        fetchGraph(projectId);
       }
     } catch (err: any) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: `⚠️ 通信提示: 后端响应失败 (${err.message})。请检查 4111 端口服务是否正常运行。`,
-        },
-      ]);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantMsgId
+            ? {
+                ...m,
+                content: `⚠️ 通信提示: 后端响应失败 (${err.message})。请检查 4111 端口服务是否正常运行。`,
+              }
+            : m
+        )
+      );
     } finally {
       setIsSending(false);
     }
   }
 
-  // 人在回路批准执行提案
+  // 人在回路批准执行提案 (支持携带运镜动量微调参数)
   async function handleApprove(proposal: ActionProposal) {
     if (!projectId || approvingId) return;
     setApprovingId(proposal.actionId);
 
+    const customParams = cinematicOverrides[proposal.actionId];
+    const overrideParameters = customParams
+      ? {
+          ...proposal.payload,
+          userFeedback: customParams.userFeedback || proposal.payload?.userFeedback,
+          cameraTrajectory: customParams.cameraTrajectory,
+          motionIntensity: customParams.motionIntensity,
+        }
+      : proposal.payload;
+
     try {
-      const res = await fetch(`http://localhost:4111/api/proposals/${proposal.actionId}/approve`, {
+      const res = await fetch(`${MASTRA_SERVER_URL}/api/proposals/${proposal.actionId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId }),
+        body: JSON.stringify({ projectId, overrideParameters }),
       });
 
       const data = await res.json();
@@ -173,7 +255,7 @@ export function App() {
   async function handleReject(proposal: ActionProposal) {
     if (!projectId) return;
     try {
-      const res = await fetch(`http://localhost:4111/api/proposals/${proposal.actionId}/reject`, {
+      const res = await fetch(`${MASTRA_SERVER_URL}/api/proposals/${proposal.actionId}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectId, reason: '创作者暂缓执行' }),
@@ -323,39 +405,56 @@ export function App() {
                   )}
 
                   {m.proposal.status === 'pending' && (
-                    <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
-                      <button
-                        onClick={() => handleApprove(m.proposal!)}
-                        disabled={Boolean(approvingId)}
-                        style={{
-                          padding: '6px 14px',
-                          borderRadius: 6,
-                          border: 'none',
-                          background: '#0284c7',
-                          color: '#fff',
-                          fontSize: 13,
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {approvingId === m.proposal.actionId ? '执行中...' : '✅ 批准执行 (Resume)'}
-                      </button>
-                      <button
-                        onClick={() => handleReject(m.proposal!)}
-                        disabled={Boolean(approvingId)}
-                        style={{
-                          padding: '6px 14px',
-                          borderRadius: 6,
-                          border: '1px solid #475569',
-                          background: 'transparent',
-                          color: '#94a3b8',
-                          fontSize: 13,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        ❌ 暂缓 / 驳回
-                      </button>
-                    </div>
+                    <>
+                      {/* 针对分镜与视频工序，展示 OpenMontage 影视级运镜与动量微调控制台 */}
+                      {(m.proposal.skill === 'videoProductionTool' ||
+                        m.proposal.skill === 'storyboardTool' ||
+                        m.proposal.label?.includes('视频') ||
+                        m.proposal.label?.includes('分镜')) && (
+                        <CinematicControls
+                          onChange={(params) =>
+                            setCinematicOverrides((prev) => ({
+                              ...prev,
+                              [m.proposal!.actionId]: params,
+                            }))
+                          }
+                        />
+                      )}
+
+                      <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+                        <button
+                          onClick={() => handleApprove(m.proposal!)}
+                          disabled={Boolean(approvingId)}
+                          style={{
+                            padding: '6px 14px',
+                            borderRadius: 6,
+                            border: 'none',
+                            background: '#0284c7',
+                            color: '#fff',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {approvingId === m.proposal.actionId ? '执行中...' : '✅ 批准执行 (Resume)'}
+                        </button>
+                        <button
+                          onClick={() => handleReject(m.proposal!)}
+                          disabled={Boolean(approvingId)}
+                          style={{
+                            padding: '6px 14px',
+                            borderRadius: 6,
+                            border: '1px solid #475569',
+                            background: 'transparent',
+                            color: '#94a3b8',
+                            fontSize: 13,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          ❌ 暂缓 / 驳回
+                        </button>
+                      </div>
+                    </>
                   )}
                 </div>
               )}

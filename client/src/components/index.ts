@@ -3,4 +3,4 @@
  * 导演座舱核心组件统一导出插槽
  */
 
-export {};
+export * from './CinematicControls';
