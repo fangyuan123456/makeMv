@@ -131,9 +131,14 @@ makeMv/
 │       ├── lib/                # mastra.ts 客户端总线与网络工具
 │       └── types/              # 视图层与客户端契约
 └── server/                     # 服务端：Mastra 微内核 + 影视生成引擎
-    ├── tests/                  # 单元测试与极端对抗实证测试矩阵 (独立物理隔离)
+    ├── tests/                  # 单元测试与轻量冒烟测试矩阵 (独立物理隔离)
     └── src/
-        ├── index.ts            # 主服务入口 (HTTP, SSE 流式管道, 媒体切片托管)
+        ├── index.ts            # 极简服务启动入口 (Bootstrap & Graceful Shutdown)
+        ├── api/                # HTTP 协议层与业务路由分发
+        │   ├── app.ts          # 请求路由网关 (dispatchHttpRequest)
+        │   ├── helpers.ts      # 统一 HTTP 工具 (CORS, readJsonBody, sendJson)
+        │   ├── media.ts        # 静态媒体切片安全沙箱托管
+        │   └── routes/         # 业务路由分发 (chat, projects, proposals)
         ├── mastra/             # 【Mastra 官方微内核 SSOT】
         │   ├── index.ts        # Mastra 容器总装入口 (Mastra 实例注册)
         │   ├── agents/         # 导演副手 Agent (directorAgent)
