@@ -1,6 +1,7 @@
 /**
  * skills/keyframe-reference/schema.ts
  * 关键帧首帧参考图 Zod 契约规约 (Keyframe Reference Zod SSOT)
+ * 核心法则：源头结构化物理隔离 (subjectAppearance 仅文生图锁定像素，sceneEnvironment 供视频共享)
  */
 
 import { z } from 'zod';
@@ -8,7 +9,9 @@ import { z } from 'zod';
 // 1. 单个分镜提示词推演项 Schema
 export const KeyframePromptItemSchema = z.object({
   shotId: z.string().describe('镜头标识，如 shot_1'),
-  prompt: z.string().describe('纯中文电影级高质感首帧画面生图提示词'),
+  subjectAppearance: z.string().optional().describe('角色人物静态外貌与长相（仅文生首帧图锁定像素，严禁传入后续视频生成）'),
+  sceneEnvironment: z.string().optional().describe('场景空间物理环境与光影氛围（供首帧图与后续视频动量共享）'),
+  prompt: z.string().describe('纯中文电影级高质感首帧画面生图完整提示词 (结合了外貌与环境)'),
 });
 
 export const KeyframeBatchOutputSchema = z.object({
@@ -21,6 +24,8 @@ export type KeyframeBatchOutput = z.infer<typeof KeyframeBatchOutputSchema>;
 export const KeyframeItemSchema = z.object({
   shotId: z.string(),
   shotNumber: z.number(),
+  subjectAppearance: z.string().optional(),
+  sceneEnvironment: z.string().optional(),
   prompt: z.string(),
   imageUrl: z.string(),
   remoteImageUrl: z.string().optional(),

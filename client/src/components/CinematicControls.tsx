@@ -6,7 +6,10 @@ export interface CinematicParams {
   userFeedback: string;
 }
 
-interface CinematicControlsProps {
+export interface CinematicControlsProps {
+  actionId?: string;
+  value?: Partial<CinematicParams>;
+  disabled?: boolean;
   initialTrajectory?: string;
   initialIntensity?: 'low' | 'normal' | 'high';
   initialFeedback?: string;
@@ -23,14 +26,24 @@ const TRAJECTORY_OPTIONS = [
 ];
 
 export const CinematicControls: React.FC<CinematicControlsProps> = ({
+  value,
+  disabled = false,
   initialTrajectory = '平稳向前推近 (Dolly In)',
   initialIntensity = 'normal',
   initialFeedback = '',
   onChange,
 }) => {
-  const [trajectory, setTrajectory] = useState<string>(initialTrajectory);
-  const [intensity, setIntensity] = useState<'low' | 'normal' | 'high'>(initialIntensity);
-  const [feedback, setFeedback] = useState<string>(initialFeedback);
+  const [trajectory, setTrajectory] = useState<string>(value?.cameraTrajectory || initialTrajectory);
+  const [intensity, setIntensity] = useState<'low' | 'normal' | 'high'>(value?.motionIntensity || initialIntensity);
+  const [feedback, setFeedback] = useState<string>(value?.userFeedback || initialFeedback);
+
+  useEffect(() => {
+    if (value) {
+      if (value.cameraTrajectory && value.cameraTrajectory !== trajectory) setTrajectory(value.cameraTrajectory);
+      if (value.motionIntensity && value.motionIntensity !== intensity) setIntensity(value.motionIntensity);
+      if (value.userFeedback !== undefined && value.userFeedback !== feedback) setFeedback(value.userFeedback);
+    }
+  }, [value]);
 
   useEffect(() => {
     onChange({ cameraTrajectory: trajectory, motionIntensity: intensity, userFeedback: feedback });

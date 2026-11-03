@@ -14,6 +14,7 @@ import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
 import { ProjectStore } from '../../../project-store/ProjectStore.js';
+import { ProposalStore } from '../../../project-store/ProposalStore.js';
 import { VisualMediaRenderer } from '../../../media/VisualMediaRenderer.js';
 import { asyncPoolSettled } from '../../../utils/concurrency.js';
 import { assembleDeltaMotionPrompt } from '../../../knowledge/motion-dialects.js';
@@ -31,7 +32,10 @@ export const videoProductionTool = createTool({
     projectId: z.string().describe('项目全局唯一 ID (Project ID)'),
     sessionId: z.string().optional().describe('当前交互会话 ID'),
     targetShotId: z.string().optional().describe('指定单镜重做的镜头标识 (如 shot_1)'),
+    cameraTrajectory: z.string().optional().describe('覆盖运镜轨迹 (如 pan_left, orbit, zoom_in 等)'),
+    motionIntensity: z.union([z.string(), z.number()]).optional().describe('运活动量强度 (如 low, normal, high 或数值)'),
     userFeedback: z.string().optional().describe('运镜幅度或动态细节调整'),
+    proposalId: z.string().optional().describe('关联的人在回路提案 ID (细粒度进度反馈 SSOT)'),
     isMock: z.boolean().optional().describe('是否为 Mock 模拟测试'),
   }).strict(),
   outputSchema: z.object({
@@ -43,8 +47,9 @@ export const videoProductionTool = createTool({
   requireApproval: true,
   execute: async (params) => {
     try {
-      const { projectId, targetShotId, userFeedback, isMock } = params;
+      const { projectId, targetShotId, cameraTrajectory, motionIntensity, userFeedback, proposalId, isMock } = params;
       const store = ProjectStore.getInstance();
+      const proposalStore = ProposalStore.getInstance();
       const project = store.getProject(projectId);
 
       const kfArtifact = store.getArtifact<any>(projectId, WorkflowStage.KEYFRAME_REFERENCE);
@@ -77,20 +82,33 @@ export const videoProductionTool = createTool({
       const ratio = project?.meta?.videoRatio || '16:9';
       const resolution = project?.meta?.videoResolution || '720P';
 
+      let completedCount = 0;
+      const totalCount = keyframesToProcess.length;
+
       // 容错并发池执行视频切片渲染
       const poolResults = await asyncPoolSettled<any, VideoClipItem>(
         3,
         keyframesToProcess,
         async (kf: any) => {
+          if (proposalId) {
+            proposalStore.updateProposalStatus(projectId, proposalId, 'running', {
+              lastMessage: `⚡ [${completedCount}/${totalCount}] 正在渲染分镜视频切片 (${kf.shotId})...`,
+            });
+          }
+
           const sbShot = shotsMap.get(kf.shotId);
           const duration = sbShot?.durationSec || 3;
           const clipId = `clip_${kf.shotId}`;
-          // 采用 OpenMontage 纯动量时序增量组装 (彻底剔除静图长相污染，只灌注动作与物理运镜)
+          // 采用 OpenMontage 纯动量时序增量组装 (方案 A 源头结构化物理隔离，彻底断绝静态长相污染)
+          const normalizedIntensity = typeof motionIntensity === 'number'
+            ? (motionIntensity > 0.7 ? 'high' : motionIntensity < 0.4 ? 'low' : 'normal')
+            : (motionIntensity as any);
+
           const prompt = assembleDeltaMotionPrompt({
-            rawKeyframePrompt: kf.prompt,
             subjectMotion: sbShot?.subjectMotion,
-            cameraTrajectory: sbShot?.cameraTrajectory || sbShot?.cameraMovement,
-            sceneDynamics: sbShot?.sceneDynamics,
+            cameraTrajectory: cameraTrajectory || sbShot?.cameraTrajectory || sbShot?.cameraMovement,
+            sceneDynamics: sbShot?.sceneDynamics || kf.sceneEnvironment || sbShot?.visualComposition,
+            motionIntensity: normalizedIntensity || sbShot?.motionIntensity,
             userFeedback,
           });
 
@@ -105,6 +123,13 @@ export const videoProductionTool = createTool({
             kf.imageUrl,
             { isMock }
           );
+
+          completedCount++;
+          if (proposalId) {
+            proposalStore.updateProposalStatus(projectId, proposalId, 'running', {
+              lastMessage: `⚡ [${completedCount}/${totalCount}] 分镜 (${kf.shotId}) 视频渲染完成`,
+            });
+          }
 
           return {
             clipId,

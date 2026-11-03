@@ -14,6 +14,7 @@ import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
 import { ProjectStore } from '../../../project-store/ProjectStore.js';
+import { ProposalStore } from '../../../project-store/ProposalStore.js';
 import { LLMRegistry } from '../../../llm/LLMRegistry.js';
 import { VisualMediaRenderer } from '../../../media/VisualMediaRenderer.js';
 import { asyncPool } from '../../../utils/concurrency.js';
@@ -35,6 +36,7 @@ export const keyframeReferenceTool = createTool({
     sessionId: z.string().optional().describe('当前交互会话 ID'),
     targetShotId: z.string().optional().describe('指定微调单镜 ID (如 shot_1)，执行局部自愈'),
     userFeedback: z.string().optional().describe('关键帧美学或特定镜头修改指令'),
+    proposalId: z.string().optional().describe('关联的人在回路提案 ID (细粒度进度反馈 SSOT)'),
     isMock: z.boolean().optional().describe('是否为 Mock 模拟测试'),
   }).strict(),
   outputSchema: z.object({
@@ -46,8 +48,9 @@ export const keyframeReferenceTool = createTool({
   requireApproval: true,
   execute: async (params) => {
     try {
-      const { projectId, targetShotId, userFeedback, isMock } = params;
+      const { projectId, targetShotId, userFeedback, proposalId, isMock } = params;
       const store = ProjectStore.getInstance();
+      const proposalStore = ProposalStore.getInstance();
       const project = store.getProject(projectId);
 
       const storyboardArtifact = store.getArtifact<any>(projectId, WorkflowStage.STORYBOARD);
@@ -90,6 +93,8 @@ export const keyframeReferenceTool = createTool({
         const updatedItem: KeyframeItem = {
           shotId: targetShot.shotId,
           shotNumber: targetShot.shotNumber || (shotIndex + 1),
+          subjectAppearance: existingArtifact.shots[shotIndex]?.subjectAppearance,
+          sceneEnvironment: existingArtifact.shots[shotIndex]?.sceneEnvironment || targetShot.visualComposition,
           prompt: refinedPrompt,
           imageUrl: renderRes.url,
           aspectRatio: '16:9',
@@ -139,17 +144,31 @@ export const keyframeReferenceTool = createTool({
         { stage: 'keyframe_prompt_generation', temperature: 0.3 }
       );
 
-      const promptMap = new Map<string, string>();
+      const promptMetaMap = new Map<string, { prompt: string; subjectAppearance?: string; sceneEnvironment?: string }>();
       for (const k of batchResult.keyframes || []) {
-        promptMap.set(k.shotId, k.prompt);
+        promptMetaMap.set(k.shotId, {
+          prompt: k.prompt,
+          subjectAppearance: k.subjectAppearance,
+          sceneEnvironment: k.sceneEnvironment,
+        });
       }
+
+      let completedKeyframeCount = 0;
+      const totalKeyframeCount = shots.length;
 
       // 3路并发执行高清关键帧渲染
       const renderedKeyframes = await asyncPool<any, KeyframeItem>(
         3,
         shots,
         async (shot: any) => {
-          const generatedPrompt = promptMap.get(shot.shotId) || `${shot.visualComposition}，${style}`;
+          if (proposalId) {
+            proposalStore.updateProposalStatus(projectId, proposalId, 'running', {
+              lastMessage: `⚡ [${completedKeyframeCount}/${totalKeyframeCount}] 正在渲染分镜 (${shot.shotId}) 关键帧...`,
+            });
+          }
+
+          const meta = promptMetaMap.get(shot.shotId);
+          const generatedPrompt = meta?.prompt || `${shot.visualComposition}，${style}`;
           const renderRes = await VisualMediaRenderer.renderKeyframeImage(
             projectId,
             shot.shotId,
@@ -158,9 +177,18 @@ export const keyframeReferenceTool = createTool({
             { isMock }
           );
 
+          completedKeyframeCount++;
+          if (proposalId) {
+            proposalStore.updateProposalStatus(projectId, proposalId, 'running', {
+              lastMessage: `⚡ [${completedKeyframeCount}/${totalKeyframeCount}] 分镜 (${shot.shotId}) 关键帧已就绪`,
+            });
+          }
+
           return {
             shotId: shot.shotId,
             shotNumber: shot.shotNumber,
+            subjectAppearance: meta?.subjectAppearance,
+            sceneEnvironment: meta?.sceneEnvironment || shot.visualComposition,
             prompt: generatedPrompt,
             imageUrl: renderRes.url,
             aspectRatio: '16:9',
