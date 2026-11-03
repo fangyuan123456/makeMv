@@ -4,19 +4,29 @@
  */
 
 import type { LLMService } from './LLMService.js';
-import { LLMServiceFactory } from './LLMServiceFactory.js';
+import { RealLLMService } from './RealLLMService.js';
+import { MockLLMService } from './MockLLMService.js';
+import { config } from '../utils/config.js';
 
 export class LLMRegistry {
   private static instance?: LLMService;
 
   public static get(): LLMService {
     if (!LLMRegistry.instance) {
-      LLMRegistry.instance = LLMServiceFactory.create();
+      if (process.env.USE_MOCK_LLM === 'true' || config.mockMode || process.env.NODE_ENV === 'test') {
+        LLMRegistry.instance = new MockLLMService();
+      } else {
+        LLMRegistry.instance = new RealLLMService();
+      }
     }
     return LLMRegistry.instance;
   }
 
   public static set(service: LLMService): void {
     LLMRegistry.instance = service;
+  }
+
+  public static reset(): void {
+    LLMRegistry.instance = undefined;
   }
 }

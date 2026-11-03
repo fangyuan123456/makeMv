@@ -24,8 +24,26 @@ export class ProposalStore {
     return ProposalStore.instance;
   }
 
+  public static setInstance(store: ProposalStore): void {
+    ProposalStore.instance = store;
+  }
+
+  private validateProjectId(projectId: string): void {
+    if (!projectId || typeof projectId !== 'string' || !/^[a-zA-Z0-9_\-]+$/.test(projectId)) {
+      throw new Error(`[ProposalStore] 非法的 projectId: "${projectId}"，必须仅包含字母、数字、下划线或连字符`);
+    }
+    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(projectId.trim())) {
+      throw new Error(`[ProposalStore] 非法的 projectId: "${projectId}"，属于操作系统保留设备名称`);
+    }
+  }
+
   private getProposalsFile(projectId: string): string {
-    const dir = path.join(config.paths.projects, projectId);
+    this.validateProjectId(projectId);
+    const baseProjectsDir = path.resolve(config.paths.projects);
+    const dir = path.resolve(baseProjectsDir, projectId);
+    if (!dir.startsWith(baseProjectsDir + path.sep)) {
+      throw new Error(`[ProposalStore] 非法项目路径穿越访问: ${projectId}`);
+    }
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
@@ -33,6 +51,7 @@ export class ProposalStore {
   }
 
   private loadProposals(projectId: string): Map<string, ActionProposal> {
+    this.validateProjectId(projectId);
     if (this.cache.has(projectId)) {
       return this.cache.get(projectId)!;
     }
@@ -57,6 +76,7 @@ export class ProposalStore {
   }
 
   private persist(projectId: string): void {
+    this.validateProjectId(projectId);
     const map = this.cache.get(projectId);
     if (!map) return;
     const list = Array.from(map.values());
@@ -65,6 +85,7 @@ export class ProposalStore {
       atomicWriteJsonSync(file, list);
     } catch (err) {
       console.error(`[ProposalStore] 持久化提案失败: ${file}`, err);
+      throw err;
     }
   }
 
@@ -72,15 +93,30 @@ export class ProposalStore {
    * 保存或更新行动提案
    */
   public saveProposal(projectId: string, proposal: ActionProposal): void {
+    this.validateProjectId(projectId);
+    if (!proposal || !proposal.actionId || typeof proposal.actionId !== 'string') {
+      throw new Error('[ProposalStore] saveProposal 失败: proposal.actionId 必须为非空有效字符串');
+    }
     const map = this.loadProposals(projectId);
+    const prev = map.get(proposal.actionId);
     map.set(proposal.actionId, proposal);
-    this.persist(projectId);
+    try {
+      this.persist(projectId);
+    } catch (err) {
+      if (prev === undefined) {
+        map.delete(proposal.actionId);
+      } else {
+        map.set(proposal.actionId, prev);
+      }
+      throw err;
+    }
   }
 
   /**
    * 获取指定提案
    */
   public getProposal(projectId: string, actionId: string): ActionProposal | undefined {
+    this.validateProjectId(projectId);
     const map = this.loadProposals(projectId);
     return map.get(actionId);
   }
@@ -92,6 +128,7 @@ export class ProposalStore {
     projectId: string,
     filter?: { status?: ActionProposalStatus; stage?: string }
   ): ActionProposal[] {
+    this.validateProjectId(projectId);
     const map = this.loadProposals(projectId);
     let list = Array.from(map.values());
     if (filter?.status) {
@@ -104,7 +141,7 @@ export class ProposalStore {
   }
 
   /**
-   * 原子更新提案状态 (executed | dismissed)
+   * 原子更新提案状态 (executed | dismissed | failed)
    */
   public updateProposalStatus(
     projectId: string,
@@ -112,6 +149,7 @@ export class ProposalStore {
     status: ActionProposalStatus,
     extra?: { executedAt?: string; failedAt?: string; resultSummary?: string; description?: string; error?: string }
   ): ActionProposal | undefined {
+    this.validateProjectId(projectId);
     const map = this.loadProposals(projectId);
     const existing = map.get(actionId);
     if (!existing) return undefined;
@@ -129,19 +167,21 @@ export class ProposalStore {
 
   /**
    * 批量将指定阶段的挂起门禁提案标记为已解除 (cleared/dismissed)
+   * 遵循法典：零别名冗余，单一事实来源，统一使用 proposal.payload?.stage
    */
   public dismissProposalsForStage(
     projectId: string,
     stage: string,
     reason?: string
   ): number {
+    this.validateProjectId(projectId);
     const map = this.loadProposals(projectId);
     let dismissedCount = 0;
     for (const proposal of map.values()) {
       if (
         proposal.status === 'pending' &&
         (Boolean(proposal.isGateIntercept) || proposal.actionType === 'CRITIC_DEBATE' || proposal.skill === 'critic-review') &&
-        (!proposal.payload?.stage || proposal.payload?.stage === stage || proposal.payload?.targetStage === stage)
+        proposal.payload?.stage === stage
       ) {
         proposal.status = 'dismissed';
         if (reason) proposal.description = reason;
@@ -152,5 +192,16 @@ export class ProposalStore {
       this.persist(projectId);
     }
     return dismissedCount;
+  }
+
+  /**
+   * 清除指定项目或全部缓存 (主要用于测试沙箱清理)
+   */
+  public clearCache(projectId?: string): void {
+    if (projectId) {
+      this.cache.delete(projectId);
+    } else {
+      this.cache.clear();
+    }
   }
 }

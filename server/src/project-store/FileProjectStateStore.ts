@@ -16,7 +16,7 @@ import type { ProjectStateSnapshot } from './types.js';
 import type { ChatSession, ChatMessage, ScratchpadMemory } from '../chat/session/types.js';
 
 /**
- * 🌟 轻量级 LRU 有界内存缓存：防止海量历史会话与消息长期霸占内存引发 OOM
+ * 轻量级 LRU 有界内存缓存：防止海量历史会话与消息长期霸占内存引发 OOM
  */
 class BoundedCache<K, V> {
   private cache = new Map<K, V>();
@@ -73,6 +73,15 @@ export class FileProjectStateStore implements IProjectStateStore {
     this.hydrateFromDisk();
   }
 
+  private validateProjectId(projectId: string): void {
+    if (!projectId || typeof projectId !== 'string' || !/^[a-zA-Z0-9_\-]+$/.test(projectId)) {
+      throw new Error(`[FileProjectStateStore] 非法的 projectId: "${projectId}"，必须仅包含字母、数字、下划线或连字符`);
+    }
+    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(projectId.trim())) {
+      throw new Error(`[FileProjectStateStore] 非法的 projectId: "${projectId}"，属于操作系统保留设备名称`);
+    }
+  }
+
   private hydrateFromDisk(): void {
     const projectsRoot = config.paths.projects;
     if (!fs.existsSync(projectsRoot)) {
@@ -84,13 +93,19 @@ export class FileProjectStateStore implements IProjectStateStore {
       const entries = fs.readdirSync(projectsRoot, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isDirectory()) {
+          if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(entry.name)) {
+            continue;
+          }
           const projectJsonPath = path.join(projectsRoot, entry.name, 'project.json');
           if (fs.existsSync(projectJsonPath)) {
             try {
               const data = JSON.parse(fs.readFileSync(projectJsonPath, 'utf-8'));
-              const pid = data.projectId || entry.name;
-              data.projectId = pid;
-              this.projects.set(pid, data);
+              // 刚性校验：彻底消灭 entry.name 隐式兜底猜测，数据契约不符时跳过加载
+              if (!data.projectId || typeof data.projectId !== 'string' || !data.projectId.trim()) {
+                console.warn(`[FileProjectStateStore] 项目文件 [${projectJsonPath}] 缺失合法 projectId 契约，跳过无效项目加载`);
+                continue;
+              }
+              this.projects.set(data.projectId, data);
             } catch (err) {
               console.warn(`[FileProjectStateStore] 无法加载项目快照: ${projectJsonPath}`, err);
             }
@@ -103,16 +118,21 @@ export class FileProjectStateStore implements IProjectStateStore {
   }
 
   public getProject(projectId: string): ProjectEntity | undefined {
+    this.validateProjectId(projectId);
     if (this.projects.has(projectId)) {
       return this.projects.get(projectId);
     }
 
-    const dir = path.join(config.paths.projects, projectId);
+    const dir = this.getProjectDir(projectId);
     const targetFile = path.join(dir, 'project.json');
     if (fs.existsSync(targetFile)) {
       try {
         const raw = fs.readFileSync(targetFile, 'utf-8');
         const project = JSON.parse(raw);
+        if (!project.projectId || typeof project.projectId !== 'string' || !project.projectId.trim()) {
+          console.warn(`[FileProjectStateStore] 读取到的项目文件 [${targetFile}] 缺少合法 projectId`);
+          return undefined;
+        }
         this.projects.set(projectId, project);
         return project;
       } catch (e) {
@@ -123,27 +143,29 @@ export class FileProjectStateStore implements IProjectStateStore {
   }
 
   public saveProject(project: ProjectEntity): void {
-    const pid = project.projectId;
-    this.projects.set(pid, project);
-
-    const dir = path.join(config.paths.projects, pid);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    if (!project || !project.projectId || typeof project.projectId !== 'string' || !project.projectId.trim()) {
+      throw new Error('[FileProjectStateStore] saveProject 失败: project.projectId 必须为非空有效字符串');
     }
+    const pid = project.projectId;
+    const dir = this.getProjectDir(pid);
     const filePath = path.join(dir, 'project.json');
     try {
       atomicWriteJsonSync(filePath, project);
     } catch (err) {
       console.error(`[FileProjectStateStore] 持久化项目 ${pid} 失败:`, err);
+      throw err;
     }
+    // 刚性保证：落盘完全成功后才更新内存黑板映射，杜绝内存与物理磁盘产生漂移
+    this.projects.set(pid, project);
   }
 
   public deleteProject(projectId: string): void {
+    this.validateProjectId(projectId);
     this.projects.delete(projectId);
     this.sessionCache.deletePrefix(`${projectId}:`);
     this.messageCache.deletePrefix(`${projectId}:`);
 
-    const dir = path.join(config.paths.projects, projectId);
+    const dir = this.getProjectDir(projectId);
     if (fs.existsSync(dir)) {
       try {
         fs.rmSync(dir, { recursive: true, force: true });
@@ -158,6 +180,7 @@ export class FileProjectStateStore implements IProjectStateStore {
   }
 
   public getArtifact<T = any>(projectId: string, stage: string): T | undefined {
+    this.validateProjectId(projectId);
     const project = this.getProject(projectId);
     return project?.stageArtifacts?.[stage] as T;
   }
@@ -168,59 +191,77 @@ export class FileProjectStateStore implements IProjectStateStore {
     artifact: T,
     meta?: { taskId?: string; skill?: string; model?: string; degraded?: boolean; paramsHash?: string }
   ): void {
-    const project = this.getProject(projectId);
-    if (project) {
-      if (!project.stageArtifacts) project.stageArtifacts = {};
-      const now = new Date().toISOString();
-
-      // 🌟 1. 历史版本快照归档 (按 stage.timestamp.json 存盘，不撑大主 project.json)
-      const prev = project.stageArtifacts[stage];
-      if (prev && typeof prev === 'object') {
-        try {
-          const artifactsDir = path.join(this.getProjectDir(projectId), 'artifacts');
-          if (!fs.existsSync(artifactsDir)) {
-            fs.mkdirSync(artifactsDir, { recursive: true });
-          }
-          const snapshotFile = path.join(artifactsDir, `${stage}.${Date.now()}.json`);
-          atomicWriteJsonSync(snapshotFile, prev);
-        } catch (snapshotErr) {
-          console.warn('[FileProjectStateStore] 产物历史快照存档警告:', snapshotErr);
-        }
-      }
-
-      // 🌟 2. 注入 __meta 来源追溯信息
-      if (artifact && typeof artifact === 'object') {
-        if (!(artifact as any).createdAt) {
-          (artifact as any).createdAt = now;
-        }
-        (artifact as any).updatedAt = now;
-        (artifact as any).__meta = {
-          ...(meta || {}),
-          degraded: (artifact as any).isDegraded ?? meta?.degraded ?? false,
-          updatedAt: now,
-        };
-      }
-
-      project.stageArtifacts[stage] = artifact;
-      project.updatedAt = now;
-      this.saveProject(project);
-
-      // 🌟 3. 产物更新可查打点
-      trace(projectId, 'artifact.set', {
-        stage,
-        hasPrev: Boolean(prev),
-        meta: (artifact as any)?.__meta,
-      });
-    } else {
-      console.warn(`[FileProjectStateStore] setArtifact 失败: 未找到项目 [${projectId}]`);
+    this.validateProjectId(projectId);
+    if (!stage || typeof stage !== 'string' || !stage.trim()) {
+      throw new Error(`[FileProjectStateStore] setArtifact 失败: stage 必须为非空字符串`);
     }
+
+    const project = this.getProject(projectId);
+    if (!project) {
+      throw new Error(`[FileProjectStateStore] setArtifact 失败: 未找到项目 [${projectId}]`);
+    }
+
+    if (!project.stageArtifacts) project.stageArtifacts = {};
+    const now = new Date().toISOString();
+    const prevUpdatedAt = project.updatedAt;
+
+    // 1. 历史版本快照归档 (按 stage.timestamp.json 存盘，不撑大主 project.json)
+    const prev = project.stageArtifacts[stage];
+    if (prev && typeof prev === 'object') {
+      try {
+        const artifactsDir = path.join(this.getProjectDir(projectId), 'artifacts');
+        if (!fs.existsSync(artifactsDir)) {
+          fs.mkdirSync(artifactsDir, { recursive: true });
+        }
+        const snapshotFile = path.join(artifactsDir, `${stage}.${Date.now()}.json`);
+        atomicWriteJsonSync(snapshotFile, prev);
+      } catch (snapshotErr) {
+        console.warn('[FileProjectStateStore] 产物历史快照存档警告:', snapshotErr);
+      }
+    }
+
+    // 2. 注入 __meta 来源追溯信息
+    if (artifact && typeof artifact === 'object') {
+      if (!(artifact as any).createdAt) {
+        (artifact as any).createdAt = now;
+      }
+      (artifact as any).updatedAt = now;
+      (artifact as any).__meta = {
+        ...(meta || {}),
+        degraded: (artifact as any).isDegraded ?? meta?.degraded ?? false,
+        updatedAt: now,
+      };
+    }
+
+    project.stageArtifacts[stage] = artifact;
+    project.updatedAt = now;
+
+    try {
+      this.saveProject(project);
+    } catch (saveErr) {
+      // 物理落盘失败时回滚内存修改，确保内存黑板与物理磁盘保持强一致性
+      if (prev === undefined) {
+        delete project.stageArtifacts[stage];
+      } else {
+        project.stageArtifacts[stage] = prev;
+      }
+      project.updatedAt = prevUpdatedAt;
+      throw saveErr;
+    }
+
+    // 3. 产物更新可查打点
+    trace(projectId, 'artifact.set', {
+      stage,
+      hasPrev: Boolean(prev),
+      meta: (artifact as any)?.__meta,
+    });
   }
 
   public getProjectDir(projectId: string): string {
-    const safeProjectId = (projectId || '').replace(/[^a-zA-Z0-9_\-]/g, '_');
+    this.validateProjectId(projectId);
     const baseProjectsDir = path.resolve(config.paths.projects);
-    const resolvedDir = path.resolve(baseProjectsDir, safeProjectId);
-    if (!resolvedDir.startsWith(baseProjectsDir + path.sep) && resolvedDir !== baseProjectsDir) {
+    const resolvedDir = path.resolve(baseProjectsDir, projectId);
+    if (!resolvedDir.startsWith(baseProjectsDir + path.sep)) {
       throw new Error(`[FileProjectStateStore] 非法项目路径穿越访问: ${projectId}`);
     }
     if (!fs.existsSync(resolvedDir)) {
@@ -229,14 +270,18 @@ export class FileProjectStateStore implements IProjectStateStore {
     return resolvedDir;
   }
 
-  // =================== 🌟 会话与白板统合存取 (SSOT) ===================
+  // =================== 会话与白板统合存取 (SSOT) ===================
 
   private getChatDir(projectId: string, sessionId: string): string {
-    const safeSessionId = (sessionId || '').replace(/[^a-zA-Z0-9_\-]/g, '_');
+    this.validateProjectId(projectId);
+    if (!sessionId || typeof sessionId !== 'string' || !sessionId.trim()) {
+      throw new Error(`[FileProjectStateStore] 非法的 sessionId: "${sessionId}"，必须为非空有效字符串`);
+    }
+    const safeSessionId = sessionId.replace(/[^a-zA-Z0-9_\-]/g, '_');
     const projectDir = this.getProjectDir(projectId);
     const chatBaseDir = path.resolve(projectDir, 'chat');
     const resolvedDir = path.resolve(chatBaseDir, safeSessionId);
-    if (!resolvedDir.startsWith(chatBaseDir + path.sep) && resolvedDir !== chatBaseDir) {
+    if (!resolvedDir.startsWith(chatBaseDir + path.sep)) {
       throw new Error(`[FileProjectStateStore] 非法会话路径穿越访问: ${sessionId}`);
     }
     if (!fs.existsSync(resolvedDir)) {
@@ -251,6 +296,11 @@ export class FileProjectStateStore implements IProjectStateStore {
     initialStage?: string,
     customSessionId?: string
   ): ChatSession {
+    this.validateProjectId(projectId);
+    if (customSessionId !== undefined && (!customSessionId || typeof customSessionId !== 'string' || !customSessionId.trim())) {
+      throw new Error(`[FileProjectStateStore] 非法的 customSessionId: "${customSessionId}"`);
+    }
+
     const sessionId = customSessionId || `chat_${Date.now()}_${randomUUID().slice(0, 6)}`;
     const now = new Date().toISOString();
     const project = this.getProject(projectId);
@@ -270,8 +320,9 @@ export class FileProjectStateStore implements IProjectStateStore {
         logline = bible.logline;
       }
       if (Array.isArray(bible.characters) && bible.characters.length > 0) {
+        // 彻底清除 c.appearancePrompt 别名回退，统一遵循标准契约 c.appearance
         charactersSummary = bible.characters
-          .map((c: any) => `* 【${c.name}】(${c.role || '角色'}): 动机: ${c.motivation || '未详'} | 骨相特征: ${c.appearance || c.appearancePrompt || '未详'}`)
+          .map((c: any) => `* 【${c.name}】(${c.role || '角色'}): 动机: ${c.motivation || '未详'} | 骨相特征: ${c.appearance || '未详'}`)
           .join('\n');
       }
       if (Array.isArray(bible.goldenSpine) && bible.goldenSpine.length > 0) {
@@ -281,7 +332,7 @@ export class FileProjectStateStore implements IProjectStateStore {
       }
     }
 
-    // 🌟 角色视觉定妆锚点预热：继承已确立的发型、服饰与视觉锚点
+    // 角色视觉定妆锚点预热：继承已确立的发型、服饰与视觉锚点
     const charArtifact = project?.stageArtifacts?.['character_design'];
     let characterVisualAnchors = '';
     if (charArtifact && Array.isArray(charArtifact.characters) && charArtifact.characters.length > 0) {
@@ -290,11 +341,11 @@ export class FileProjectStateStore implements IProjectStateStore {
         .join('\n');
     }
 
-    // 🌟 禁忌红线无缝继承 (Project SSOT)：新会话优先继承项目元数据或前序会话中已确立的创作者禁忌要求，拒绝归零
+    // 禁忌红线无缝继承 (Project SSOT)：新会话优先继承项目元数据或前序会话中已确立的创作者禁忌要求，拒绝归零
     const existingSessions = this.listSessions(projectId);
     const existingConstraints = existingSessions.find((s) => Array.isArray(s.scratchpad?.userConstraints) && s.scratchpad.userConstraints.length > 0)
       ?.scratchpad.userConstraints || [];
-    const projectConstraints = (project?.meta as any)?.userConstraints || [];
+    const projectConstraints = project?.meta?.userConstraints || [];
     const inheritedConstraints = Array.from(new Set([...projectConstraints, ...existingConstraints]));
 
     const scratchpad: ScratchpadMemory = {
@@ -324,12 +375,15 @@ export class FileProjectStateStore implements IProjectStateStore {
   }
 
   public getSession(projectId: string, sessionId: string): ChatSession | undefined {
+    this.validateProjectId(projectId);
+    if (!sessionId || typeof sessionId !== 'string') return undefined;
+
     const cacheKey = `${projectId}:${sessionId}`;
     const project = this.getProject(projectId);
 
     if (this.sessionCache.has(cacheKey)) {
       const cached = this.sessionCache.get(cacheKey)!;
-      // 🌟 单一事实来源 (SSOT)：会话工序阶段始终动态跟随项目的权威阶段，彻底消灭脱节！
+      // 单一事实来源 (SSOT)：会话工序阶段始终动态跟随项目的权威阶段，彻底消灭脱节！
       if (project?.currentStage) {
         cached.currentStage = project.currentStage;
       }
@@ -355,6 +409,7 @@ export class FileProjectStateStore implements IProjectStateStore {
   }
 
   public listSessions(projectId: string): ChatSession[] {
+    this.validateProjectId(projectId);
     const chatBaseDir = path.join(this.getProjectDir(projectId), 'chat');
     if (!fs.existsSync(chatBaseDir)) {
       return [];
@@ -367,8 +422,6 @@ export class FileProjectStateStore implements IProjectStateStore {
         if (entry.isDirectory()) {
           const s = this.getSession(projectId, entry.name);
           if (s) {
-            const messages = this.getMessages(projectId, entry.name);
-            (s as any)._messageCount = messages.length;
             sessions.push(s);
           }
         }
@@ -377,21 +430,20 @@ export class FileProjectStateStore implements IProjectStateStore {
       console.warn(`[FileProjectStateStore] 遍历会话失败:`, err);
     }
 
-    // 🌟 幽灵空目录自愈防御：若存在真实创作会话，自动过滤 0 消息的幽灵空会话，彻底根绝聊天记录丢失
-    const hasActiveSessions = sessions.some((s: any) => s._messageCount > 0);
-    const validSessions = hasActiveSessions ? sessions.filter((s: any) => s._messageCount > 0) : sessions;
-
-    return validSessions.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    return sessions.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   }
 
   public saveSession(session: ChatSession): void {
-    const cacheKey = `${session.projectId}:${session.sessionId}`;
+    if (!session || !session.projectId || !session.sessionId) {
+      throw new Error('[FileProjectStateStore] saveSession 失败: session 缺少合法 projectId 或 sessionId');
+    }
+    this.validateProjectId(session.projectId);
+
     const project = this.getProject(session.projectId);
     if (project?.currentStage) {
       session.currentStage = project.currentStage; // 保持 SSOT
     }
     session.updatedAt = new Date().toISOString();
-    this.sessionCache.set(cacheKey, session);
 
     const dir = this.getChatDir(session.projectId, session.sessionId);
     const sessionFile = path.join(dir, 'session.json');
@@ -399,10 +451,15 @@ export class FileProjectStateStore implements IProjectStateStore {
       atomicWriteJsonSync(sessionFile, session);
     } catch (err) {
       console.error(`[FileProjectStateStore] 保存会话失败: ${sessionFile}`, err);
+      throw err;
     }
+
+    const cacheKey = `${session.projectId}:${session.sessionId}`;
+    this.sessionCache.set(cacheKey, session);
   }
 
   public getMessages(projectId: string, sessionId: string): ChatMessage[] {
+    this.validateProjectId(projectId);
     const cacheKey = `${projectId}:${sessionId}`;
     if (this.messageCache.has(cacheKey)) {
       return this.messageCache.get(cacheKey)!;
@@ -424,19 +481,22 @@ export class FileProjectStateStore implements IProjectStateStore {
   }
 
   public saveMessages(projectId: string, sessionId: string, messages: ChatMessage[]): void {
-    const cacheKey = `${projectId}:${sessionId}`;
-    this.messageCache.set(cacheKey, messages);
-
+    this.validateProjectId(projectId);
     const dir = this.getChatDir(projectId, sessionId);
     const messagesFile = path.join(dir, 'messages.json');
     try {
       atomicWriteJsonSync(messagesFile, messages);
     } catch (err) {
       console.error(`[FileProjectStateStore] 保存消息流失败: ${messagesFile}`, err);
+      throw err;
     }
+
+    const cacheKey = `${projectId}:${sessionId}`;
+    this.messageCache.set(cacheKey, messages);
   }
 
   public appendMessage(projectId: string, sessionId: string, message: ChatMessage): void {
+    this.validateProjectId(projectId);
     const messages = this.getMessages(projectId, sessionId);
     messages.push(message);
     this.saveMessages(projectId, sessionId, messages);
@@ -448,6 +508,7 @@ export class FileProjectStateStore implements IProjectStateStore {
   }
 
   public getScratchpad(projectId: string, sessionId: string): ScratchpadMemory {
+    this.validateProjectId(projectId);
     const session = this.getSession(projectId, sessionId);
     if (session) {
       return session.scratchpad;
@@ -463,6 +524,7 @@ export class FileProjectStateStore implements IProjectStateStore {
     sessionId: string,
     patch: Partial<ScratchpadMemory>
   ): ScratchpadMemory {
+    this.validateProjectId(projectId);
     const session = this.getSession(projectId, sessionId);
     if (!session) {
       throw new Error(`Session ${sessionId} not found`);
@@ -474,7 +536,7 @@ export class FileProjectStateStore implements IProjectStateStore {
       lastUpdatedAt: new Date().toISOString(),
     };
 
-    // 🌟 全局禁忌项目级沉淀 (Project SSOT)
+    // 全局禁忌项目级沉淀 (Project SSOT)
     if (patch.userConstraints && Array.isArray(patch.userConstraints)) {
       const project = this.getProject(projectId);
       if (project) {
@@ -489,6 +551,7 @@ export class FileProjectStateStore implements IProjectStateStore {
   }
 
   public getSnapshot(projectId: string): ProjectStateSnapshot | undefined {
+    this.validateProjectId(projectId);
     const project = this.getProject(projectId);
     if (!project) return undefined;
     return {
@@ -499,6 +562,7 @@ export class FileProjectStateStore implements IProjectStateStore {
   }
 
   public destroy(projectId: string): void {
+    this.validateProjectId(projectId);
     this.projects.delete(projectId);
     this.sessionCache.deletePrefix(`${projectId}:`);
     this.messageCache.deletePrefix(`${projectId}:`);

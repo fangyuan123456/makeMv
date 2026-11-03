@@ -1,3 +1,14 @@
+/**
+ * media/ffmpeg.ts
+ * FFmpeg 视听切片与合规服务 (FFmpeg Service SSOT)
+ *
+ * 核心机制：
+ * 1. 原生 child_process.execFile 异步调用，无三方 npm 胶水库依赖；
+ * 2. 10分钟硬超时与 10MB 缓冲区保护，防御进程挂死与日志内存溢出；
+ * 3. 构造函数支持显式注入路径，提升单元测试与各种运行环境适应性；
+ * 4. 缩放像素强制偶数对齐，杜绝 libx264 yuv420p 奇数尺寸报错。
+ */
+
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
@@ -8,15 +19,35 @@ const execFileAsync = promisify(execFile);
 
 export class FFmpegService {
   private ffmpegPath: string;
+  private ffprobePath?: string;
 
-  constructor() {
-    this.ffmpegPath = config.paths.ffmpeg;
+  constructor(ffmpegPath?: string, ffprobePath?: string) {
+    this.ffmpegPath = ffmpegPath || config.paths?.ffmpeg || 'ffmpeg';
+    this.ffprobePath = ffprobePath;
   }
 
   /**
-   * 🌟 统一带超时与大缓冲保护的 FFmpeg 执行器 (挂死防御与溢出容错 SSOT)
+   * 获取当前生效的 ffmpeg 可执行文件路径
    */
-  private async runFFmpeg(
+  public getFfmpegPath(): string {
+    return this.ffmpegPath;
+  }
+
+  /**
+   * 获取当前生效的 ffprobe 可执行文件路径
+   */
+  public getFfprobePath(): string {
+    if (this.ffprobePath) return this.ffprobePath;
+    const isWin = process.platform === 'win32';
+    const ffprobeName = isWin ? 'ffprobe.exe' : 'ffprobe';
+    const candidate = path.join(path.dirname(this.ffmpegPath), ffprobeName);
+    return fs.existsSync(candidate) ? candidate : 'ffprobe';
+  }
+
+  /**
+   * 统一带超时与大缓冲保护的 FFmpeg 执行器 (挂死防御与溢出容错 SSOT)
+   */
+  protected async runFFmpeg(
     args: string[],
     options: { timeout?: number; maxBuffer?: number } = {}
   ): Promise<{ stdout: string; stderr: string }> {
@@ -29,22 +60,22 @@ export class FFmpegService {
   /**
    * 统一带超时保护的 FFprobe 执行器
    */
-  private async runFFprobe(
+  protected async runFFprobe(
     bin: string,
     args: string[],
     options: { timeout?: number; maxBuffer?: number } = {}
   ): Promise<{ stdout: string; stderr: string }> {
     return execFileAsync(bin, args, {
-      timeout: options.timeout ?? 60_000,
-      maxBuffer: options.maxBuffer ?? 5 * 1024 * 1024,
+      timeout: options.timeout ?? 60_000, // 60秒超时保护
+      maxBuffer: options.maxBuffer ?? 5 * 1024 * 1024, // 5MB 缓冲区保护
     });
   }
 
   /**
    * 生成带有文本说明与背景色彩的合成测试视频片段。
- * 用于离线冒烟测试、全链路预演与原型验证，零消耗远程 API 额度。
+   * 用于离线冒烟测试、全链路预演与原型验证，零消耗远程 API 额度。
    */
-  async createTestClip(options: {
+  public async createTestClip(options: {
     duration: number;
     text: string;
     outputPath: string;
@@ -64,7 +95,7 @@ export class FFmpegService {
     const dir = path.dirname(outputPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-    // 使用 FFmpeg lavfi 色彩源滤镜配合 drawtext 生成测试画面
+    // 使用 FFmpeg lavfi 色彩源滤镜配合静音音频生成测试画面
     const args = [
       '-y',
       '-f',
@@ -112,15 +143,15 @@ export class FFmpegService {
 
   /**
    * 极速验证模式图像后处理：
- * 将生成的轻量测试图缩放至目标分辨率，
- * 转码为标准优化的 8 位色彩空间 JPEG (yuvj420p)，并严格控制文件大小不超过上限。
+   * 将生成的轻量测试图缩放至目标分辨率，
+   * 转码为标准优化的 8 位色彩空间 JPEG (yuvj420p)，并严格控制文件大小不超过上限。
    */
-  async processAndCompressImage(options: {
+  public async processAndCompressImage(options: {
     inputPath: string;
     outputPath: string;
     targetWidth?: number;
     targetHeight?: number;
-    quality?: number; // 2-31, 5 provides high quality with ~50-70KB file size
+    quality?: number; // 2-31, 5 对应 ~50-70KB 高画质
     maxKb?: number;
   }): Promise<string> {
     const {
@@ -128,10 +159,10 @@ export class FFmpegService {
       outputPath,
       targetWidth,
       targetHeight,
-      maxKb = config.image.maxKb || 100,
+      maxKb = config.image?.maxKb || 100,
     } = options;
 
-    const qualityPreset = config.image.qualityLevel || 'fast';
+    const qualityPreset = config.image?.qualityLevel || 'fast';
     let baseQuality = options.quality ?? (qualityPreset === 'high' ? 3 : qualityPreset === 'balanced' ? 4 : 5);
 
     const dir = path.dirname(outputPath);
@@ -143,11 +174,12 @@ export class FFmpegService {
       const args = ['-y', '-i', inputPath];
       let scaleFilter = '';
       if (targetWidth && targetHeight) {
-        const w = Math.round(targetWidth * scaleRatio);
-        const h = Math.round(targetHeight * scaleRatio);
+        // 确保像素宽高严格为偶数，杜绝 yuv420p 奇数像素异常
+        const w = Math.round((targetWidth * scaleRatio) / 2) * 2;
+        const h = Math.round((targetHeight * scaleRatio) / 2) * 2;
         scaleFilter = `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black`;
       } else if (scaleRatio < 1) {
-        scaleFilter = `scale=iw*${scaleRatio}:ih*${scaleRatio}`;
+        scaleFilter = `scale=trunc(iw*${scaleRatio}/2)*2:trunc(ih*${scaleRatio}/2)*2`;
       }
       if (scaleFilter) args.push('-vf', scaleFilter);
       args.push('-frames:v', '1', '-update', '1', '-pix_fmt', 'yuvj420p', '-q:v', String(q), outputPath);
@@ -178,10 +210,10 @@ export class FFmpegService {
 
   /**
    * 极速验证模式视频后处理：
- * 采用 H.264 ultrafast 预设 + CRF 恒定质量 + faststart 流式加载压缩视频，
- * 严格确保片段体积控制在限定体积内。
+   * 采用 H.264 ultrafast 预设 + CRF 恒定质量 + faststart 流式加载压缩视频，
+   * 严格确保片段体积控制在限定体积内。
    */
-  async compressVideo(options: {
+  public async compressVideo(options: {
     inputPath: string;
     outputPath: string;
     targetWidth?: number;
@@ -194,8 +226,8 @@ export class FFmpegService {
       outputPath,
       targetWidth,
       targetHeight,
-      crf = config.video.crf || 32,
-      maxMb = config.video.maxMb || 1.5,
+      crf = config.video?.crf || 32,
+      maxMb = config.video?.maxMb || 1.5,
     } = options;
 
     const dir = path.dirname(outputPath);
@@ -207,11 +239,11 @@ export class FFmpegService {
       const args = ['-y', '-i', inputPath];
       let scaleFilter = '';
       if (targetWidth && targetHeight) {
-        const w = Math.round(targetWidth * scaleRatio);
-        const h = Math.round(targetHeight * scaleRatio);
+        const w = Math.round((targetWidth * scaleRatio) / 2) * 2;
+        const h = Math.round((targetHeight * scaleRatio) / 2) * 2;
         scaleFilter = `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black`;
       } else if (scaleRatio < 1) {
-        scaleFilter = `scale=iw*${scaleRatio}:ih*${scaleRatio}`;
+        scaleFilter = `scale=trunc(iw*${scaleRatio}/2)*2:trunc(ih*${scaleRatio}/2)*2`;
       }
       if (scaleFilter) args.push('-vf', scaleFilter);
       args.push(
@@ -250,7 +282,7 @@ export class FFmpegService {
   /**
    * 将多个分镜视频片段顺序拼接成单个完整的视频文件。
    */
-  async concatClips(clipPaths: string[], outputPath: string): Promise<string> {
+  public async concatClips(clipPaths: string[], outputPath: string): Promise<string> {
     if (clipPaths.length === 0) {
       throw new Error('No video clips provided for concatenation');
     }
@@ -262,12 +294,13 @@ export class FFmpegService {
     const dir = path.dirname(outputPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-    const listFilePath = path.join(dir, `concat_list_${Date.now()}.txt`);
+    // 随机唯一后缀隔离，避免高并发下文件冲突
+    const randomSuffix = Math.random().toString(36).substring(2, 8);
+    const listFilePath = path.join(dir, `concat_list_${Date.now()}_${randomSuffix}.txt`);
     const fileContent = clipPaths
       .map((p) => `file '${path.resolve(p).replace(/\\/g, '/').replace(/'/g, "'\\''")}'`)
       .join('\n');
     fs.writeFileSync(listFilePath, fileContent, 'utf-8');
-
 
     const args = [
       '-y',
@@ -318,7 +351,7 @@ export class FFmpegService {
   /**
    * 从指定视频的时间戳位置抽取单帧高清静止图像。
    */
-  async extractFrame(videoPath: string, timestampSec: number, outputPath: string): Promise<string> {
+  public async extractFrame(videoPath: string, timestampSec: number, outputPath: string): Promise<string> {
     const dir = path.dirname(outputPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
@@ -341,9 +374,9 @@ export class FFmpegService {
 
   /**
    * 精确抽取视频片段的最后一帧。
- * 用于前序镜头与后续镜头之间的首尾帧咬合与像素级连贯性传递。
+   * 用于前序镜头与后续镜头之间的首尾帧咬合与像素级连贯性传递。
    */
-  async extractLastFrame(videoPath: string, outputPath: string): Promise<string> {
+  public async extractLastFrame(videoPath: string, outputPath: string): Promise<string> {
     const dir = path.dirname(outputPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
@@ -369,11 +402,8 @@ export class FFmpegService {
   /**
    * 通过 ffprobe 获取音视频文件的精确时长（秒）。
    */
-  async getDuration(mediaPath: string): Promise<number> {
-    const isWin = process.platform === 'win32';
-    const ffprobeName = isWin ? 'ffprobe.exe' : 'ffprobe';
-    const ffprobePath = path.join(path.dirname(this.ffmpegPath), ffprobeName);
-    const probeExe = fs.existsSync(ffprobePath) ? ffprobePath : 'ffprobe';
+  public async getDuration(mediaPath: string): Promise<number> {
+    const probeExe = this.getFfprobePath();
     const args = [
       '-v',
       'error',
@@ -397,9 +427,9 @@ export class FFmpegService {
   /**
    * 将本地图片文件转换为 Base64 Data URL 字符串，供多模态 API 接口调用。
    */
-  imageToBase64(imagePath: string): string {
+  public imageToBase64(imagePath: string): string {
     const ext = path.extname(imagePath).toLowerCase().replace('.', '');
-    const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+    const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
     const buffer = fs.readFileSync(imagePath);
     return `data:${mime};base64,${buffer.toString('base64')}`;
   }

@@ -18,7 +18,7 @@ export class JsonSanitizer {
   }
 
   /**
-   * 🌟 自动扫描并转义 JSON 字符串字面量内部的裸控制字符 (ASCII 0x00 ~ 0x1F)
+   * 自动扫描并转义 JSON 字符串字面量内部的裸控制字符 (ASCII 0x00 ~ 0x1F)
    * 彻底杜绝 SyntaxError: Bad control character in string literal in JSON
    */
   public static sanitizeControlCharsInStrings(jsonStr: string): string {
@@ -74,7 +74,7 @@ export class JsonSanitizer {
 
   /**
    * 从大模型输出的长文本中剥离并提取出标准的 JSON 对象
-   * @param text LLM 回传文本
+   * @param rawText LLM 回传文本
    */
   public static extractJsonFromText<T>(rawText: string): T {
     const cleanedText = this.cleanInvisibleChars(rawText);
@@ -121,7 +121,7 @@ export class JsonSanitizer {
       } catch {}
     }
 
-    // 5. 🌟 词法级截断与过量符号双向平衡自愈 (Bracket Stack Balancing)
+    // 5. 词法级截断与过量符号双向平衡自愈 (Bracket Stack Balancing)
     if (startIdx !== -1) {
       const unclosedCandidate = candidateText.substring(startIdx);
       try {
@@ -134,7 +134,7 @@ export class JsonSanitizer {
       } catch {}
     }
 
-    // 6. 🌟 次级多代码块级联扫描
+    // 6. 次级多代码块级联扫描
     const startPositions: number[] = [];
     const blockRegex = /(\[|\{)\s*(?:\{\s*)?"(?:tool|name|path|args|parameters|jobId|gameTitle|files|classes)"/gi;
     let bMatch: RegExpExecArray | null;
@@ -324,7 +324,7 @@ export class JsonSanitizer {
           key.toLowerCase(),
           key.toUpperCase(),
           key.replace(/([A-Z])/g, '_$1').toLowerCase(),
-          key.replace(/_([a-z])/g, (_, g) => g.toUpperCase())
+          key.replace(/_([a-z])/g, (_, g) => g.toUpperCase()),
         ];
 
         for (const altKey of potentialKeys) {

@@ -1,9 +1,7 @@
 /**
  * llm/LLMService.ts
- * 大模型集成服务统一抽象接口 (Vercel AI SDK SSOT)
+ * 大语言模型统一抽象接口 (Vercel AI SDK SSOT)
  */
-
-import type { LLMUsageRecord } from './telemetry/types.js';
 
 export interface LLMStreamToolCall {
   toolCallId: string;
@@ -17,24 +15,24 @@ export interface LLMOptions {
   thinking?: boolean;
   thinkingBudget?: number;
   stage?: string;
-  projectId?: string; // 🌟 透传项目 ID 用于旁路成本与 Token 遥测打点
-  onUsage?: (record: LLMUsageRecord) => void;
+  projectId?: string;
+  abortSignal?: AbortSignal;
   onThought?: (thought: string) => Promise<void> | void;
   onToolCall?: (toolCall: LLMStreamToolCall) => Promise<void> | void;
   tools?: Record<string, any>;
-  abortSignal?: AbortSignal;
+  [key: string]: any;
 }
 
 export interface LLMService {
   generateText(prompt: string, systemPrompt?: string, options?: LLMOptions): Promise<string>;
   generateObject<T>(prompt: string, schema: any, systemPrompt?: string, options?: LLMOptions): Promise<T>;
-  generateTextWithImages(prompt: string, images: string[], systemPrompt?: string, options?: LLMOptions): Promise<string>;
-  generateMultiTurn(
+  generateTextWithImages?(prompt: string, images: string[], systemPrompt?: string, options?: LLMOptions): Promise<string>;
+  generateMultiTurn?(
     systemPrompt: string,
     history: Array<{ role: 'user' | 'assistant'; content: string }>,
     options?: LLMOptions
   ): Promise<string>;
-  generateMultiTurnStream(
+  generateMultiTurnStream?(
     systemPrompt: string,
     history: Array<{ role: 'user' | 'assistant'; content: string }>,
     onToken: (token: string) => Promise<void> | void,

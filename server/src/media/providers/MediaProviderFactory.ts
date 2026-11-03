@@ -1,6 +1,12 @@
 /**
  * media/providers/MediaProviderFactory.ts
  * 视听媒体模型生成中枢工厂 (Media Provider Factory SSOT)
+ *
+ * 核心机制：
+ * 1. 单一事实来源 (SSOT)：统一管理文生图与生视频 Provider 单例；
+ * 2. 智能自愈：若配了 API Key 且非全局强制 MOCK_MODE，自动选用 DashScope 真实服务；
+ * 3. 增强可测试性：提供 reset()、setImageProvider()、setVideoProvider() 支持单测沙箱与 Mock 注入；
+ * 4. 零破坏兼容：严格遵循 NodeNext .js 规范。
  */
 
 import { config } from '../../utils/config.js';
@@ -12,6 +18,28 @@ import { ComfyUIMediaProvider } from './ComfyUIMediaProvider.js';
 export class MediaProviderFactory {
   private static imageProviderInstance?: IImageProvider | null;
   private static videoProviderInstance?: IVideoProvider | null;
+
+  /**
+   * 重置 Provider 缓存（用于单元测试沙箱隔离）
+   */
+  public static reset(): void {
+    this.imageProviderInstance = undefined;
+    this.videoProviderInstance = undefined;
+  }
+
+  /**
+   * 显式注入生图 Provider (测试夹具)
+   */
+  public static setImageProvider(provider: IImageProvider | null): void {
+    this.imageProviderInstance = provider;
+  }
+
+  /**
+   * 显式注入生视频 Provider (测试夹具)
+   */
+  public static setVideoProvider(provider: IVideoProvider | null): void {
+    this.videoProviderInstance = provider;
+  }
 
   /**
    * 获取当前生效的文生图 Provider
@@ -31,7 +59,7 @@ export class MediaProviderFactory {
     }
     const apiKey = config.image.apiKey || process.env.DASHSCOPE_API_KEY || (providerType === 'dashscope' ? config.llm.apiKey : '');
 
-    // 🌟 智能自愈：若配了 API Key 且非全局强制 MOCK_MODE，自动选用 DashScope 真实服务，消灭配置遗漏陷阱
+    // 智能自愈：若配了 API Key 且非全局强制 MOCK_MODE，自动选用 DashScope 真实服务，消灭配置遗漏陷阱
     if (providerType === 'mock' && apiKey && !config.mockMode) {
       console.log(`[MediaProviderFactory] ⚡ 检测到已配置有效 API Key，自动启用 DashScope 真实生图服务`);
       providerType = 'dashscope';
@@ -72,7 +100,7 @@ export class MediaProviderFactory {
     }
     const apiKey = config.video.apiKey || process.env.DASHSCOPE_API_KEY || (providerType === 'dashscope' ? config.llm.apiKey : '');
 
-    // 🌟 智能自愈：若配了 API Key 且非全局强制 MOCK_MODE，自动选用 DashScope 真实服务，消灭配置遗漏陷阱
+    // 智能自愈：若配了 API Key 且非全局强制 MOCK_MODE，自动选用 DashScope 真实服务，消灭配置遗漏陷阱
     if (providerType === 'mock' && apiKey && !config.mockMode) {
       console.log(`[MediaProviderFactory] ⚡ 检测到已配置有效 API Key，自动启用 DashScope 真实生视频服务`);
       providerType = 'dashscope';

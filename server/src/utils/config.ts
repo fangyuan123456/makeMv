@@ -102,12 +102,20 @@ export const config = {
   paths: {
     root: serverDir,
     data: path.join(serverDir, 'data'),
-    // 🌟 P1-3 隔离测试沙箱与自定义目录覆盖：当 NODE_ENV === 'test' 时自动使用 test_projects 隔离目录，防止测试误删真实项目
-    projects:
-      process.env.PROJECTS_DIR ||
-      (process.env.NODE_ENV === 'test'
-        ? path.join(serverDir, 'data', 'test_projects')
-        : path.join(serverDir, 'data', 'projects')),
+    // 隔离测试沙箱与自定义目录覆盖：动态响应 NODE_ENV === 'test'
+    get projects(): string {
+      const p =
+        process.env.PROJECTS_DIR ||
+        (process.env.NODE_ENV === 'test'
+          ? path.join(serverDir, 'data', 'test_projects')
+          : path.join(serverDir, 'data', 'projects'));
+      if (!fs.existsSync(p)) {
+        try {
+          fs.mkdirSync(p, { recursive: true });
+        } catch {}
+      }
+      return p;
+    },
     ffmpeg: findFFmpeg(),
   },
 };

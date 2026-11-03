@@ -1,12 +1,6 @@
 /**
  * media/providers/ComfyUIMediaProvider.ts
  * ComfyUI 云机/本地渲染执行端提供商 (ComfyUI Provider SSOT)
- *
- * 核心机制：
- * 1. 契约驱动：同时实现 IImageProvider 与 IVideoProvider 强类型契约；
- * 2. 纯自产机床：生图 (T2I) 与 首帧生视频 (I2V) 统一对接到本地/AutoDL RTX 5090 机床；
- * 3. 动态多模态插槽：自动注入 Prompt、Seed、Size，自动上传参考帧至云机 input 目录；
- * 4. 真实视听闭环：返回物理 view URL，由 MediaDownloader 负责持久化落盘至项目本地目录。
  */
 
 import fs from 'fs';
@@ -31,7 +25,6 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
     this.t2iTemplatePath = this.resolveTemplatePath('comfyui_t2i.json');
     this.i2vTemplatePath = this.resolveTemplatePath('comfyui_i2v.json');
 
-    // 针对 AutoDL 等云服务器自签名 HTTPS 证书做安全放行
     if (this.baseUrl.startsWith('https://')) {
       process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
     }
@@ -56,9 +49,6 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
     return path.join(candidateDirs[0], filenames[0]);
   }
 
-  /**
-   * 🌟 1. 文生图 (T2I)：根据提示词调用 5090 生成高清剧照
-   */
   public async generateImage(prompt: string, options?: ImageGenerationOptions): Promise<string> {
     if (!fs.existsSync(this.t2iTemplatePath)) {
       throw new Error(`[ComfyUIMediaProvider] 未找到生图工作流模板: ${this.t2iTemplatePath}`);
@@ -67,22 +57,18 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
     const templateRaw = fs.readFileSync(this.t2iTemplatePath, 'utf-8');
     const workflow = JSON.parse(templateRaw);
 
-    // 注入正向提示词
     if (workflow['67']?.inputs) {
       workflow['67'].inputs.text = prompt;
     }
 
-    // 注入负向提示词
     if (options?.negativePrompt && workflow['71']?.inputs) {
       workflow['71'].inputs.text = options.negativePrompt;
     }
 
-    // 注入随机种子
     if (workflow['70']?.inputs) {
       workflow['70'].inputs.seed = options?.seed ?? Math.floor(Math.random() * 1000000000);
     }
 
-    // 注入尺寸
     if (options?.size && workflow['68']?.inputs) {
       const parts = options.size.split('*');
       if (parts.length === 2) {
@@ -95,13 +81,10 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
       }
     }
 
-    console.log(`[ComfyUIMediaProvider] 正在向 5090 提交生图任务 (${this.baseUrl})...`);
+    console.log(`[ComfyUIMediaProvider] 正在向 ComfyUI 提交生图任务 (${this.baseUrl})...`);
     return this.executeAndPoll(workflow, 'image');
   }
 
-  /**
-   * 🌟 2. 首帧生视频 (I2V)：根据首帧图与运镜提示词生成动态切片
-   */
   public async generateVideo(prompt: string, options?: VideoGenerationOptions): Promise<string> {
     if (!fs.existsSync(this.i2vTemplatePath)) {
       throw new Error(`[ComfyUIMediaProvider] 未找到生视频工作流模板: ${this.i2vTemplatePath}`);
@@ -110,7 +93,6 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
     const templateRaw = fs.readFileSync(this.i2vTemplatePath, 'utf-8');
     const workflow = JSON.parse(templateRaw);
 
-    // 必须有首帧参考图 (若未提供，则自动调用当前 5090 生图机床极速生成一张首帧基准图)
     let refImageUrl = options?.referenceImageUrl;
     if (!refImageUrl) {
       console.log(`[ComfyUIMediaProvider] 未传入首帧图，正在自动生成首帧基准画面...`);
@@ -122,28 +104,22 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
     const uploadedImageName = await this.uploadReferenceImage(refImageUrl);
     console.log(`[ComfyUIMediaProvider] 首帧参考图已上传至云机: ${uploadedImageName}`);
 
-    // 注入参考图像节点 (Node 6, 23, 24)
     if (workflow['6']?.inputs) workflow['6'].inputs.image = uploadedImageName;
     if (workflow['23']?.inputs) workflow['23'].inputs.image = uploadedImageName;
     if (workflow['24']?.inputs) workflow['24'].inputs.image = uploadedImageName;
 
-    // 注入动态运镜提示词 (Node 25)
     if (workflow['25']?.inputs) {
       workflow['25'].inputs.prompt = prompt || '电影镜头缓慢推进，人物微表情生动，高质量运镜';
     }
 
-    // 注入采样随机种子 (Node 9)
     if (workflow['9']?.inputs) {
       workflow['9'].inputs.seed = Math.floor(Math.random() * 1000000000000);
     }
 
-    console.log(`[ComfyUIMediaProvider] 正在向 5090 提交视频切片生成任务 (${this.baseUrl})...`);
+    console.log(`[ComfyUIMediaProvider] 正在向 ComfyUI 提交视频切片生成任务 (${this.baseUrl})...`);
     return this.executeAndPoll(workflow, 'video');
   }
 
-  /**
-   * 将本地或远程参考图上传到 ComfyUI 的 input 目录
-   */
   private async uploadReferenceImage(imageUrlOrPath: string): Promise<string> {
     let fileBuffer: Buffer;
     let fileName = `ref_${Date.now()}.png`;
@@ -163,7 +139,6 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
       fileBuffer = Buffer.from(await res.arrayBuffer());
     }
 
-    // 构造 multipart/form-data 上传到 ComfyUI
     const formData = new FormData();
     const blob = new Blob([fileBuffer], { type: 'image/png' });
     formData.append('image', blob, fileName);
@@ -182,9 +157,6 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
     return json.name || fileName;
   }
 
-  /**
-   * 提交任务并轮询历史结果
-   */
   private async executeAndPoll(workflow: any, mediaType: 'image' | 'video'): Promise<string> {
     const promptResponse = await fetch(`${this.baseUrl}/prompt`, {
       method: 'POST',

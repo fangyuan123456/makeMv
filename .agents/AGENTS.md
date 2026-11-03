@@ -56,14 +56,15 @@
 
 ---
 
-## 2. 现代对话中枢与声明式技能微内核架构哲学（Chat + Skills）
+## 2. 现代对话中枢与 Mastra 声明式微内核架构哲学（Mastra Core + Agents + Workflows）
 
-### 2.1 对话中枢与技能微内核设计（Chat-Centric & Skills Microkernel）
-- **彻底摒弃硬编码流水线**：系统全面放弃写死的 `StagePipeline / addStep` 线性编排，转向以**对话中枢（`DirectorAgent`）为交互门面、动态技能注册表（`SkillRegistry`）为执行支撑**的现代 Copilot 范式；
-- **纯天然流式对话界面（Chat-Centric Interface）**：创作者通过自然语言与 AI 导演副手交互，`DirectorContextAssembler` 动态整合上下文（微观对话 Turns + 宏观阶段 SOP + 技能清单 + 独立审查官告诫）；
-- **专精技能高内聚封装（Skills Microkernel）**：
-  - 各工序实体（`StoryBibleSkill`, `CharacterPortraitSkill`, `StoryboardSkill`, `KeyframeReferenceSkill`, `VideoProductionSkill`, `CriticReviewSkill`, `FmvPackagingSkill` 等）统一继承 `BaseSkill`；
-  - 技能对外暴露标准强类型入参与产物（纯数据进出），统一在 `SkillRegistry` 中注册，实现高度正交与即插即用。
+### 2.1 对话中枢与微内核设计（Chat-Centric & Mastra Microkernel）
+- **官方微内核核心驱动**：系统全面基于 **Mastra 官方微内核（`@mastra/core`）** 与 **Vercel AI SDK** 驱动，彻底告别零散拼接模式；
+- **纯天然流式对话与人在回路（Chat + Human-in-the-Loop）**：创作者通过自然语言与 AI 导演副手（`directorAgent`）交互，由意图路由器（`DirectorRouter`）分析意图并生成待审核提案（`ActionProposal`），经创作者确认后由提案执行器（`ProposalExecutor`）恢复执行；
+- **全流程动态状态机工作流（pipelineWorkflow）**：通过 Mastra 原生 `Workflow` 状态机编排各工序（Step 与 Suspend/Resume），实现可靠的断点续传与人在回路仲裁；
+- **视听专精声明式工具包（Mastra Tools）**：
+  - 各工序实体（`storyBibleTool`, `characterPortraitTool`, `sceneScriptTool`, `storyboardTool`, `keyframeReferenceTool`, `videoProductionTool`, `criticReviewTool`, `fmvPackagingTool` 等）统一继承自 Mastra 原生 `createTool`；
+  - 工具对外暴露严密 Zod Schema 校验的强类型入参与产物（纯数据契约进出），统一在 Mastra 实例中总装注册，实现高度正交与即插即用。
 
 ### 2.2 自主行动提案与人在回路（Action Proposals & Human-in-the-Loop）
 - **大模型自主提案协议**：`DirectorAgent` 在流式推理中通过标准协议块 `<action_proposal>` 自主抛出阶段推进、定妆生成、分镜拆解或提示词微调建议；
@@ -119,30 +120,42 @@
 
 ### 5.1 模块正交与真实目录结构规范
 ```
-server/src/
-├── api/                        # HTTP 接口与控制器层（Express 路由解耦）
-│   ├── controllers/            # ProjectController, ChatController, ReviewerController, SkillController
-│   └── server.ts               # 服务入口与优雅停机
-├── agents/                     # 核心智能体与协调器
-│   ├── director/               # AI 导演副手 (DirectorAgent, ContextAssembler, ProposalResolver)
-│   └── reviewer/               # 独立审查官 (CriticReviewerAgent)
-├── skills/                     # 声明式工序技能包微内核 (统一继承 BaseSkill)
-│   ├── story-bible/            # Stage 1: 故事圣经与世界观设定
-│   ├── character-portrait/     # Stage 2: 角色资产与定妆照
-│   ├── scene-script/           # 场景剧本文学拆解
-│   ├── storyboard/             # Stage 3: 专业分镜与运镜拆解
-│   ├── keyframe-reference/     # 关键帧参考图生成
-│   ├── video-production/       # Stage 4: 动态视频渲染与生成
-│   ├── critic-review/          # 视听刚性质检与评估
-│   └── fmv-packaging/          # 最终影游打包与装配
-├── chat/                       # 对话与双轨记忆中枢
-│   ├── memory/                 # ChatMemoryManager (工作记忆与 SOP 上下文)
-│   └── session/                # SessionStore (会话元数据与 Turns 持久化)
-├── project-store/              # 状态黑板层 (ProjectStore SSOT, FileProjectStateStore)
-├── llm/                        # 统一大模型集成服务 (LLMRegistry, RealLLMService, MockLLMService)
-├── media/                      # 视听与多媒体渲染 (FFmpeg, Audio, MediaDownloader, Providers)
-├── types/                      # 全局业务强类型契约
-└── utils/                      # 基础安全工具 (JsonSanitizer, StreamTagParser, concurrency, config)
+makeMv/
+├── .agents/                    # 智能体规范与协作协议 (AGENTS.md)
+├── client/                     # 现代前端：Vite + React 18 + Mastra Client
+│   └── src/
+│       ├── main.tsx            # 前端启动主入口
+│       ├── App.tsx             # 导演工作台根组件
+│       ├── components/         # 交互座舱组件库 (Chat, Canvas, ProposalCard, Player)
+│       ├── hooks/              # 流式对话与人在回路审核 Hook
+│       ├── lib/                # mastra.ts 客户端总线与网络工具
+│       └── types/              # 视图层与客户端契约
+└── server/                     # 服务端：Mastra 微内核 + 影视生成引擎
+    └── src/
+        ├── index.ts            # 主服务入口 (HTTP, SSE 流式管道, 媒体切片托管)
+        ├── mastra/             # 【Mastra 官方微内核 SSOT】
+        │   ├── index.ts        # Mastra 容器总装入口 (Mastra 实例注册)
+        │   ├── agents/         # 导演副手 Agent (directorAgent)
+        │   ├── workflows/      # SOP 状态机图与人在回路恢复 (pipelineWorkflow)
+        │   │   ├── steps/      # 各影视工序原子执行 Step
+        │   │   └── confirm/    # 人在回路挂起与创作者确认 Step
+        │   ├── router/         # 意图路由与提案执行器 (DirectorRouter, ProposalExecutor)
+        │   └── tools/          # 8 大视听工序声明式工具包 (统一继承 createTool)
+        │       ├── story-bible/
+        │       ├── character-portrait/
+        │       ├── scene-script/
+        │       ├── storyboard/
+        │       ├── keyframe-reference/
+        │       ├── video-production/
+        │       ├── critic-review/
+        │       └── fmv-packaging/
+        ├── project-store/      # 全局状态黑板层 (ProjectStore SSOT, FileProjectStateStore, ProposalStore)
+        ├── chat/               # 会话管理与多轮上下文 (SessionStore)
+        ├── media/              # 视听与多媒体渲染 (ComfyUI / DashScope / FFmpeg)
+        ├── llm/                # 统一大模型集成服务 (LLMRegistry, RealLLMService, MockLLMService)
+        ├── types/              # 全局业务强类型契约
+        ├── utils/              # 基础原子安全工具 (JsonSanitizer, atomicFile, lock, trace)
+        └── __tests__/          # 单元测试与极端对抗实证测试矩阵
 ```
 
 ### 5.2 严格交付验收标准

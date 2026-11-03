@@ -1,6 +1,12 @@
 /**
  * media/providers/DashScopeMediaProvider.ts
  * 阿里百炼 DashScope 通义万相 (Wanx) 真实文生图与图生视频适配器
+ *
+ * 核心机制：
+ * 1. 契约驱动：严格实现 IImageProvider 与 IVideoProvider；
+ * 2. 真实视听闭环：解决公网模型无法读取本地路径问题，自动将 /media/... 本地参考图转为 Base64 Data URI；
+ * 3. 物理切断：长程轮询支持 AbortSignal 即时中断；
+ * 4. 防路径穿越安全校验与 NodeNext .js 规范。
  */
 
 import fs from 'fs';
@@ -100,16 +106,25 @@ export class DashScopeMediaProvider implements IImageProvider, IVideoProvider {
       if (refUrl.startsWith('http://') || refUrl.startsWith('https://') || refUrl.startsWith('data:image/')) {
         inputPayload.img_url = refUrl;
       } else if (refUrl.startsWith('/media/')) {
-        // 🌟 解决公网模型无法访问本地相对路径：自动定位本地物理文件并编码为合规 Base64 Data URI
+        // 解决公网模型无法访问本地相对路径：自动定位本地物理文件并编码为合规 Base64 Data URI
         try {
           const parts = refUrl.replace(/^\/media\//, '').split('/');
-          const localDiskPath = path.join(ProjectStore.getInstance().getProjectDir(parts[0]), ...parts.slice(1));
-          if (fs.existsSync(localDiskPath) && fs.statSync(localDiskPath).size > 0) {
-            const ext = path.extname(localDiskPath).toLowerCase();
-            const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
-            const base64Str = fs.readFileSync(localDiskPath).toString('base64');
-            inputPayload.img_url = `data:${mime};base64,${base64Str}`;
+          const projectId = parts[0];
+          const projectDir = ProjectStore.getInstance().getProjectDir(projectId);
+          const localDiskPath = path.resolve(projectDir, ...parts.slice(1));
+
+          // 路径穿越校验防御
+          if (localDiskPath.startsWith(path.resolve(projectDir) + path.sep)) {
+            if (fs.existsSync(localDiskPath) && fs.statSync(localDiskPath).size > 0) {
+              const ext = path.extname(localDiskPath).toLowerCase();
+              const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+              const base64Str = fs.readFileSync(localDiskPath).toString('base64');
+              inputPayload.img_url = `data:${mime};base64,${base64Str}`;
+            } else {
+              inputPayload.img_url = refUrl;
+            }
           } else {
+            console.warn(`[DashScopeMediaProvider] 忽略非法越界参考图路径: ${refUrl}`);
             inputPayload.img_url = refUrl;
           }
         } catch {
@@ -174,7 +189,7 @@ export class DashScopeMediaProvider implements IImageProvider, IVideoProvider {
     const startTime = Date.now();
 
     while ((Date.now() - startTime) / 1000 < maxWaitSec) {
-      // 🌟 物理切断：若创作者已取消任务，立即跳出循环，绝不再烧钱继续等待
+      // 物理切断：若创作者已取消任务，立即跳出循环
       if (abortSignal?.aborted) {
         throw new Error('[DashScope] 任务已被创作者主动中断 (Task aborted by user)');
       }

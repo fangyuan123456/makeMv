@@ -68,7 +68,7 @@ export interface PoolSettledResult<R> {
 }
 
 /**
- * 🌟 容错并发池 (Fault-Tolerant Concurrent Pool)：
+ * 容错并发池 (Fault-Tolerant Concurrent Pool)：
  * 单个任务失败不破坏已成功产物，全量收集成功项与失败项，实现“部分成功保全”
  */
 export async function asyncPoolSettled<T, R>(

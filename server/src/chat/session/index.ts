@@ -3,4 +3,3 @@
  */
 
 export * from './types.js';
-export * from './SessionStore.js';

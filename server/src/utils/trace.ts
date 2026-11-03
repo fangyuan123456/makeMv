@@ -19,7 +19,7 @@ export interface ClassifiedError {
 }
 
 /**
- * 🌟 核心错误归一化分析器 (Error Classifier SSOT)
+ * 核心错误归一化分析器 (Error Classifier SSOT)
  */
 export function classify(err: any): ClassifiedError {
   const msg = String(err?.message || err || 'Unknown error');
@@ -43,13 +43,26 @@ export function classify(err: any): ClassifiedError {
   return { code: 'UNKNOWN', retryable: true, detail: msg };
 }
 
+const PROJECT_ID_REGEX = /^[a-zA-Z0-9_\-]+$/;
+
 /**
- * 🌟 追加写入项目 trace/{YYYY-MM-DD}.jsonl 日志
+ * 追加写入项目 trace/{YYYY-MM-DD}.jsonl 日志
  */
 export function trace(projectId: string, kind: string, payload: Record<string, any>): void {
   try {
-    if (!projectId) return;
-    const projectDir = path.join(config.paths.projects, projectId);
+    // 刚性白名单校验与空值防护：非合法字符直接安全放弃，严禁向外穿透
+    if (!projectId || typeof projectId !== 'string' || !PROJECT_ID_REGEX.test(projectId)) {
+      return;
+    }
+
+    const baseProjectsDir = path.resolve(config.paths.projects);
+    const projectDir = path.resolve(baseProjectsDir, projectId);
+
+    // 刚性沙箱边界检查：严禁越出 baseProjectsDir
+    if (!projectDir.startsWith(baseProjectsDir + path.sep)) {
+      return;
+    }
+
     const traceDir = path.join(projectDir, 'trace');
     if (!fs.existsSync(traceDir)) {
       fs.mkdirSync(traceDir, { recursive: true });

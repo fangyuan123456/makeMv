@@ -1,37 +1,55 @@
-# Dependencies
-node_modules/
-*/node_modules/
-
-# Builds
-dist/
-server/dist/
-.next/
-client/.next/
-out/
-client/out/
-
-# Environment
-.env
-server/.env
-*.env.local
-
-# Generated Data / Projects
-server/data/sessions/*.json
-!server/data/sessions/.gitkeep
-server/data/projects/*/
-!server/data/projects/.gitkeep
-
-# Logs & Temp
+# Logs
+logs
 *.log
-.agents/teamwork/
-_backup/
-server_backup_v1/node_modules/
-server_backup_v1/dist/
-server_backup_v1/data/
-_cache/
-_temp/
-_trash/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# OS
+# Diagnostic & temporary files
+*.tmp
+*.temp
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Production builds
+dist/
+dist-ssr/
+client/dist/
+server/dist/
+*.tsbuildinfo
+client/tsconfig.tsbuildinfo
+server/tsconfig.tsbuildinfo
+
+# Local Environment Variables
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Runtime & Local Data
+server/data/projects/*
+!server/data/projects/.gitkeep
+server/data/test_projects/
+server/data/uploads/
+server/data/media/
+
+# Legacy backups
+backup/
+server_backup_v1/
+
+# Teamwork workdir temporary notes (keep briefing & project docs)
+.agents/teamwork/implementer_r*/
+.agents/teamwork/orchestrator*/
+.agents/teamwork/reviewer_r*/
+.agents/teamwork/sentinel_victory_auditor*/
+.agents/teamwork/swe_*/
+.agents/teamwork/teamwork_*/
+.agents/teamwork/victory_auditor*/

@@ -1,40 +1,25 @@
 {
-  "name": "fmv-agent",
+  "name": "makemv-server",
   "version": "1.0.0",
-  "description": "FMV & VideoClaw AI Director Agent in TypeScript",
+  "description": "makeMv - Server Engine powered by Mastra & Vercel AI SDK",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "tsc && node --enable-source-maps dist/index.js",
-    "dev": "tsc && node --enable-source-maps --inspect=9229 dist/index.js",
-    "serve": "node --enable-source-maps dist/index.js",
-    "test": "tsc && node --test \"dist/__tests__/**/*.test.js\"",
-    "clean:port": "powershell -Command \"$c = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue; if ($c) { Stop-Process -Id $c.OwningProcess -Force; Write-Host 'Port 8000 released.' } else { Write-Host 'Port 8000 is already free.' }\""
+    "start": "tsc && node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "npx tsx --import ./src/__tests__/setup.ts --test \"src/__tests__/**/*.test.ts\""
   },
-  "keywords": [
-    "fmv",
-    "agent",
-    "videoclaw",
-    "ai-director",
-    "storyboard",
-    "video-generation"
-  ],
-  "author": "",
-  "license": "MIT",
   "dependencies": {
-    "@ai-sdk/openai": "^4.0.106",
-    "@hono/node-server": "^1.13.8",
-    "ai": "^7.0.159",
+    "@ai-sdk/openai": "^1.1.9",
+    "@mastra/core": "^1.81.0",
+    "ai": "^4.1.41",
     "dotenv": "^16.4.7",
-    "hono": "^4.7.2",
-    "msedge-tts": "^2.1.1",
-    "openai": "^4.86.1",
-    "picocolors": "^1.1.1",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/node": "^22.13.9",
+    "tsx": "^4.19.3",
     "typescript": "^5.8.2"
   }
 }

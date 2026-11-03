@@ -2,20 +2,14 @@
  * types/index.ts
  * 现代 Agentic 互动影游全链路业务模型与强类型契约 (Domain Types SSOT)
  *
- * 核心机制：
+ * 核心机制与架构解耦原则（法典 0.3/0.4）：
  * 1. 契约与磁盘真实代码 1:1 严密对齐；
- * 2. 现代微内核架构：AI 导演对话中枢 + 7 大工序标准技能包 + 独立审查官；
- * 3. 严格全链路单一事实来源 (SSOT)。
+ * 2. 底层聚合根与业务类型完全解耦上层具体技能包 (skills/*) 与审查官 (agents/reviewer)，彻底切断向上逆向引用；
+ * 3. 彻底杜绝未迁移技能模块引发的 TS2307 编译阻断；
+ * 4. StageArtifactMap 显式定义各工序阶段标准键位契约，默认收敛为通用强类型 Record<string, any>；
+ * 5. 消费端通过 IProjectStateStore.getArtifact<T>(projectId, stage) 声明局部强类型，并支持泛型与声明合并扩展；
+ * 6. 严格全链路单一事实来源 (SSOT)。
  */
-
-import type { StoryBibleArtifact } from '../skills/story-bible/index.js';
-import type { CharacterPortraitArtifact } from '../skills/character-portrait/index.js';
-import type { SceneScriptArtifact } from '../skills/scene-script/index.js';
-import type { StoryboardArtifact } from '../skills/storyboard/index.js';
-import type { KeyframeReferenceArtifact } from '../skills/keyframe-reference/index.js';
-import type { VideoProductionArtifact } from '../skills/video-production/index.js';
-import type { FmvPackagingArtifact } from '../skills/fmv-packaging/index.js';
-import type { ReviewReport } from '../agents/reviewer/index.js';
 
 export enum WorkflowStage {
   INIT = 'init',
@@ -41,19 +35,32 @@ export const STAGE_SEQUENCE: WorkflowStage[] = [
 ];
 
 /**
- * 权威工序阶段产物映射表契约 (StageArtifactMap SSOT)
- * 彻底消除 stageArtifacts: Record<string, any>，实现强类型约束
+ * 基础工序产物通用契约 (Base Stage Artifact)
+ */
+export interface BaseArtifact {
+  [key: string]: unknown;
+}
+
+/**
+ * 权威工序阶段产物映射表通用契约 (StageArtifactMap SSOT)
+ *
+ * 解耦设计说明：
+ * 1. 彻底移除对 ../skills/* 与 ../agents/reviewer/* 的静态 import，消除层级倒置与循环依赖；
+ * 2. 显式声明 7 大标准工序键名，为上层消费提供标准索引与类型感知；
+ * 3. 消费端通过 IProjectStateStore.getArtifact<T>(projectId, stage) 声明局部强类型，实现无侵入安全消费；
+ * 4. 允许通过 TypeScript 模块扩展 (declare module) 或泛型参数扩展强类型。
  */
 export interface StageArtifactMap {
-  narrative_design: StoryBibleArtifact;
-  character_design: CharacterPortraitArtifact;
-  scene_script: SceneScriptArtifact;
-  storyboard: StoryboardArtifact;
-  keyframe_reference: KeyframeReferenceArtifact;
-  video_production: VideoProductionArtifact;
-  fmv_packaging: FmvPackagingArtifact;
-  critic_review: ReviewReport;
-  [key: `critic_review_${string}`]: ReviewReport | undefined;
+  narrative_design?: Record<string, any>;
+  character_design?: Record<string, any>;
+  scene_script?: Record<string, any>;
+  storyboard?: Record<string, any>;
+  keyframe_reference?: Record<string, any>;
+  video_production?: Record<string, any>;
+  fmv_packaging?: Record<string, any>;
+  critic_review?: Record<string, any>;
+  [key: `critic_review_${string}`]: Record<string, any> | undefined;
+  [stage: string]: any;
 }
 
 export interface BaseAgentInput {
@@ -93,14 +100,14 @@ export interface SessionMeta {
 /**
  * 核心工作流项目聚合根领域模型 (ProjectEntity SSOT)
  */
-export interface ProjectEntity {
+export interface ProjectEntity<TArtifacts extends StageArtifactMap = StageArtifactMap> {
   projectId: string;
   title: string;
   meta: SessionMeta;
   currentStage: WorkflowStage;
   status: SessionStatus;
   currentStopPoint?: StopPoint;
-  stageArtifacts: Partial<StageArtifactMap> & Record<string, any>;
+  stageArtifacts: Partial<TArtifacts> & Record<string, any>;
   history: Array<{
     timestamp: string;
     stage: WorkflowStage;
@@ -111,7 +118,7 @@ export interface ProjectEntity {
   updatedAt: string;
 }
 
-export type WorkflowSession = ProjectEntity;
+export type WorkflowSession<TArtifacts extends StageArtifactMap = StageArtifactMap> = ProjectEntity<TArtifacts>;
 
 export interface JobContext {
   projectId: string;
@@ -122,3 +129,6 @@ export interface JobContext {
   videoResolution?: string;
   episodes?: number;
 }
+
+export * from './proposal.js';
+

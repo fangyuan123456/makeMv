@@ -3,10 +3,11 @@
  * 视听资产物理落盘渲染中枢 (Visual Media Renderer SSOT)
  *
  * 核心机制（法典 4.2 真实视听文件闭环验收，杜绝假收敛）：
- * 1. 真实 AI 生成驱动：接入 MediaProviderFactory (Wanx / SD / Flux)，调用模型真实生成媒体；
- * 2. 离线持久化转换：通过 MediaDownloader 将第三方临时 URL 流式持久化落盘至本地物理目录；
+ * 1. 真实 AI 生成驱动：接入 MediaProviderFactory，调用文生图/生视频模型真实生成媒体；
+ * 2. 离线持久化转换：通过 MediaDownloader 将第三方临时 URL 流式持久化落盘至本地物理工程目录；
  * 3. 本地高保真降级：无 API Key 或离线无网时，平滑降级为 FFmpeg 物理单帧与动态测试视频；
- * 4. 严格校验 fs.existsSync 与文件完整性，消灭 404 Media not found，达成 100% 真实交付。
+ * 4. 严格校验 fs.existsSync 与文件完整性，消灭 404 Media not found，达成 100% 真实交付；
+ * 5. 零题材与业务硬编码（法典 3.1）：提示词模板纯中文且通用化。
  */
 
 import fs from 'fs';
@@ -23,10 +24,24 @@ export interface MediaRenderResult {
 }
 
 export class VisualMediaRenderer {
-  private static ffmpeg = new FFmpegService();
+  private static ffmpeg: FFmpegService = new FFmpegService();
 
   /**
-   * 🌟 渲染并写入角色定妆照图片
+   * 替换 FFmpeg 实例 (供单元测试注入 Mock 执行器)
+   */
+  public static setFFmpegService(service: FFmpegService): void {
+    VisualMediaRenderer.ffmpeg = service;
+  }
+
+  /**
+   * 获取当前生效的 FFmpeg 实例
+   */
+  public static getFFmpegService(): FFmpegService {
+    return VisualMediaRenderer.ffmpeg;
+  }
+
+  /**
+   * 渲染并写入角色定妆照图片
    * 优先调用真实文生图模型，本地流式持久化；若降级为本地预演，显式返回 isDegraded 标记
    */
   public static async renderCharacterPortrait(
@@ -41,7 +56,7 @@ export class VisualMediaRenderer {
       fs.mkdirSync(targetDir, { recursive: true });
     }
 
-    // 🌟 纯安全 ASCII 文件名：杜绝 encodeURIComponent 中文导致的 URL 与磁盘物理文件名不一致 404
+    // 纯安全 ASCII 文件名：杜绝 encodeURIComponent 中文导致的 URL 与磁盘物理文件名不一致 404
     const safeSlug = characterName.replace(/[^\w-]/g, '') || 'char';
     let hashVal = 0;
     for (let i = 0; i < characterName.length; i++) {
@@ -125,7 +140,7 @@ export class VisualMediaRenderer {
   }
 
   /**
-   * 🌟 渲染并写入分镜头关键帧首帧基准图
+   * 渲染并写入分镜头关键帧首帧基准图
    */
   public static async renderKeyframeImage(
     projectId: string,
@@ -140,7 +155,8 @@ export class VisualMediaRenderer {
       fs.mkdirSync(targetDir, { recursive: true });
     }
 
-    const baseFilename = `${shotId}_frame`;
+    const safeShotId = shotId.replace(/[^\w-]/g, '_') || 'shot';
+    const baseFilename = `${safeShotId}_frame`;
     const filename = `${baseFilename}.jpg`;
     const fullPath = path.join(targetDir, filename);
 
@@ -221,7 +237,7 @@ export class VisualMediaRenderer {
   }
 
   /**
-   * 🌟 渲染并写入动态视频切片文件 (.mp4)
+   * 渲染并写入动态视频切片文件 (.mp4)
    */
   public static async renderVideoClip(
     projectId: string,
@@ -240,7 +256,8 @@ export class VisualMediaRenderer {
       fs.mkdirSync(targetDir, { recursive: true });
     }
 
-    const baseFilename = `${clipId}_clip`;
+    const safeClipId = clipId.replace(/[^\w-]/g, '_') || 'clip';
+    const baseFilename = `${safeClipId}_clip`;
     const filename = `${baseFilename}.mp4`;
     const fullPath = path.join(targetDir, filename);
 
