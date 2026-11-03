@@ -17,6 +17,7 @@ import { ChatMemoryManager } from '../../chat/memory/ChatMemoryManager.js';
 import { DirectorContextAssembler } from './DirectorContextAssembler.js';
 import { DirectorProposalResolver } from './DirectorProposalResolver.js';
 import { proposeStageActionTool, type ProposeStageActionInput } from './schema.js';
+import { trace, classify } from '../../utils/trace.js';
 import type { ChatMessage, ActionProposal } from '../../chat/session/types.js';
 import type { ChatStreamCallbacks, DirectorStreamResult } from './types.js';
 
@@ -40,19 +41,35 @@ export class DirectorAgent {
     callbacks?: ChatStreamCallbacks,
     abortSignal?: AbortSignal
   ): Promise<DirectorStreamResult> {
+    if (!projectId || !sessionId) {
+      throw new Error('[DirectorAgent] projectId 与 sessionId 不能为空');
+    }
+    if (!userContent || !userContent.trim()) {
+      throw new Error('[DirectorAgent] 对话内容不能为空');
+    }
+
     const projectStore = ProjectStore.getInstance();
     const memoryManager = ChatMemoryManager.getInstance();
     const contextAssembler = DirectorContextAssembler.getInstance();
     const proposalResolver = DirectorProposalResolver.getInstance();
 
-    // 1. 录入创作者 User 消息并立即持久化 (SSOT)
-    const userMessage: ChatMessage = {
-      id: `msg_user_${randomUUID().slice(0, 8)}`,
-      role: 'user',
-      content: userContent,
-      createdAt: new Date().toISOString(),
-    };
-    projectStore.appendMessage(projectId, sessionId, userMessage);
+    // 1. 录入创作者 User 消息并持久化 (SSOT，带幂等重试保护防重复写入)
+    const existingMessages = projectStore.getMessages(projectId, sessionId);
+    const lastMsg = existingMessages[existingMessages.length - 1];
+
+    let userMessage: ChatMessage;
+    // 🌟 P2-4: 若上一条消息恰为相同内容的用户消息且未完成有效对话轮次（如网络异常后客户端重发），直接复用该消息，杜绝重复写入污染 turns
+    if (lastMsg && lastMsg.role === 'user' && lastMsg.content.trim() === userContent.trim()) {
+      userMessage = lastMsg;
+    } else {
+      userMessage = {
+        id: `msg_user_${randomUUID().slice(0, 8)}`,
+        role: 'user',
+        content: userContent,
+        createdAt: new Date().toISOString(),
+      };
+      projectStore.appendMessage(projectId, sessionId, userMessage);
+    }
 
     // 2. 组装面向大模型的全景上下文 (SOP + 技能清单 + 权威视听交付物 + 审查官告诫 + 规范化多轮 Turns)
     const context = contextAssembler.assemble(projectId, sessionId);
@@ -61,6 +78,7 @@ export class DirectorAgent {
     let replyContent = '';
     let reasoningContent = '';
     let capturedProposalArgs: ProposeStageActionInput | null = null;
+    const startTime = Date.now();
 
     try {
       await llm.generateMultiTurnStream(
@@ -72,6 +90,7 @@ export class DirectorAgent {
         },
         {
           stage: context.currentStage,
+          projectId, // 🌟 透传 projectId 用于旁路成本遥测
           abortSignal,
           temperature: 0.7,
           // 🌟 人在回路核心停火铁律 (Human-in-the-Loop SSOT):
@@ -110,6 +129,20 @@ export class DirectorAgent {
         createdAt: new Date().toISOString(),
       };
       projectStore.appendMessage(projectId, sessionId, fallbackReply);
+
+      // 🌟 异常旁路诊断追踪打点 (Trace SSOT)
+      trace(projectId, 'chat.turn', {
+        sessionId,
+        stage: context.currentStage,
+        durationMs: Date.now() - startTime,
+        systemPromptChars: context.systemPromptWithScratchpad.length,
+        turnsCount: context.turns.length,
+        rawText: replyContent,
+        toolCalls: capturedProposalArgs,
+        isAborted,
+        error: classify(err),
+      });
+
       throw err;
     }
 
@@ -144,6 +177,15 @@ export class DirectorAgent {
         if (messagesUpdated) {
           projectStore.saveMessages(projectId, sessionId, existingMessages);
         }
+
+        const pendingInStore = ProposalStore.getInstance().listProposals(projectId, { status: 'pending' });
+        for (const p of pendingInStore) {
+          if (p.actionId !== proposal.actionId) {
+            ProposalStore.getInstance().updateProposalStatus(projectId, p.actionId, 'dismissed', {
+              description: `[已由最新探讨决策替代] 《${proposal.label}》`,
+            });
+          }
+        }
       } catch (cleanErr) {
         console.warn('[DirectorAgent] 旧提案置换清理警告:', cleanErr);
       }
@@ -168,6 +210,20 @@ export class DirectorAgent {
       createdAt: new Date().toISOString(),
     };
     projectStore.appendMessage(projectId, sessionId, replyMessage);
+
+    // 🌟 正常对话轮次旁路诊断追踪打点 (Trace SSOT)
+    trace(projectId, 'chat.turn', {
+      sessionId,
+      stage: context.currentStage,
+      durationMs: Date.now() - startTime,
+      systemPromptChars: context.systemPromptWithScratchpad.length,
+      turnsCount: context.turns.length,
+      rawText: replyContent,
+      toolCalls: capturedProposalArgs,
+      proposalGenerated: Boolean(proposal),
+      proposalSkill: proposal?.skill,
+      proposalActionId: proposal?.actionId,
+    });
 
     // 6. 旁路异步检查更新全局白板
     memoryManager.maybeTriggerBackgroundSummarization(projectId, sessionId);

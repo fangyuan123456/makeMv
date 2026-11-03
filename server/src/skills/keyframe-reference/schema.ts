@@ -26,6 +26,8 @@ export const KeyframeItemSchema = z.object({
   remoteImageUrl: z.string().optional(),
   aspectRatio: z.string(),
   status: z.enum(['rendered', 'ready']),
+  isDegraded: z.boolean().optional(),
+  degradedReason: z.string().optional(),
 });
 
 export type KeyframeItem = z.infer<typeof KeyframeItemSchema>;

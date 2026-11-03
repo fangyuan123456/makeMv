@@ -72,6 +72,7 @@ export default function FMVInteractivePlayer({
   const [isLooping, setIsLooping] = useState<boolean>(false);
   const [showChoices, setShowChoices] = useState<boolean>(false);
   const [qteRemaining, setQteRemaining] = useState<number | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Global Game State (Affinity, Inventory, Flags)
   const [gameState, setGameState] = useState<{
@@ -196,11 +197,14 @@ export default function FMVInteractivePlayer({
       flags: newFlags,
     });
 
-    // Advance to target node
+    // Advance to target node (带悬空分支友好提示防御)
     if (choice.toNodeId && manifest?.nodes?.[choice.toNodeId]) {
       setHistory((prev) => [...prev, choice.toNodeId]);
       setCurrentNodeId(choice.toNodeId);
       setIsPlaying(true);
+    } else {
+      setToastMessage(`⚠️ 该选项目标节点 [${choice.toNodeId || '未指定'}] 暂未生成视频素材`);
+      setTimeout(() => setToastMessage(null), 3000);
     }
   };
 
@@ -251,6 +255,14 @@ export default function FMVInteractivePlayer({
           onTimeUpdate={handleTimeUpdate}
           onEnded={handleVideoEnded}
         />
+      )}
+
+      {/* 🌟 悬空分支与缺失素材友好提示 Toast */}
+      {toastMessage && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl bg-amber-600/95 text-white text-xs font-bold shadow-xl backdrop-blur-md flex items-center gap-2 border border-amber-400/40 pointer-events-none">
+          <AlertTriangle className="w-4 h-4 text-amber-200 shrink-0" />
+          <span>{toastMessage}</span>
+        </div>
       )}
 
       {/* 顶部 HUD：游戏标题、好感度与背包 */}

@@ -38,6 +38,8 @@ export const CharacterSheetItemSchema = z.object({
   imageUrl: z.string().optional(),
   referenceImageUrl: z.string().optional(),
   selected: z.boolean().optional(),
+  isDegraded: z.boolean().optional(),
+  degradedReason: z.string().optional(),
 });
 
 export type CharacterSheetItem = z.infer<typeof CharacterSheetItemSchema>;
@@ -48,7 +50,10 @@ export const CharacterPortraitArtifactSchema = z.object({
   totalCharacters: z.number(),
   completedCharacters: z.number(),
   style: z.string(),
+  isRefinement: z.boolean().optional(),
+  targetCharacterNames: z.array(z.string()).optional(),
   createdAt: z.string(),
+  updatedAt: z.string().optional(),
 });
 
 export type CharacterPortraitArtifact = z.infer<typeof CharacterPortraitArtifactSchema>;

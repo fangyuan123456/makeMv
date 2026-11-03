@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // 显式锁定文件追踪根为 client 目录，避免向上误把 monorepo 根 lockfile 当作工程根
+  outputFileTracingRoot: __dirname,
   async rewrites() {
     return [
       {

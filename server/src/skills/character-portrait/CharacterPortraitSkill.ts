@@ -37,6 +37,7 @@ export interface CharacterPortraitParams {
   styleOverride?: string;
   targetCharacterNames?: string[];
   userFeedback?: string;
+  isMock?: boolean;
 }
 
 export { type CharacterSheetItem, type CharacterPortraitArtifact } from './schema.js';
@@ -52,6 +53,7 @@ export class CharacterPortraitSkill extends BaseSkill<CharacterPortraitParams, C
       styleOverride: { type: 'string', description: '覆盖视觉影调风格' },
       targetCharacterNames: { type: 'array', description: '指定微调的角色姓名列表' },
       userFeedback: { type: 'string', description: '角色外貌微调指令' },
+      isMock: { type: 'boolean', description: '是否为 Mock 模拟测试执行 (防扣费)' },
     },
   };
 
@@ -60,11 +62,11 @@ export class CharacterPortraitSkill extends BaseSkill<CharacterPortraitParams, C
   ): Promise<{ data: CharacterPortraitArtifact; summary: string }> {
     const { projectId, params, abortSignal } = context;
     const store = ProjectStore.getInstance();
-    const project = store.getProject(projectId);
+    const project = context.project || store.getProject(projectId);
 
     await this.notifyProgress(context, 10, '正在读取叙事架构故事圣经中的角色小传...');
 
-    const narrativeArtifact = store.getArtifact<any>(projectId, WorkflowStage.NARRATIVE_DESIGN);
+    const narrativeArtifact = context.artifacts?.[WorkflowStage.NARRATIVE_DESIGN] || store.getArtifact<any>(projectId, WorkflowStage.NARRATIVE_DESIGN);
     const rawCharacters = narrativeArtifact?.characters || [];
 
     if (rawCharacters.length === 0) {
@@ -75,18 +77,24 @@ export class CharacterPortraitSkill extends BaseSkill<CharacterPortraitParams, C
     const llm = LLMRegistry.get();
 
     // 🌟 单角色微调自愈分支：如果指定了目标角色且已有历史产物
-    const existingArtifact = store.getArtifact<CharacterPortraitArtifact>(projectId, WorkflowStage.CHARACTER_DESIGN);
+    const existingArtifact = context.artifacts?.[WorkflowStage.CHARACTER_DESIGN] || store.getArtifact<CharacterPortraitArtifact>(projectId, WorkflowStage.CHARACTER_DESIGN);
     const targetNames = params.targetCharacterNames;
 
-    if (targetNames && targetNames.length > 0 && existingArtifact?.characters?.length) {
+    if (targetNames && targetNames.length > 0) {
+      if (!existingArtifact || !Array.isArray(existingArtifact.characters) || existingArtifact.characters.length === 0) {
+        throw new Error('当前项目尚无既有角色定妆资产，无法执行指定角色微调，请先执行全量角色定妆生成');
+      }
+
       await this.notifyProgress(context, 30, `正在为指定的 ${targetNames.join(', ')} 执行语义微调自愈与提示词重塑...`);
 
       const updatedList = [...existingArtifact.characters];
 
+      let refinedCount = 0;
       for (const targetName of targetNames) {
         const charIdx = updatedList.findIndex((c) => c.name === targetName);
         if (charIdx === -1) continue;
 
+        refinedCount++;
         const currentChar = updatedList[charIdx];
         const refinePrompt = buildRefineCharacterPrompt(currentChar, params.userFeedback || '优化五官精细度与电影质感', style);
 
@@ -98,15 +106,26 @@ export class CharacterPortraitSkill extends BaseSkill<CharacterPortraitParams, C
         );
 
         const newPrompt = refineRes.refinedVisualPrompt || currentChar.visualPrompt;
-        // 🌟 100% 意图透传：将微调后的大模型提示词透传给渲染器
-        const newImageUrl = await VisualMediaRenderer.renderCharacterPortrait(projectId, currentChar.name, newPrompt);
+        // 🌟 100% 意图透传：将微调后的大模型提示词透传给渲染器并接收降级标记
+        const renderRes = await VisualMediaRenderer.renderCharacterPortrait(
+          projectId,
+          currentChar.name,
+          newPrompt,
+          { isMock: params.isMock, abortSignal }
+        );
 
         updatedList[charIdx] = {
           ...currentChar,
           visualPrompt: newPrompt,
-          imageUrl: newImageUrl,
-          referenceImageUrl: newImageUrl,
+          imageUrl: renderRes.url,
+          referenceImageUrl: renderRes.url,
+          isDegraded: renderRes.isDegraded,
+          degradedReason: renderRes.degradedReason,
         };
+      }
+
+      if (refinedCount === 0) {
+        throw new Error(`未在既有定妆资产中找到指定微调的目标角色 [${targetNames.join(', ')}]`);
       }
 
       const updatedArtifact: CharacterPortraitArtifact = {
@@ -114,15 +133,22 @@ export class CharacterPortraitSkill extends BaseSkill<CharacterPortraitParams, C
         totalCharacters: updatedList.length,
         completedCharacters: updatedList.length,
         style,
-        createdAt: new Date().toISOString(),
+        isRefinement: true,
+        targetCharacterNames: targetNames,
+        createdAt: existingArtifact.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
 
-      store.setArtifact(projectId, WorkflowStage.CHARACTER_DESIGN, updatedArtifact);
       this.exportToLocalDisk(projectId, updatedArtifact);
+
+      const degradedChars = updatedList.filter((c) => c.isDegraded);
+      const summaryNote = degradedChars.length > 0
+        ? ` (⚠️ 其中 ${degradedChars.length} 位角色因 [${degradedChars[0].degradedReason}] 降级为本地预演占位)`
+        : ' (✔ 真实模型电影级生成)';
 
       return {
         data: updatedArtifact,
-        summary: `✨ 角色【${targetNames.join('、')}】微调定妆照生成完成！提示词已自愈更新，新版剧照已落盘锁定。`,
+        summary: `✨ 角色【${targetNames.join('、')}】微调定妆照交付完成！${summaryNote}。提示词已自愈更新，新版剧照已落盘锁定。`,
       };
     }
 
@@ -155,8 +181,13 @@ export class CharacterPortraitSkill extends BaseSkill<CharacterPortraitParams, C
       rawCharacters,
       async (c: any) => {
         const generatedPrompt = specsMap.get(c.name) || `${c.appearance}，电影质感，超清8K剧照，大师级电影布光，真实人物特写`;
-        // 🌟 核心修复：将大模型生成的 generatedPrompt 完整透传给渲染器，彻底告别丢弃意图
-        const physicalImageUrl = await VisualMediaRenderer.renderCharacterPortrait(projectId, c.name, generatedPrompt);
+        // 🌟 核心修复：透传提示词与 abortSignal，并准确捕获降级标记
+        const renderRes = await VisualMediaRenderer.renderCharacterPortrait(
+          projectId,
+          c.name,
+          generatedPrompt,
+          { isMock: params.isMock, abortSignal }
+        );
 
         return {
           name: c.name,
@@ -167,16 +198,23 @@ export class CharacterPortraitSkill extends BaseSkill<CharacterPortraitParams, C
           personality: c.personality,
           motivation: c.motivation,
           visualPrompt: generatedPrompt,
-          imageUrl: physicalImageUrl,
-          referenceImageUrl: physicalImageUrl,
+          imageUrl: renderRes.url,
+          referenceImageUrl: renderRes.url,
           selected: true,
+          isDegraded: renderRes.isDegraded,
+          degradedReason: renderRes.degradedReason,
         };
       },
       (completed, total, item) => {
         const percent = 70 + Math.round((completed / total) * 25);
         this.notifyProgress(context, percent, `正在并发渲染角色定妆照 (${completed}/${total}): ${item.name}`);
-      }
+      },
+      abortSignal
     );
+
+    if (characters.length === 0) {
+      throw new Error('全量角色定妆推演失败，未产生有效角色定妆照');
+    }
 
     const artifact: CharacterPortraitArtifact = {
       characters,
@@ -186,17 +224,16 @@ export class CharacterPortraitSkill extends BaseSkill<CharacterPortraitParams, C
       createdAt: new Date().toISOString(),
     };
 
-    // 写入状态黑板并推进项目阶段
-
-    if (project) {
-
-      store.saveProject(project);
-    }
-
     // 本地磁盘持久化
     this.exportToLocalDisk(projectId, artifact);
 
-    const summary = `🎨 全剧 ${artifact.characters.length} 位核心角色定妆视觉锚点已全部生成就绪！各角色视觉特写、服装质感与光影规范已锁定，项目已推进至【分场剧本】阶段。`;
+    const degradedCount = characters.filter((c) => c.isDegraded).length;
+    const realCount = characters.length - degradedCount;
+    const degradedNote = degradedCount > 0
+      ? ` ⚠️ 注意：其中 ${degradedCount} 位角色由于 [${characters.find((c) => c.isDegraded)?.degradedReason}] 降级为本地预演占位，真实渲染 ${realCount} 位。`
+      : ` (全员 ${realCount} 位角色全部由真实模型渲染就绪)`;
+
+    const summary = `🎨 全剧 ${artifact.characters.length} 位核心角色定妆视觉锚点已生成完成！${degradedNote}。各角色视觉特写、服装质感与光影规范已锁定，项目已推进至【分场剧本】阶段。`;
 
     return {
       data: artifact,

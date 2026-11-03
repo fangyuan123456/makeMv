@@ -9,6 +9,7 @@
     "start": "tsc && node --enable-source-maps dist/index.js",
     "dev": "tsc && node --enable-source-maps --inspect=9229 dist/index.js",
     "serve": "node --enable-source-maps dist/index.js",
+    "test": "tsc && node --test \"dist/__tests__/**/*.test.js\"",
     "clean:port": "powershell -Command \"$c = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue; if ($c) { Stop-Process -Id $c.OwningProcess -Force; Write-Host 'Port 8000 released.' } else { Write-Host 'Port 8000 is already free.' }\""
   },
   "keywords": [

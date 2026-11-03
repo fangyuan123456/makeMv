@@ -44,8 +44,6 @@ function findFFmpeg(): string {
   const candidatePaths = [
     path.join(serverDir, '_tools/ffmpeg/ffmpeg-9.0.2-essentials_build/bin/ffmpeg.exe'),
     path.join(serverDir, '../_tools/ffmpeg/ffmpeg-9.0.2-essentials_build/bin/ffmpeg.exe'),
-    'E:\\tools\\ffmpeg\\bin\\ffmpeg.exe',
-    'C:\\tools\\ffmpeg\\bin\\ffmpeg.exe',
     'ffmpeg',
   ];
 
@@ -104,7 +102,12 @@ export const config = {
   paths: {
     root: serverDir,
     data: path.join(serverDir, 'data'),
-    projects: path.join(serverDir, 'data', 'projects'),
+    // 🌟 P1-3 隔离测试沙箱与自定义目录覆盖：当 NODE_ENV === 'test' 时自动使用 test_projects 隔离目录，防止测试误删真实项目
+    projects:
+      process.env.PROJECTS_DIR ||
+      (process.env.NODE_ENV === 'test'
+        ? path.join(serverDir, 'data', 'test_projects')
+        : path.join(serverDir, 'data', 'projects')),
     ffmpeg: findFFmpeg(),
   },
 };

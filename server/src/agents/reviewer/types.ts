@@ -46,6 +46,7 @@ export interface ReviewReport {
   }>;
   isStale?: boolean; // 🌟 是否已因产物重新生成而失效
   staleReason?: string; // 🌟 失效原因说明
+  artifactFingerprint?: string; // 🌟 审查时目标产物的内容散列指纹 (用于防篡改与精准时效失效校验)
 }
 
 export interface CriticReviewParams {

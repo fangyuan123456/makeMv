@@ -23,6 +23,7 @@ server/data/projects/*/
 
 # Logs & Temp
 *.log
+.agents/teamwork/
 _backup/
 server_backup_v1/node_modules/
 server_backup_v1/dist/

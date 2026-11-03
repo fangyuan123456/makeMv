@@ -41,11 +41,11 @@ export class SceneScriptSkill extends BaseSkill<SceneScriptParams, SceneScriptAr
   ): Promise<{ data: SceneScriptArtifact; summary: string }> {
     const { projectId, params, abortSignal } = context;
     const store = ProjectStore.getInstance();
-    const project = store.getProject(projectId);
+    const project = context.project || store.getProject(projectId);
 
     await this.notifyProgress(context, 15, '正在读取网状剧情节点拓扑图与角色小传...');
 
-    const narrative = store.getArtifact<any>(projectId, WorkflowStage.NARRATIVE_DESIGN);
+    const narrative = context.artifacts?.[WorkflowStage.NARRATIVE_DESIGN] || store.getArtifact<any>(projectId, WorkflowStage.NARRATIVE_DESIGN);
     const nodes = narrative?.storyGraph?.nodes || [];
 
     if (nodes.length === 0) {
@@ -91,19 +91,25 @@ export class SceneScriptSkill extends BaseSkill<SceneScriptParams, SceneScriptAr
       }
     }
 
+    if (allScenes.length === 0) {
+      throw new Error('全量分场剧本推演失败，未产生有效场次剧本');
+    }
+
+    // 🌟 P1-1 跨工序节点主键全量覆盖刚性断言 (Key Integrity Guard)
+    const expectedNodeIds = new Set<string>(nodes.map((n: any) => String(n.id)));
+    const generatedNodeIds = new Set<string>(allScenes.map((s) => s.nodeId));
+
+    const missingNodeIds: string[] = Array.from(expectedNodeIds).filter((id: string) => !generatedNodeIds.has(id));
+    if (missingNodeIds.length > 0) {
+      throw new Error(`剧本推演未完全覆盖前序拓扑节点，缺失以下剧情节点的场次剧本: [${missingNodeIds.join(', ')}]`);
+    }
+
     const artifact: SceneScriptArtifact = {
       title,
       scenes: allScenes,
       totalScenes: allScenes.length,
       createdAt: new Date().toISOString(),
     };
-
-    // 写入状态黑板并推进项目阶段
-
-    if (project) {
-
-      store.saveProject(project);
-    }
 
     // 本地持久化
     this.exportToLocalDisk(projectId, artifact);

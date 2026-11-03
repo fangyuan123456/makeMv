@@ -9,30 +9,11 @@ import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { config } from '../utils/config.js';
+import { atomicWriteJsonSync, trace } from '../utils/index.js';
 import type { ProjectEntity } from '../types/index.js';
 import type { IProjectStateStore } from './IProjectStateStore.js';
 import type { ProjectStateSnapshot } from './types.js';
 import type { ChatSession, ChatMessage, ScratchpadMemory } from '../chat/session/types.js';
-
-/**
- * 🌟 工业级原子写入助手：写入临时文件后执行原子重命名，彻底杜绝断电或崩溃导致 JSON 损坏
- */
-function atomicWriteJsonSync(filePath: string, data: any): void {
-  const tmpPath = `${filePath}.${randomUUID().slice(0, 8)}.tmp`;
-  try {
-    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
-    fs.renameSync(tmpPath, filePath);
-  } catch (err) {
-    if (fs.existsSync(tmpPath)) {
-      try {
-        fs.unlinkSync(tmpPath);
-      } catch {
-        // 静默清理失败的临时文件
-      }
-    }
-    throw err;
-  }
-}
 
 /**
  * 🌟 轻量级 LRU 有界内存缓存：防止海量历史会话与消息长期霸占内存引发 OOM
@@ -181,39 +162,87 @@ export class FileProjectStateStore implements IProjectStateStore {
     return project?.stageArtifacts?.[stage] as T;
   }
 
-  public setArtifact<T = any>(projectId: string, stage: string, artifact: T): void {
+  public setArtifact<T = any>(
+    projectId: string,
+    stage: string,
+    artifact: T,
+    meta?: { taskId?: string; skill?: string; model?: string; degraded?: boolean; paramsHash?: string }
+  ): void {
     const project = this.getProject(projectId);
     if (project) {
       if (!project.stageArtifacts) project.stageArtifacts = {};
       const now = new Date().toISOString();
+
+      // 🌟 1. 历史版本快照归档 (按 stage.timestamp.json 存盘，不撑大主 project.json)
+      const prev = project.stageArtifacts[stage];
+      if (prev && typeof prev === 'object') {
+        try {
+          const artifactsDir = path.join(this.getProjectDir(projectId), 'artifacts');
+          if (!fs.existsSync(artifactsDir)) {
+            fs.mkdirSync(artifactsDir, { recursive: true });
+          }
+          const snapshotFile = path.join(artifactsDir, `${stage}.${Date.now()}.json`);
+          atomicWriteJsonSync(snapshotFile, prev);
+        } catch (snapshotErr) {
+          console.warn('[FileProjectStateStore] 产物历史快照存档警告:', snapshotErr);
+        }
+      }
+
+      // 🌟 2. 注入 __meta 来源追溯信息
       if (artifact && typeof artifact === 'object') {
         if (!(artifact as any).createdAt) {
           (artifact as any).createdAt = now;
         }
         (artifact as any).updatedAt = now;
+        (artifact as any).__meta = {
+          ...(meta || {}),
+          degraded: (artifact as any).isDegraded ?? meta?.degraded ?? false,
+          updatedAt: now,
+        };
       }
+
       project.stageArtifacts[stage] = artifact;
-      project.updatedAt = new Date().toISOString();
+      project.updatedAt = now;
       this.saveProject(project);
+
+      // 🌟 3. 产物更新可查打点
+      trace(projectId, 'artifact.set', {
+        stage,
+        hasPrev: Boolean(prev),
+        meta: (artifact as any)?.__meta,
+      });
+    } else {
+      console.warn(`[FileProjectStateStore] setArtifact 失败: 未找到项目 [${projectId}]`);
     }
   }
 
   public getProjectDir(projectId: string): string {
-    const dir = path.join(config.paths.projects, projectId);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    const safeProjectId = (projectId || '').replace(/[^a-zA-Z0-9_\-]/g, '_');
+    const baseProjectsDir = path.resolve(config.paths.projects);
+    const resolvedDir = path.resolve(baseProjectsDir, safeProjectId);
+    if (!resolvedDir.startsWith(baseProjectsDir + path.sep) && resolvedDir !== baseProjectsDir) {
+      throw new Error(`[FileProjectStateStore] 非法项目路径穿越访问: ${projectId}`);
     }
-    return dir;
+    if (!fs.existsSync(resolvedDir)) {
+      fs.mkdirSync(resolvedDir, { recursive: true });
+    }
+    return resolvedDir;
   }
 
   // =================== 🌟 会话与白板统合存取 (SSOT) ===================
 
   private getChatDir(projectId: string, sessionId: string): string {
-    const dir = path.join(this.getProjectDir(projectId), 'chat', sessionId);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    const safeSessionId = (sessionId || '').replace(/[^a-zA-Z0-9_\-]/g, '_');
+    const projectDir = this.getProjectDir(projectId);
+    const chatBaseDir = path.resolve(projectDir, 'chat');
+    const resolvedDir = path.resolve(chatBaseDir, safeSessionId);
+    if (!resolvedDir.startsWith(chatBaseDir + path.sep) && resolvedDir !== chatBaseDir) {
+      throw new Error(`[FileProjectStateStore] 非法会话路径穿越访问: ${sessionId}`);
     }
-    return dir;
+    if (!fs.existsSync(resolvedDir)) {
+      fs.mkdirSync(resolvedDir, { recursive: true });
+    }
+    return resolvedDir;
   }
 
   public createSession(

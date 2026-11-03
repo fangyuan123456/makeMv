@@ -11,7 +11,8 @@
  * 6. 🌟 确定性交替状态机 (Turns Alternation Normalizer)：保证多轮 Turns 绝对交替，根绝 400 异常。
  */
 
-import { ProjectStore } from '../../project-store/ProjectStore.js';
+import { ProjectStore, ProposalStore } from '../../project-store/index.js';
+import { TaskEngine } from '../../tasks/TaskEngine.js';
 import { ChatMemoryManager } from '../../chat/memory/ChatMemoryManager.js';
 import { buildDirectorSystemPrompt } from './prompt.js';
 import { SkillRegistry } from '../../skills/SkillRegistry.js';
@@ -27,7 +28,7 @@ function formatArtifactsForDirector(artifacts: Partial<StageArtifactMap>): strin
   const lines: string[] = ['\n\n📦【当前项目已落盘的权威视听工序资产 (Stage Deliverables SSOT)】：'];
 
   // 1. 故事圣经与叙事设计 (对齐 StoryBibleArtifact 强类型契约)
-  const bible = (artifacts[WorkflowStage.NARRATIVE_DESIGN] as any)?.bible || artifacts[WorkflowStage.NARRATIVE_DESIGN];
+  const bible = artifacts[WorkflowStage.NARRATIVE_DESIGN];
   if (bible) {
     const title = bible.title ? `《${bible.title}》` : '';
     const theme = bible.theme || '';
@@ -46,8 +47,13 @@ function formatArtifactsForDirector(artifacts: Partial<StageArtifactMap>): strin
     const characters = bible.characters || [];
     if (Array.isArray(characters) && characters.length > 0) {
       lines.push(`- 核心登场人物档案 (${characters.length}位):`);
-      characters.forEach((c: any) => {
-        lines.push(`  * 【${c.name}】(${c.role || '角色'}): 动机: ${c.motivation || '未详'} | 骨相特征: ${c.appearance || '未详'}`);
+      const totalChars = characters.length;
+      characters.forEach((c: any, idx: number) => {
+        if (totalChars > 10 && idx >= 6 && idx < totalChars - 2) {
+          if (idx === 6) lines.push(`  * ... [已折叠 ${totalChars - 8} 位角色以防上下文溢出] ...`);
+          return;
+        }
+        lines.push(`  * 【${c.name || '未命名'}】(${c.role || '角色'}): 动机: ${c.motivation || '未详'} | 骨相特征: ${c.appearance || '未详'}`);
       });
     }
   }
@@ -66,11 +72,24 @@ function formatArtifactsForDirector(artifacts: Partial<StageArtifactMap>): strin
   const sceneScript = artifacts[WorkflowStage.SCENE_SCRIPT];
   if (sceneScript && Array.isArray(sceneScript.scenes) && sceneScript.scenes.length > 0) {
     lines.push(`\n[Stage 3: 分场多分支剧本场次索引 (SceneScript)] 共 ${sceneScript.scenes.length} 场戏:`);
-    sceneScript.scenes.forEach((sc: any) => {
-      const dlgPreview = Array.isArray(sc.dialogues) && sc.dialogues.length > 0
-        ? `核心对白: "${sc.dialogues[0].speaker}: ${sc.dialogues[0].line.slice(0, 30)}..."`
-        : '纯动作/环境镜头';
-      lines.push(`  * [场次 #${sc.nodeId}] (第${sc.act || 1}幕·${sc.timeOfDay || '日内'}·${sc.location || '场景'}): 《${sc.sceneTitle}》- ${sc.actionSummary?.slice(0, 45) || ''} | ${dlgPreview}`);
+    const totalScenes = sceneScript.scenes.length;
+    sceneScript.scenes.forEach((sc: any, idx: number) => {
+      if (totalScenes > 12 && idx >= 5 && idx < totalScenes - 3) {
+        if (idx === 5) lines.push(`  * ... [已折叠 ${totalScenes - 8} 场剧本以防上下文溢出] ...`);
+        return;
+      }
+      const firstDlg = Array.isArray(sc.dialogues) && sc.dialogues.length > 0 ? sc.dialogues[0] : null;
+      const speaker = firstDlg?.speaker || '角色';
+      const lineText =
+        typeof firstDlg?.line === 'string'
+          ? firstDlg.line.slice(0, 30)
+          : typeof firstDlg?.text === 'string'
+          ? firstDlg.text.slice(0, 30)
+          : '';
+      const dlgPreview = lineText ? `核心对白: "${speaker}: ${lineText}..."` : '纯动作/环境镜头';
+      lines.push(
+        `  * [场次 #${sc.nodeId || idx + 1}] (第${sc.act || 1}幕·${sc.timeOfDay || '日内'}·${sc.location || '场景'}): 《${sc.sceneTitle || '未命名'}》- ${sc.actionSummary?.slice(0, 45) || ''} | ${dlgPreview}`
+      );
     });
   }
 
@@ -88,10 +107,11 @@ function formatArtifactsForDirector(artifacts: Partial<StageArtifactMap>): strin
       const shotId = shot.shotId || `shot_${idx + 1}`;
       const scale = shot.shotScale || '中景';
       const move = shot.cameraMovement || '固定镜头';
-      const duration = shot.duration ? `${shot.duration}s` : '5s';
-      const visual = shot.visualContent ? `画面: ${shot.visualContent.slice(0, 40)}` : '';
-      const dialogue = shot.dialogueOrAction ? `对白/动作: ${shot.dialogueOrAction.slice(0, 30)}` : '';
-      lines.push(`  * [镜头 #${shotId}] [${scale}·${duration}·${move}]: ${visual} | ${dialogue}`);
+      const duration = shot.durationSec ? `${shot.durationSec}s` : '5s';
+      const visual = shot.visualComposition ? `画面: ${shot.visualComposition.slice(0, 40)}` : '';
+      const sound = shot.audioPrompt ? `声音: ${shot.audioPrompt.slice(0, 30)}` : '';
+      const shotDetails = [visual, sound].filter(Boolean).join(' | ');
+      lines.push(`  * [镜头 #${shotId}] [${scale}·${duration}·${move}]: ${shotDetails || '待细化视听描述'}`);
     });
   }
 
@@ -131,7 +151,7 @@ function formatArtifactsForDirector(artifacts: Partial<StageArtifactMap>): strin
   // 7. FMV 影游母带装配与互动拓扑 (Stage 7)
   const fmvArtifact = artifacts[WorkflowStage.FMV_PACKAGING];
   if (fmvArtifact) {
-    const totalNodes = fmvArtifact.totalNodes || (fmvArtifact.fmvManifest?.nodes ? Object.keys(fmvArtifact.fmvManifest.nodes).length : 0);
+    const totalNodes = fmvArtifact.totalNodes;
     const endings = fmvArtifact.totalEndings || 0;
     const packageStatus = fmvArtifact.status === 'packaged' || fmvArtifact.gameManifestUrl ? '✓ 母带拓扑已发布' : '编排中';
     lines.push(`\n[Stage 7: 影游母带与分支拓扑 (FMVPackaging)] 状态: ${packageStatus}，包含 ${totalNodes} 个互动剧情节点，${endings} 个结局。`);
@@ -211,7 +231,31 @@ export class DirectorContextAssembler {
         `【总导演本次对话应对建议】：请充分尊重并呼应这一辩护共识，在对话中积极协助创作者以此为基石顺利推进后续工序。\n`;
     }
 
-    const combinedSystemPrompt = `${rawSystemPrompt}${skillsPrompt}${artifactsPrompt}${reviewDirective}`;
+    // 🌟 3.5 任务引擎运行态与悬挂提案全景感知 (消除导演“任务盲视”与“进度盲视”)
+    const taskEngine = TaskEngine.getInstance();
+    const activeTasks = taskEngine.getActiveTasks(projectId);
+    const pendingProposals = ProposalStore.getInstance().listProposals(projectId, { status: 'pending' });
+
+    let runtimeStatusPrompt = `\n\n⚙️【当前影视工程运行态与长任务进度 (Runtime Task Engine SSOT)】：\n- 项目整体状态: ${project?.status || 'idle'}\n- 当前权威工序阶段: ${currentStage}`;
+
+    if (activeTasks.length > 0) {
+      runtimeStatusPrompt += `\n- 正在后台独立渲染或推演的长任务 (${activeTasks.length}个):`;
+      activeTasks.forEach((t) => {
+        runtimeStatusPrompt += `\n  * 任务 [${t.taskId}] (工序技能: ${t.skillName}): 进度 ${t.progress}% | 最新状态: "${t.message || '运行中'}"`;
+      });
+      runtimeStatusPrompt += `\n【总导演感知说明】：若创作者询问生成进度，请根据上述真实任务进度予以清晰回复。`;
+    } else {
+      runtimeStatusPrompt += `\n- 后台任务: 暂无正在执行中的耗时长任务 (空闲待机)`;
+    }
+
+    if (pendingProposals.length > 0) {
+      runtimeStatusPrompt += `\n- 当前挂起等待创作者点击确认的行动卡片 (${pendingProposals.length}个):`;
+      pendingProposals.forEach((p) => {
+        runtimeStatusPrompt += `\n  * 待裁决卡片 [${p.actionId}] 《${p.label}》: 技能 [${p.skill}], 状态 [${p.status}]`;
+      });
+    }
+
+    const combinedSystemPrompt = `${rawSystemPrompt}${skillsPrompt}${artifactsPrompt}${runtimeStatusPrompt}${reviewDirective}`;
 
     // 4. 双轨记忆装配
     const existingMessages = projectStore.getMessages(projectId, sessionId);
@@ -251,6 +295,13 @@ export class DirectorContextAssembler {
     // 🌟 首条 Role 刚性门禁：若首条消息为 assistant，丢弃直至首条为 user，彻底根除大模型 400 校验异常
     while (turns.length > 0 && turns[0].role !== 'user') {
       turns.shift();
+    }
+
+    if (turns.length === 0) {
+      turns.push({
+        role: 'user',
+        content: '导演副手，我们继续探讨本阶段的创作方案。',
+      });
     }
 
     return {

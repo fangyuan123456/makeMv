@@ -26,6 +26,9 @@ export class SkillRegistry {
    * 注册技能插件
    */
   public register(skill: ISkill): void {
+    if (!skill || !skill.manifest || !skill.manifest.name) {
+      throw new Error('[SkillRegistry] 无法注册无效的技能插件: 缺少 manifest.name');
+    }
     const name = skill.manifest.name;
     if (this.skills.has(name)) {
       console.warn(`[SkillRegistry] 覆盖已存在的技能: ${name}`);
@@ -56,21 +59,30 @@ export class SkillRegistry {
   }
 
   /**
+   * 🌟 获取当前阶段合法允许被调度或提议的技能白名单 (SSOT)
+   * 规则：仅允许通用审查官(critic)、当前阶段自愈微调技能、或紧邻下一工序的单步推进技能
+   */
+  public getAvailableSkills(currentStage?: string): SkillManifest[] {
+    let list = this.list();
+    if (!currentStage) return list;
+
+    const curIdx = STAGE_SEQUENCE.indexOf(currentStage as WorkflowStage);
+    const nextStage =
+      curIdx !== -1 && curIdx + 1 < STAGE_SEQUENCE.length ? STAGE_SEQUENCE[curIdx + 1] : undefined;
+
+    return list.filter((m) => {
+      if (m.category === 'critic') return true;
+      if (m.targetStage === currentStage) return true;
+      if (nextStage && m.targetStage === nextStage) return true;
+      return false;
+    });
+  }
+
+  /**
    * 格式化生成注入给 Director 提示词的可用技能清单
    */
   public formatSkillsForPrompt(currentStage?: string): string {
-    let list = this.list();
-    if (currentStage) {
-      const curIdx = STAGE_SEQUENCE.indexOf(currentStage as WorkflowStage);
-      const nextStage = curIdx !== -1 && curIdx + 1 < STAGE_SEQUENCE.length ? STAGE_SEQUENCE[curIdx + 1] : undefined;
-
-      list = list.filter((m) => {
-        if (m.category === 'critic') return true;
-        if (m.targetStage === currentStage) return true;
-        if (nextStage && m.targetStage === nextStage) return true;
-        return false;
-      });
-    }
+    const list = this.getAvailableSkills(currentStage);
     if (list.length === 0) return '';
 
     const lines = list.map(

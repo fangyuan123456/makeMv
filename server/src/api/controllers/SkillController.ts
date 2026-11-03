@@ -29,12 +29,20 @@ skillController.post('/api/chat/:projectId/tasks', async (c) => {
     const skillName = body.skillName;
     const sessionId = body.sessionId;
     const actionId = body.actionId;
-    // 🌟 纯净化提取业务参数 (SSOT，彻底消除传输元数据 stage/skill 污染底层技能执行)
+    // 🌟 纯净化提取业务参数 (SSOT)：智能展开内层业务 params，彻底消除元数据剥离导致定向参数整包丢失
     const rawParams = (body.params && Object.keys(body.params).length > 0)
       ? body.params
       : (body.payload?.params || body.payload || {});
-    const { stage: _stage, skill: _skill, params: _nested, ...cleanParams } = rawParams;
-    const params = cleanParams;
+    const nested = (typeof rawParams.params === 'object' && rawParams.params !== null && !Array.isArray(rawParams.params))
+      ? rawParams.params
+      : {};
+    const { stage: rawStage, skill: _skill, params: _unusedParams, ...cleanParams } = rawParams;
+    const resolvedTargetStage = cleanParams.targetStage || (nested as any).targetStage || body.payload?.targetStage || rawStage || body.payload?.stage;
+    const params = {
+      ...nested,
+      ...cleanParams,
+      ...(resolvedTargetStage ? { targetStage: resolvedTargetStage } : {}),
+    };
 
     if (!skillName) {
       return c.json({ success: false, error: '缺少 skillName 参数' }, 400);
@@ -83,12 +91,20 @@ skillController.post('/api/chat/:projectId/skill/execute', async (c) => {
   const skillName = body.skillName;
   const sessionId = body.sessionId;
   const actionId = body.actionId;
-  // 🌟 纯净化提取业务参数 (SSOT，彻底消除传输元数据 stage/skill 污染底层技能执行)
+  // 🌟 纯净化提取业务参数 (SSOT)：智能展开内层业务 params，彻底消除元数据剥离导致定向参数整包丢失
   const rawParams = (body.params && Object.keys(body.params).length > 0)
     ? body.params
     : (body.payload?.params || body.payload || {});
-  const { stage: _stage, skill: _skill, params: _nested, ...cleanParams } = rawParams;
-  const params = cleanParams;
+  const nested = (typeof rawParams.params === 'object' && rawParams.params !== null && !Array.isArray(rawParams.params))
+    ? rawParams.params
+    : {};
+    const { stage: rawStage, skill: _skill, params: _unusedParams, ...cleanParams } = rawParams;
+    const resolvedTargetStage = cleanParams.targetStage || (nested as any).targetStage || body.payload?.targetStage || rawStage || body.payload?.stage;
+    const params = {
+      ...nested,
+      ...cleanParams,
+      ...(resolvedTargetStage ? { targetStage: resolvedTargetStage } : {}),
+    };
 
   if (!skillName) {
     return c.json({ success: false, error: '缺少 skillName 参数' }, 400);
@@ -115,6 +131,8 @@ skillController.post('/api/chat/:projectId/skill/execute', async (c) => {
       return;
     }
 
+    let isTerminalDelivered = false;
+
     const unsubscribe = TaskEngine.getInstance().subscribeTask(task.taskId, async (updatedTask) => {
       try {
         if (updatedTask.status === 'running' || updatedTask.status === 'pending') {
@@ -136,6 +154,7 @@ skillController.post('/api/chat/:projectId/skill/execute', async (c) => {
               data: updatedTask.result,
             }),
           });
+          isTerminalDelivered = true;
         } else if (updatedTask.status === 'failed' || updatedTask.status === 'aborted') {
           await stream.writeSSE({
             event: 'error',
@@ -144,6 +163,7 @@ skillController.post('/api/chat/:projectId/skill/execute', async (c) => {
               error: updatedTask.error || updatedTask.message,
             }),
           });
+          isTerminalDelivered = true;
         }
       } catch {
         // SSE 客户端断开连接，无需处理，任务在后台继续安全执行
@@ -154,18 +174,49 @@ skillController.post('/api/chat/:projectId/skill/execute', async (c) => {
       unsubscribe();
     });
 
-    // 维持流式直到任务完结或客户端断开
+    // 🌟 P2-2: 严密维持流式直到终态事件 100% 递交或客户端断开，消灭轮询与事件交错的截断竞态
     while (true) {
-      if (c.req.raw.signal.aborted) {
+      if (c.req.raw.signal.aborted || isTerminalDelivered) {
         unsubscribe();
         break;
       }
+
       const current = TaskEngine.getInstance().getTask(projectId, task.taskId);
-      if (!current || current.status === 'completed' || current.status === 'failed' || current.status === 'aborted') {
+      if (!current) {
         unsubscribe();
         break;
       }
-      await new Promise((r) => setTimeout(r, 500));
+
+      // 兜底保护：若任务在底层已收敛为终态但事件未及时触达，主动补推终态事件后再关流
+      if (current.status === 'completed') {
+        try {
+          await stream.writeSSE({
+            event: 'done',
+            data: JSON.stringify({
+              success: true,
+              taskId: current.taskId,
+              summary: current.message,
+              data: current.result,
+            }),
+          });
+        } catch {}
+        unsubscribe();
+        break;
+      } else if (current.status === 'failed' || current.status === 'aborted') {
+        try {
+          await stream.writeSSE({
+            event: 'error',
+            data: JSON.stringify({
+              taskId: current.taskId,
+              error: current.error || current.message,
+            }),
+          });
+        } catch {}
+        unsubscribe();
+        break;
+      }
+
+      await new Promise((r) => setTimeout(r, 400));
     }
   });
 });

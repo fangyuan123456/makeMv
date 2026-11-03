@@ -14,6 +14,33 @@ export class FFmpegService {
   }
 
   /**
+   * 🌟 统一带超时与大缓冲保护的 FFmpeg 执行器 (挂死防御与溢出容错 SSOT)
+   */
+  private async runFFmpeg(
+    args: string[],
+    options: { timeout?: number; maxBuffer?: number } = {}
+  ): Promise<{ stdout: string; stderr: string }> {
+    return execFileAsync(this.ffmpegPath, args, {
+      timeout: options.timeout ?? 600_000, // 10分钟硬超时，防止损坏文件导致进程永久挂死锁死项目
+      maxBuffer: options.maxBuffer ?? 10 * 1024 * 1024, // 10MB 缓冲区，防止大量日志冲爆进程
+    });
+  }
+
+  /**
+   * 统一带超时保护的 FFprobe 执行器
+   */
+  private async runFFprobe(
+    bin: string,
+    args: string[],
+    options: { timeout?: number; maxBuffer?: number } = {}
+  ): Promise<{ stdout: string; stderr: string }> {
+    return execFileAsync(bin, args, {
+      timeout: options.timeout ?? 60_000,
+      maxBuffer: options.maxBuffer ?? 5 * 1024 * 1024,
+    });
+  }
+
+  /**
    * 生成带有文本说明与背景色彩的合成测试视频片段。
  * 用于离线冒烟测试、全链路预演与原型验证，零消耗远程 API 额度。
    */
@@ -61,7 +88,7 @@ export class FFmpegService {
     ];
 
     try {
-      await execFileAsync(this.ffmpegPath, args);
+      await this.runFFmpeg(args);
       return outputPath;
     } catch (err: any) {
       // 兜底方案：若复杂滤镜不可用，使用纯色基础帧快速输出
@@ -78,7 +105,7 @@ export class FFmpegService {
         'yuv420p',
         outputPath,
       ];
-      await execFileAsync(this.ffmpegPath, simpleArgs);
+      await this.runFFmpeg(simpleArgs);
       return outputPath;
     }
   }
@@ -124,7 +151,7 @@ export class FFmpegService {
       }
       if (scaleFilter) args.push('-vf', scaleFilter);
       args.push('-frames:v', '1', '-update', '1', '-pix_fmt', 'yuvj420p', '-q:v', String(q), outputPath);
-      await execFileAsync(this.ffmpegPath, args);
+      await this.runFFmpeg(args);
     };
 
     try {
@@ -197,7 +224,7 @@ export class FFmpegService {
         '-movflags', '+faststart',
         outputPath
       );
-      await execFileAsync(this.ffmpegPath, args);
+      await this.runFFmpeg(args);
     };
 
     try {
@@ -256,7 +283,7 @@ export class FFmpegService {
     ];
 
     try {
-      await execFileAsync(this.ffmpegPath, args);
+      await this.runFFmpeg(args);
     } catch (err) {
       // 若因分辨率或编码格式不一致导致直接流拷贝失败，回退至重编码拼接
       console.warn('[FFmpeg] Direct concat failed, attempting re-encode concat...');
@@ -276,7 +303,7 @@ export class FFmpegService {
         'aac',
         outputPath,
       ];
-      await execFileAsync(this.ffmpegPath, reencodeArgs);
+      await this.runFFmpeg(reencodeArgs);
     } finally {
       if (fs.existsSync(listFilePath)) {
         try {
@@ -308,7 +335,7 @@ export class FFmpegService {
       outputPath,
     ];
 
-    await execFileAsync(this.ffmpegPath, args);
+    await this.runFFmpeg(args);
     return outputPath;
   }
 
@@ -335,7 +362,7 @@ export class FFmpegService {
       outputPath,
     ];
 
-    await execFileAsync(this.ffmpegPath, args);
+    await this.runFFmpeg(args);
     return outputPath;
   }
 
@@ -343,7 +370,9 @@ export class FFmpegService {
    * 通过 ffprobe 获取音视频文件的精确时长（秒）。
    */
   async getDuration(mediaPath: string): Promise<number> {
-    const ffprobePath = path.join(path.dirname(this.ffmpegPath), 'ffprobe.exe');
+    const isWin = process.platform === 'win32';
+    const ffprobeName = isWin ? 'ffprobe.exe' : 'ffprobe';
+    const ffprobePath = path.join(path.dirname(this.ffmpegPath), ffprobeName);
     const probeExe = fs.existsSync(ffprobePath) ? ffprobePath : 'ffprobe';
     const args = [
       '-v',
@@ -356,7 +385,7 @@ export class FFmpegService {
     ];
 
     try {
-      const { stdout } = await execFileAsync(probeExe, args);
+      const { stdout } = await this.runFFprobe(probeExe, args);
       const dur = parseFloat(stdout.trim());
       return isNaN(dur) ? 0 : dur;
     } catch (err: any) {

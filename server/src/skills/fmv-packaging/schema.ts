@@ -41,6 +41,7 @@ export const FMVNodeAssetSchema = z.object({
   loopVideoUrl: z.string().optional().describe('等待决策时的循环背景短视频'),
   isDecisionPoint: z.boolean().describe('是否为需要玩家抉择的关键交互点'),
   choices: z.array(FMVChoiceSchema).optional().describe('下游分支选项清单'),
+  isMissing: z.boolean().optional().describe('当前节点是否缺失视频素材'),
 });
 
 export type FMVNodeAsset = z.infer<typeof FMVNodeAssetSchema>;
@@ -70,6 +71,9 @@ export const FmvPackagingArtifactSchema = z.object({
   totalClips: z.number(),
   totalEndings: z.number(),
   playableDurationSec: z.number(),
+  isDegraded: z.boolean().optional(),
+  degradedReason: z.string().optional(),
+  missingNodeIds: z.array(z.string()).optional(),
   status: z.literal('packaged'),
   createdAt: z.string(),
 });

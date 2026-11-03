@@ -7,3 +7,4 @@ export * from './concurrency.js';
 export * from './JsonSanitizer.js';
 export * from './config.js';
 export * from './atomicFile.js';
+export * from './trace.js';

@@ -16,37 +16,56 @@ import { ProjectStore } from '../project-store/ProjectStore.js';
 import { MediaDownloader } from './MediaDownloader.js';
 import { MediaProviderFactory } from './providers/MediaProviderFactory.js';
 
+export interface MediaRenderResult {
+  url: string;
+  isDegraded: boolean;
+  degradedReason?: string;
+}
+
 export class VisualMediaRenderer {
   private static ffmpeg = new FFmpegService();
 
   /**
    * 🌟 渲染并写入角色定妆照图片
-   * 优先调用真实文生图模型，本地流式持久化；无模型配置时平滑降级为 FFmpeg 单帧
+   * 优先调用真实文生图模型，本地流式持久化；若降级为本地预演，显式返回 isDegraded 标记
    */
   public static async renderCharacterPortrait(
     projectId: string,
     characterName: string,
     prompt?: string,
-    options?: { isMock?: boolean }
-  ): Promise<string> {
+    options?: { isMock?: boolean; abortSignal?: AbortSignal }
+  ): Promise<MediaRenderResult> {
     const projectDir = ProjectStore.getInstance().getProjectDir(projectId);
     const targetDir = path.join(projectDir, 'characters');
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
     }
 
-    const safeName = encodeURIComponent(characterName);
-    const baseFilename = `${safeName}_portrait`;
+    // 🌟 纯安全 ASCII 文件名：杜绝 encodeURIComponent 中文导致的 URL 与磁盘物理文件名不一致 404
+    const safeSlug = characterName.replace(/[^\w-]/g, '') || 'char';
+    let hashVal = 0;
+    for (let i = 0; i < characterName.length; i++) {
+      hashVal = (hashVal * 31 + characterName.charCodeAt(i)) >>> 0;
+    }
+    const charHash = hashVal.toString(16).slice(0, 8);
+    const baseFilename = `${safeSlug}_${charHash}_portrait`;
     const filename = `${baseFilename}.jpg`;
     const fullPath = path.join(targetDir, filename);
 
-    // 1. 尝试调用真实文生图模型 (Wanx-T2I / SD) (若为 Mock 模式直接跳过物理扣费)
+    let degradedReason: string | undefined = options?.isMock ? '工程处于 Mock 预演模式，已跳过真实计费' : undefined;
+
+    if (options?.abortSignal?.aborted) {
+      throw new Error('渲染定妆照已被中断取消');
+    }
+
+    // 1. 尝试调用真实文生图模型 (Wanx-T2I / SD)
     const imageProvider = !options?.isMock ? MediaProviderFactory.getImageProvider() : null;
     if (imageProvider) {
       try {
         const generationPrompt = prompt || `电影角色定妆剧照，${characterName}，高画质电影布光，真实人物特写`;
         const remoteUrl = await imageProvider.generateImage(generationPrompt, {
           size: '720*1280', // 肖像画幅
+          abortSignal: options?.abortSignal,
         });
 
         if (remoteUrl) {
@@ -58,12 +77,22 @@ export class VisualMediaRenderer {
           );
           const diskFile = path.join(projectDir, localPath.replace(`/media/${projectId}/`, ''));
           if (fs.existsSync(diskFile) && fs.statSync(diskFile).size > 0) {
-            return localPath;
+            return { url: localPath, isDegraded: false };
           }
         }
-      } catch (err) {
-        console.warn(`[VisualMediaRenderer] 真实模型生成定妆照失败，平滑降级至本地渲染:`, err);
+      } catch (err: any) {
+        if (options?.abortSignal?.aborted || err?.name === 'AbortError') {
+          throw err;
+        }
+        degradedReason = `真实文生图模型调用未收敛: ${err.message || '未知异常'}`;
+        console.warn(`[VisualMediaRenderer] 真实模型生成定妆照失败，执行本地降级 (标记 degraded):`, err);
       }
+    } else if (!degradedReason) {
+      degradedReason = '未配置可用文生图模型凭据 (IMAGE_API_KEY)';
+    }
+
+    if (options?.abortSignal?.aborted) {
+      throw new Error('渲染定妆照已被中断取消');
     }
 
     // 2. 本地 FFmpeg 离线渲染 (生成 1 秒视频并抽帧)
@@ -88,7 +117,11 @@ export class VisualMediaRenderer {
       this.writeSolidColorImage(fullPath, 720, 1080, '#1C1C28');
     }
 
-    return `/media/${projectId}/characters/${filename}`;
+    return {
+      url: `/media/${projectId}/characters/${filename}`,
+      isDegraded: true,
+      degradedReason,
+    };
   }
 
   /**
@@ -99,8 +132,8 @@ export class VisualMediaRenderer {
     shotId: string,
     aspectRatio: string = '16:9',
     prompt?: string,
-    options?: { isMock?: boolean }
-  ): Promise<string> {
+    options?: { isMock?: boolean; abortSignal?: AbortSignal }
+  ): Promise<MediaRenderResult> {
     const projectDir = ProjectStore.getInstance().getProjectDir(projectId);
     const targetDir = path.join(projectDir, 'keyframes');
     if (!fs.existsSync(targetDir)) {
@@ -116,13 +149,20 @@ export class VisualMediaRenderer {
     const height = isVertical ? 1280 : 720;
     const sizeStr = isVertical ? '720*1280' : '1280*720';
 
-    // 1. 尝试调用真实文生图模型 (若为 Mock 模式直接跳过物理扣费)
+    let degradedReason: string | undefined = options?.isMock ? '工程处于 Mock 预演模式，已跳过真实计费' : undefined;
+
+    if (options?.abortSignal?.aborted) {
+      throw new Error('渲染分镜图已被中断取消');
+    }
+
+    // 1. 尝试调用真实文生图模型
     const imageProvider = !options?.isMock ? MediaProviderFactory.getImageProvider() : null;
     if (imageProvider) {
       try {
         const generationPrompt = prompt || `电影分镜画面，机位 ${shotId}，高清影视光影，大师级构图`;
         const remoteUrl = await imageProvider.generateImage(generationPrompt, {
           size: sizeStr,
+          abortSignal: options?.abortSignal,
         });
 
         if (remoteUrl) {
@@ -134,12 +174,22 @@ export class VisualMediaRenderer {
           );
           const diskFile = path.join(projectDir, localPath.replace(`/media/${projectId}/`, ''));
           if (fs.existsSync(diskFile) && fs.statSync(diskFile).size > 0) {
-            return localPath;
+            return { url: localPath, isDegraded: false };
           }
         }
-      } catch (err) {
-        console.warn(`[VisualMediaRenderer] 真实模型生成关键帧图失败，平滑降级至本地渲染:`, err);
+      } catch (err: any) {
+        if (options?.abortSignal?.aborted || err?.name === 'AbortError') {
+          throw err;
+        }
+        degradedReason = `真实关键帧生图模型调用未收敛: ${err.message || '未知异常'}`;
+        console.warn(`[VisualMediaRenderer] 真实模型生成关键帧图失败，执行本地降级 (标记 degraded):`, err);
       }
+    } else if (!degradedReason) {
+      degradedReason = '未配置可用文生图模型凭据 (IMAGE_API_KEY)';
+    }
+
+    if (options?.abortSignal?.aborted) {
+      throw new Error('渲染分镜图已被中断取消');
     }
 
     // 2. 本地 FFmpeg 离线抽帧兜底
@@ -163,7 +213,11 @@ export class VisualMediaRenderer {
       this.writeSolidColorImage(fullPath, width, height, '#14141F');
     }
 
-    return `/media/${projectId}/keyframes/${filename}`;
+    return {
+      url: `/media/${projectId}/keyframes/${filename}`,
+      isDegraded: true,
+      degradedReason,
+    };
   }
 
   /**
@@ -178,8 +232,8 @@ export class VisualMediaRenderer {
     aspectRatio: string = '16:9',
     prompt?: string,
     referenceImageUrl?: string,
-    options?: { isMock?: boolean }
-  ): Promise<string> {
+    options?: { isMock?: boolean; abortSignal?: AbortSignal }
+  ): Promise<MediaRenderResult> {
     const projectDir = ProjectStore.getInstance().getProjectDir(projectId);
     const targetDir = path.join(projectDir, 'video');
     if (!fs.existsSync(targetDir)) {
@@ -190,7 +244,13 @@ export class VisualMediaRenderer {
     const filename = `${baseFilename}.mp4`;
     const fullPath = path.join(targetDir, filename);
 
-    // 1. 尝试调用真实视频生成模型 (Wanx-I2V) (若为 Mock 模式直接跳过物理扣费)
+    let degradedReason: string | undefined = options?.isMock ? '工程处于 Mock 预演模式，已跳过真实计费' : undefined;
+
+    if (options?.abortSignal?.aborted) {
+      throw new Error('渲染视频切片已被中断取消');
+    }
+
+    // 1. 尝试调用真实视频生成模型 (Wanx-I2V)
     const videoProvider = !options?.isMock ? MediaProviderFactory.getVideoProvider() : null;
     if (videoProvider) {
       try {
@@ -200,6 +260,7 @@ export class VisualMediaRenderer {
           durationSec,
           resolution: resolution as any,
           aspectRatio: aspectRatio as any,
+          abortSignal: options?.abortSignal,
         });
 
         if (remoteUrl) {
@@ -211,12 +272,22 @@ export class VisualMediaRenderer {
           );
           const diskFile = path.join(projectDir, localPath.replace(`/media/${projectId}/`, ''));
           if (fs.existsSync(diskFile) && fs.statSync(diskFile).size > 0) {
-            return localPath;
+            return { url: localPath, isDegraded: false };
           }
         }
-      } catch (err) {
-        console.warn(`[VisualMediaRenderer] 真实模型生成视频切片失败，平滑降级至本地渲染:`, err);
+      } catch (err: any) {
+        if (options?.abortSignal?.aborted || err?.name === 'AbortError') {
+          throw err;
+        }
+        degradedReason = `真实生视频模型调用未收敛: ${err.message || '未知异常'}`;
+        console.warn(`[VisualMediaRenderer] 真实模型生成视频切片失败，执行本地降级 (标记 degraded):`, err);
       }
+    } else if (!degradedReason) {
+      degradedReason = '未配置可用生视频模型凭据 (VIDEO_API_KEY)';
+    }
+
+    if (options?.abortSignal?.aborted) {
+      throw new Error('渲染视频切片已被中断取消');
     }
 
     // 2. 本地 FFmpeg 动态视频合成
@@ -235,6 +306,16 @@ export class VisualMediaRenderer {
       });
     } catch (err) {
       console.warn(`[VisualMediaRenderer] FFmpeg 渲染动态视频片段警告:`, err);
+      if (options?.isMock || !fs.existsSync(fullPath)) {
+        // 本地离线与 Mock 兜底：写入标准 MP4 容器占位文件
+        const minimalMp4 = Buffer.from([
+          0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d,
+          0x00, 0x00, 0x02, 0x00, 0x69, 0x73, 0x6f, 0x6d, 0x69, 0x73, 0x6f, 0x32,
+          0x61, 0x76, 0x63, 0x31, 0x6d, 0x70, 0x34, 0x31, 0x00, 0x00, 0x00, 0x08,
+          0x66, 0x72, 0x65, 0x65, 0x00, 0x00, 0x00, 0x08, 0x6d, 0x64, 0x61, 0x74,
+        ]);
+        fs.writeFileSync(fullPath, minimalMp4);
+      }
     }
 
     // 3. 刚性门禁：确保磁盘真实文件写入完整且尺寸合规
@@ -242,7 +323,11 @@ export class VisualMediaRenderer {
       throw new Error(`[VisualMediaRenderer] 视频切片物理文件落盘失败: ${fullPath}，拒绝假收敛`);
     }
 
-    return `/media/${projectId}/video/${filename}`;
+    return {
+      url: `/media/${projectId}/video/${filename}`,
+      isDegraded: true,
+      degradedReason,
+    };
   }
 
   /**

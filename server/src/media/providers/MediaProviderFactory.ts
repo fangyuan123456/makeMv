@@ -22,7 +22,7 @@ export class MediaProviderFactory {
       return this.imageProviderInstance;
     }
 
-    const providerType = config.image.provider;
+    let providerType = config.image.provider;
 
     // 优先匹配 ComfyUI 机床 (由本地/云端服务直接驱动，无需 API Key)
     if (providerType === 'comfyui') {
@@ -30,6 +30,14 @@ export class MediaProviderFactory {
       return this.imageProviderInstance;
     }
     const apiKey = config.image.apiKey || process.env.DASHSCOPE_API_KEY || (providerType === 'dashscope' ? config.llm.apiKey : '');
+
+    // 🌟 智能自愈：若配了 API Key 且非全局强制 MOCK_MODE，自动选用 DashScope 真实服务，消灭配置遗漏陷阱
+    if (providerType === 'mock' && apiKey && !config.mockMode) {
+      console.log(`[MediaProviderFactory] ⚡ 检测到已配置有效 API Key，自动启用 DashScope 真实生图服务`);
+      providerType = 'dashscope';
+    } else if (providerType === 'mock' && apiKey && config.mockMode) {
+      console.warn(`[MediaProviderFactory] ⚠️ 已配置生图 Key，但系统处于全局 MOCK_MODE，生图将走离线预演`);
+    }
 
     if (providerType === 'mock' || !apiKey) {
       this.imageProviderInstance = null;
@@ -55,7 +63,7 @@ export class MediaProviderFactory {
       return this.videoProviderInstance;
     }
 
-    const providerType = config.video.provider;
+    let providerType = config.video.provider;
 
     // 优先匹配 ComfyUI 机床 (由本地/云端服务直接驱动，无需 API Key)
     if (providerType === 'comfyui') {
@@ -63,6 +71,14 @@ export class MediaProviderFactory {
       return this.videoProviderInstance;
     }
     const apiKey = config.video.apiKey || process.env.DASHSCOPE_API_KEY || (providerType === 'dashscope' ? config.llm.apiKey : '');
+
+    // 🌟 智能自愈：若配了 API Key 且非全局强制 MOCK_MODE，自动选用 DashScope 真实服务，消灭配置遗漏陷阱
+    if (providerType === 'mock' && apiKey && !config.mockMode) {
+      console.log(`[MediaProviderFactory] ⚡ 检测到已配置有效 API Key，自动启用 DashScope 真实生视频服务`);
+      providerType = 'dashscope';
+    } else if (providerType === 'mock' && apiKey && config.mockMode) {
+      console.warn(`[MediaProviderFactory] ⚠️ 已配置生视频 Key，但系统处于全局 MOCK_MODE，生视频将走离线预演`);
+    }
 
     if (providerType === 'mock' || !apiKey) {
       this.videoProviderInstance = null;

@@ -70,14 +70,19 @@ export class DashScopeMediaProvider implements IImageProvider, IVideoProvider {
       throw new Error(`[DashScope] 未获取到生图 task_id: ${JSON.stringify(data)}`);
     }
 
-    // 轮询任务状态 (最长等待 90 秒)
-    return await this.pollTaskResult(taskId, 90, (taskData) => {
-      const results = taskData.output?.results;
-      if (results && results.length > 0 && results[0].url) {
-        return results[0].url;
-      }
-      return null;
-    });
+    // 轮询任务状态 (最长等待 90 秒，透传 abortSignal 实时可物理中断)
+    return await this.pollTaskResult(
+      taskId,
+      90,
+      (taskData) => {
+        const results = taskData.output?.results;
+        if (results && results.length > 0 && results[0].url) {
+          return results[0].url;
+        }
+        return null;
+      },
+      options?.abortSignal
+    );
   }
 
   /**
@@ -142,33 +147,49 @@ export class DashScopeMediaProvider implements IImageProvider, IVideoProvider {
       throw new Error(`[DashScope] 未获取到视频 task_id: ${JSON.stringify(data)}`);
     }
 
-    // 轮询任务状态 (最长等待 180 秒)
-    return await this.pollTaskResult(taskId, 180, (taskData) => {
-      if (taskData.output?.video_url) {
-        return taskData.output.video_url;
-      }
-      return null;
-    });
+    // 轮询任务状态 (最长等待 180 秒，透传 abortSignal 实时可物理中断)
+    return await this.pollTaskResult(
+      taskId,
+      180,
+      (taskData) => {
+        if (taskData.output?.video_url) {
+          return taskData.output.video_url;
+        }
+        return null;
+      },
+      options?.abortSignal
+    );
   }
 
   /**
-   * 轮询任务直到完成或超时
+   * 轮询任务直到完成、超时或创作者主动中断
    */
   private async pollTaskResult(
     taskId: string,
     maxWaitSec: number,
-    extractor: (data: any) => string | null
+    extractor: (data: any) => string | null,
+    abortSignal?: AbortSignal
   ): Promise<string> {
     const taskUrl = `${this.baseUrl}/tasks/${taskId}`;
     const startTime = Date.now();
 
     while ((Date.now() - startTime) / 1000 < maxWaitSec) {
+      // 🌟 物理切断：若创作者已取消任务，立即跳出循环，绝不再烧钱继续等待
+      if (abortSignal?.aborted) {
+        throw new Error('[DashScope] 任务已被创作者主动中断 (Task aborted by user)');
+      }
+
       await new Promise((resolve) => setTimeout(resolve, 2500));
+
+      if (abortSignal?.aborted) {
+        throw new Error('[DashScope] 任务已被创作者主动中断 (Task aborted by user)');
+      }
 
       const res = await fetch(taskUrl, {
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
         },
+        signal: abortSignal,
       });
 
       if (!res.ok) {

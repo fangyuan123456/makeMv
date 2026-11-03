@@ -275,48 +275,12 @@ export function subscribePipelineTask(
   return () => source.close();
 }
 
-export async function startProject(params: {
-  idea: string;
-  file_path?: string;
-  style?: string;
-  videoRatio?: string;
-  videoResolution?: string;
-  video_ratio?: string;
-  video_resolution?: string;
-  llm_model?: string;
-  vlm_model?: string;
-  image_t2i_model?: string;
-  image_it2i_model?: string;
-  video_model?: string;
-  video_first_frame_model?: string;
-  video_start_end_model?: string;
-  video_reference_model?: string;
-  video_generation_mode?: string;
-  scene_number?: number;
-  enable_concurrency?: boolean;
-  web_search?: boolean;
-  expand_idea?: boolean;
-}): Promise<{ projectId: string; status: string; params: any }> {
-  const normalizedParams = {
-    ...params,
-    videoRatio: params.videoRatio || params.video_ratio || '16:9',
-    videoResolution: params.videoResolution || params.video_resolution || '720P',
-  };
-  const resp = await fetch('/api/project/start', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(normalizedParams),
-  });
-  if (!resp.ok) {
-    const err = await parseJsonResponse<any>(resp, { detail: '项目创建失败' });
-    throw new Error(err.detail || '项目创建失败');
-  }
-  const data = await parseJsonResponse<any>(resp);
-  return { ...data, projectId: data.projectId };
-}
-
-export async function getProjectStatus(projectId: string): Promise<ProjectStatus> {
+export async function getProjectStatus(projectId: string): Promise<ProjectStatus | null> {
   const resp = await fetch(`/api/project/${projectId}/status`);
+  if (resp.status === 404) {
+    // 懒创建流程：sessionId 先于项目实体存在（首条消息才在后端建项），404 属正常空窗
+    return null;
+  }
   if (!resp.ok) {
     const errText = await resp.text().catch(() => '');
     throw new Error(`Failed to get project status (${resp.status}): ${errText || resp.statusText}`);
@@ -331,43 +295,6 @@ export async function getArtifact(sessionId: string, stage: string): Promise<any
     throw new Error(`Artifact for stage '${stage}' not found (${resp.status}): ${errText || resp.statusText}`);
   }
   return parseJsonResponse<any>(resp);
-}
-
-export async function executeStage(
-  sessionId: string,
-  stage: string,
-  inputData: Record<string, any> = {},
-  signal?: AbortSignal,
-): Promise<Response> {
-  return fetch(`${STREAM_API_BASE}/api/project/${sessionId}/execute/${stage}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(inputData),
-    signal,
-  });
-}
-
-export async function intervene(
-  sessionId: string,
-  stageOrFeedback: string,
-  modifications?: Record<string, any>,
-): Promise<Response> {
-  const payload = modifications !== undefined
-    ? { stage: stageOrFeedback, modifications, feedback: modifications.feedback || modifications }
-    : { feedback: stageOrFeedback, modifications: { feedback: stageOrFeedback } };
-
-  return fetch(`${STREAM_API_BASE}/api/project/${sessionId}/continue`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-}
-
-export async function stopProject(sessionId: string): Promise<{ status: string }> {
-  const resp = await fetch(`/api/project/${sessionId}/stop`, {
-    method: 'POST',
-  });
-  return parseJsonResponse<{ status: string }>(resp, { status: 'stopped' });
 }
 
 export async function deleteSession(
@@ -405,13 +332,6 @@ export async function saveSelections(
     console.warn('[saveSelections] Network or parse error:', err);
     return { status: 'failed' };
   }
-}
-
-export async function continueWorkflow(sessionId: string): Promise<{ status: string; next_stage?: string }> {
-  const resp = await fetch(`/api/project/${sessionId}/continue`, {
-    method: 'POST',
-  });
-  return parseJsonResponse<{ status: string; next_stage?: string }>(resp, { status: 'continued' });
 }
 
 export async function getStageAuditTrace(sessionId: string, stage: string): Promise<any> {

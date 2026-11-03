@@ -62,12 +62,30 @@ export default function StudioWorkspace({
   const [leftWidthPercent, setLeftWidthPercent] = useState<number>(56);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const activeTaskIdRef = useRef<string | null>(null);
 
-  // 真正有产物且当前推演已结束时，允许快速推进
-  const hasDeliverables = Object.keys(artifacts).length > 0;
+  // 真正有当前阶段产物且推演已结束、且未受审查官刚性阻断时，才允许推进
+  const currentStageArtifact = artifacts[currentStage];
+  const hasCurrentDeliverable =
+    currentStageArtifact &&
+    (Array.isArray(currentStageArtifact)
+      ? currentStageArtifact.length > 0
+      : typeof currentStageArtifact === 'object'
+      ? Object.keys(currentStageArtifact).length > 0
+      : Boolean(currentStageArtifact));
+
+  const currentReport =
+    artifacts[`critic_review_${currentStage}`] ||
+    (artifacts['critic_review']?.stageReviewed === currentStage
+      ? artifacts['critic_review']
+      : null);
+  const isCriticBlocking =
+    Boolean(currentReport && !currentReport.isStale && currentReport.gateStatus === 'FAIL');
+
   const isWaitingForConfirmation =
     !isRunning &&
-    hasDeliverables &&
+    Boolean(hasCurrentDeliverable) &&
+    !isCriticBlocking &&
     (status === 'waiting' || status === 'waiting_for_intervention' || status === 'idle');
 
   // 1. Fetch & refresh project status from ProjectStore
@@ -88,7 +106,11 @@ export default function StudioWorkspace({
           setArtifacts(proj.stageArtifacts || data.artifacts || {});
         }
       }
-    } catch (err) {
+    } catch (err: any) {
+      // 🌟 纯天然对话建项容错：首轮对话流式建立前项目尚未落盘，静默保持待命无需报红
+      if (err?.message && err.message.includes('404')) {
+        return;
+      }
       console.warn('[StudioWorkspace] Status fetch error:', err);
     }
   }, [sessionId]);
@@ -128,8 +150,11 @@ export default function StudioWorkspace({
         setMessages(mappedMessages);
       }
       return targetSessionId;
-    } catch (err) {
+    } catch (err: any) {
       initializedProjectRef.current = null;
+      if (err?.message && err.message.includes('404')) {
+        return '';
+      }
       console.warn('[StudioWorkspace] 恢复会话历史失败:', err);
       return '';
     }
@@ -221,7 +246,10 @@ export default function StudioWorkspace({
         activeChatSessionId || undefined,
         params,
         {
-          onProgress: (percent, msg) => {
+          onProgress: (percent, msg, taskId) => {
+            if (taskId) {
+              activeTaskIdRef.current = taskId;
+            }
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === progressMsgId
@@ -231,6 +259,7 @@ export default function StudioWorkspace({
             );
           },
           onDone: async (result) => {
+            activeTaskIdRef.current = null;
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === progressMsgId
@@ -241,7 +270,39 @@ export default function StudioWorkspace({
             setIsRunning(false);
             await fetchStatus();
           },
-          onError: (err) => {
+          onError: async (err) => {
+            const orphanTaskId = activeTaskIdRef.current;
+            // 🌟 断线自愈恢复：若已拿到 taskId，尝试轮询 TaskEngine 后台真实终态，杜绝网络偶发断流导致假失败
+            if (orphanTaskId && sessionId) {
+              try {
+                let pollAttempts = 0;
+                while (pollAttempts < 15) {
+                  await new Promise((r) => setTimeout(r, 2000));
+                  pollAttempts++;
+                  const res = await fetch(`/api/tasks/${orphanTaskId}`);
+                  if (res.ok) {
+                    const taskData = (await res.json()) as any;
+                    if (taskData.status === 'completed') {
+                      activeTaskIdRef.current = null;
+                      setMessages((prev) =>
+                        prev.map((m) =>
+                          m.id === progressMsgId
+                            ? { ...m, content: taskData.message || `✔ 技能 [${skillName}] 执行完成！` }
+                            : m
+                        )
+                      );
+                      setIsRunning(false);
+                      await fetchStatus();
+                      return;
+                    } else if (taskData.status === 'failed' || taskData.status === 'aborted') {
+                      break;
+                    }
+                  }
+                }
+              } catch {}
+            }
+
+            activeTaskIdRef.current = null;
             setMessages((prev) => [
               ...prev,
               {
@@ -286,6 +347,21 @@ export default function StudioWorkspace({
 
   // 5. Action: Execute autonomous ActionProposal from Director (显式透传 actionId SSOT)
   const handleExecuteProposal = async (proposal: ActionProposal) => {
+    // 🌟 P1-5: 刚性拔除 || 'story-bible' 偷跑兜底，契约缺失直接阻断
+    if (!proposal.skill) {
+      console.error('[StudioWorkspace] 提案缺少目标技能 skill，拒绝执行');
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `err_${Date.now()}`,
+          sender: 'system',
+          content: '❌ 该行动建议未明确指定执行技能，无法执行。',
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ]);
+      return;
+    }
+
     setMessages((prev) =>
       prev.map((m) =>
         m.actionProposal?.actionId === proposal.actionId
@@ -300,11 +376,36 @@ export default function StudioWorkspace({
           : m
       )
     );
-    const targetSkill = proposal.skill || 'story-bible';
-    await handleExecuteSkill(targetSkill, {
-      actionId: proposal.actionId,
-      ...(proposal.payload || {}),
-    });
+
+    try {
+      // 🌟 P0-1 核心修复：拍平内层业务参数 params，彻底消灭下发链路丢参
+      const skillParams: Record<string, any> = {
+        actionId: proposal.actionId,
+        ...(proposal.payload?.params || proposal.payload || {}),
+      };
+      delete skillParams.params;
+      delete skillParams.stage;
+      delete skillParams.skill;
+
+      await handleExecuteSkill(proposal.skill, skillParams);
+    } catch (err: any) {
+      // 🌟 P2-3: 异常时回滚卡片状态并告警，杜绝单向乐观更新导致的状态脱轨
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.actionProposal?.actionId === proposal.actionId
+            ? {
+                ...m,
+                actionProposal: {
+                  ...m.actionProposal,
+                  status: 'failed',
+                  error: err.message,
+                  failedAt: new Date().toISOString(),
+                },
+              }
+            : m
+        )
+      );
+    }
   };
 
   // 🌟 5.1 Action: Dismiss ActionProposal
@@ -508,8 +609,8 @@ export default function StudioWorkspace({
   const handleSelectCharacterVersion = async (charId: string, versionUrl: string) => {
     if (!sessionId) return;
     try {
+      // 🌟 P0-1: 遵从契约结构 { selections: { [charId]: versionUrl } }，由服务端执行安全合流，严禁破坏既有产物
       await saveSelections(sessionId, 'character_design', {
-        [charId]: versionUrl,
         selections: { [charId]: versionUrl },
       });
       await fetchStatus();

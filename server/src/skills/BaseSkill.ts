@@ -15,6 +15,7 @@
 
 import { ProjectStore } from '../project-store/ProjectStore.js';
 import { ChatMemoryManager } from '../chat/memory/ChatMemoryManager.js';
+import { CriticReviewerAgent } from '../agents/reviewer/CriticReviewerAgent.js';
 import type { ISkill, SkillManifest, SkillContext, SkillResult } from './types.js';
 
 export abstract class BaseSkill<TParams = any, TData = any> implements ISkill<TParams, TData> {
@@ -32,6 +33,13 @@ export abstract class BaseSkill<TParams = any, TData = any> implements ISkill<TP
     const startMs = Date.now();
 
     try {
+      if (!context || !context.projectId) {
+        throw new Error(`[Skill:${this.manifest.name}] 执行失败: 缺少 projectId 参数`);
+      }
+
+      // 规范化入参，防止业务子类解构空指针
+      context.params = (context.params || {}) as TParams;
+
       if (context.abortSignal?.aborted) {
         throw new Error(`[Skill:${this.manifest.name}] 执行被提前取消`);
       }
@@ -63,6 +71,17 @@ export abstract class BaseSkill<TParams = any, TData = any> implements ISkill<TP
               console.warn('[BaseSkill] 权威资产反向同步白板警告:', syncErr);
             }
           }
+
+          // 4. 🌟 产物重新生成或自愈后，自动解除旧门禁阻断卡片 (会话消息与独立库双更新 SSOT)
+          try {
+            CriticReviewerAgent.getInstance().dismissGateIntercepts(
+              context.projectId,
+              this.manifest.targetStage,
+              `[🛡️ 门禁已由产物重新生成解除] 工序【${this.manifest.displayName}】产物已更新，历史质检报告已自动失效。`
+            );
+          } catch (propErr) {
+            console.warn('[BaseSkill] 解除旧门禁提案警告:', propErr);
+          }
         }
       }
 
@@ -79,12 +98,24 @@ export abstract class BaseSkill<TParams = any, TData = any> implements ISkill<TP
       console.error(`[BaseSkill:${this.manifest.name}] 执行失败:`, err);
       return {
         success: false,
-        data: undefined as any,
         summary: `技能执行失败: ${err.message || String(err)}`,
         durationMs: Date.now() - startMs,
         error: err.message || String(err),
       };
     }
+  }
+
+  /**
+   * 刚性执行门面 (Fail-Fast: 失败直接抛出异常，绝不把异常检查推诿给调用方自觉)
+   */
+  public async executeOrThrow(
+    context: SkillContext<TParams>
+  ): Promise<{ data: TData; summary: string; durationMs: number }> {
+    const res = await this.execute(context);
+    if (!res.success) {
+      throw new Error(`[BaseSkill:${this.manifest.name}] 技能执行未收敛: ${res.error || res.summary}`);
+    }
+    return { data: res.data, summary: res.summary, durationMs: res.durationMs };
   }
 
   /**

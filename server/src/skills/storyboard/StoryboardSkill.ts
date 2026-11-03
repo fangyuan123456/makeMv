@@ -46,11 +46,11 @@ export class StoryboardSkill extends BaseSkill<StoryboardParams, StoryboardArtif
   ): Promise<{ data: StoryboardArtifact; summary: string }> {
     const { projectId, params, abortSignal } = context;
     const store = ProjectStore.getInstance();
-    const project = store.getProject(projectId);
+    const project = context.project || store.getProject(projectId);
 
     await this.notifyProgress(context, 15, '正在读取分场剧本台词与场景情境...');
 
-    const scriptArtifact = store.getArtifact<any>(projectId, WorkflowStage.SCENE_SCRIPT);
+    const scriptArtifact = context.artifacts?.[WorkflowStage.SCENE_SCRIPT] || store.getArtifact<any>(projectId, WorkflowStage.SCENE_SCRIPT);
     const scenes = scriptArtifact?.scenes || [];
 
     if (scenes.length === 0) {
@@ -92,10 +92,22 @@ export class StoryboardSkill extends BaseSkill<StoryboardParams, StoryboardArtif
       }
     }
 
-    // 确保镜头全局编号全局连续自增
+    if (allShots.length === 0) {
+      throw new Error('视听分镜头切分失败，未产生有效分镜头数据');
+    }
+
+    // 🌟 P1-1 视听镜头节点归属主键刚性校验 (Key Integrity Guard)
+    const validNodeIds = new Set(scenes.map((sc: any) => sc.nodeId));
+    for (const shot of allShots) {
+      if (shot.nodeId && !validNodeIds.has(shot.nodeId)) {
+        throw new Error(`分镜头 [${shot.shotId || 'unknown'}] 关联了不存在的剧情节点: [${shot.nodeId}]，属于幽灵引用`);
+      }
+    }
+
+    // 确保镜头全局编号与 shotId 全局连续自增且绝对唯一 (彻底杜绝分块推演导致 shotId 重复冲突)
     const finalShots = allShots.map((s, idx) => ({
       ...s,
-      shotId: s.shotId || `shot_${idx + 1}`,
+      shotId: `shot_${idx + 1}`,
       shotNumber: idx + 1,
       durationSec: s.durationSec || 4,
     }));
@@ -109,13 +121,6 @@ export class StoryboardSkill extends BaseSkill<StoryboardParams, StoryboardArtif
       estimatedTotalDurationSec: totalDuration,
       createdAt: new Date().toISOString(),
     };
-
-    // 写入状态黑板并推进项目阶段
-
-    if (project) {
-
-      store.saveProject(project);
-    }
 
     // 本地持久化
     this.exportToLocalDisk(projectId, artifact);

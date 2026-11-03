@@ -67,7 +67,8 @@ export const MODEL_PRESETS: ModelPreset[] = [
     key: 'qwen-max',
     name: '通义千问 Qwen3-Max (阿里旗舰)',
     model: 'qwen3-max',
-    brand: 'gateway',
+    brand: 'qwen',
+    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     pricing: { inputPerMillion: 20.0, outputPerMillion: 60.0, currency: 'CNY' },
     description: '阿里通义千问顶配主力大模型',
   },
@@ -76,7 +77,8 @@ export const MODEL_PRESETS: ModelPreset[] = [
     key: 'qwen-plus',
     name: '通义千问 Qwen3.5-Plus (阿里高速)',
     model: 'qwen3.5-plus',
-    brand: 'gateway',
+    brand: 'qwen',
+    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     pricing: { inputPerMillion: 0.8, outputPerMillion: 2.0, currency: 'CNY' },
     description: '高性价比平稳快速输出',
   },
@@ -161,18 +163,20 @@ export class BrandRouter {
       }
     }
 
-    // 2. 回退到直接配置的 LLM_MODEL 或第 8 个默认预设 (Gemini 3.8 Flash)
+    // 2. 回退到直接配置的 LLM_MODEL 或第 1 个默认预设 (DeepSeek-V3 官方国内直连，开箱即用)
     if (!model) {
-      model = process.env.LLM_MODEL || MODEL_PRESETS[7].model;
+      model = process.env.LLM_MODEL || MODEL_PRESETS[0].model;
     }
 
     const brand = matchedPreset?.brand || this.detectBrand(model);
+
+    let routeResult: ResolvedEndpoint;
 
     // 1. DeepSeek 官方直连通道
     if (brand === 'deepseek') {
       const baseURL = matchedPreset?.baseURL || process.env.DEEPSEEK_BASE_URL || this.DEEPSEEK_OFFICIAL_BASE;
       const apiKey = process.env.DEEPSEEK_API_KEY || process.env.LLM_API_KEY || '';
-      return {
+      routeResult = {
         brand,
         model,
         baseURL: baseURL.replace(/\/+$/, ''),
@@ -180,13 +184,11 @@ export class BrandRouter {
         presetName: matchedPreset?.name,
         pricing: matchedPreset?.pricing,
       };
-    }
-
-    // 2. Gemini 专属通道 (使用专用 GEMINI_API_KEY)
-    if (brand === 'gemini') {
+    } else if (brand === 'gemini') {
+      // 2. Gemini 专属通道 (使用专用 GEMINI_API_KEY)
       const baseURL = matchedPreset?.baseURL || process.env.GEMINI_BASE_URL || process.env.LLM_BASE_URL || this.OPENAI_DEFAULT_BASE;
       const apiKey = process.env.GEMINI_API_KEY || process.env.LLM_API_KEY || '';
-      return {
+      routeResult = {
         brand,
         model,
         baseURL: baseURL.replace(/\/+$/, ''),
@@ -194,13 +196,39 @@ export class BrandRouter {
         presetName: matchedPreset?.name,
         pricing: matchedPreset?.pricing,
       };
-    }
-
-    // 3. Moonshot / Kimi 官方直连通道
-    if (brand === 'moonshot') {
+    } else if (brand === 'moonshot') {
+      // 3. Moonshot / Kimi 官方直连通道
       const baseURL = matchedPreset?.baseURL || process.env.MOONSHOT_BASE_URL || this.MOONSHOT_OFFICIAL_BASE;
       const apiKey = process.env.KIMI_API_KEY || process.env.MOONSHOT_API_KEY || process.env.LLM_API_KEY || '';
-      return {
+      routeResult = {
+        brand,
+        model,
+        baseURL: baseURL.replace(/\/+$/, ''),
+        apiKey,
+        presetName: matchedPreset?.name,
+        pricing: matchedPreset?.pricing,
+      };
+    } else if (brand === 'qwen') {
+      // 4. 通义千问 Qwen 通道 (阿里百炼 DashScope 官方直连)
+      const baseURL = matchedPreset?.baseURL || process.env.QWEN_BASE_URL || process.env.DASHSCOPE_BASE_URL || process.env.LLM_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+      const apiKey = process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY || process.env.LLM_API_KEY || '';
+      routeResult = {
+        brand,
+        model,
+        baseURL: baseURL.replace(/\/+$/, ''),
+        apiKey,
+        presetName: matchedPreset?.name,
+        pricing: matchedPreset?.pricing,
+      };
+    } else {
+      // 5. 统一网关通道 (GPT-4o, Claude, GLM 等)
+      const baseURL = matchedPreset?.baseURL || process.env.LLM_BASE_URL || process.env.OPENAI_BASE_URL || this.OPENAI_DEFAULT_BASE;
+      const apiKey =
+        (matchedPreset?.apiKeyEnv && process.env[matchedPreset.apiKeyEnv]) ||
+        process.env.LLM_API_KEY ||
+        process.env.OPENAI_API_KEY ||
+        '';
+      routeResult = {
         brand,
         model,
         baseURL: baseURL.replace(/\/+$/, ''),
@@ -210,34 +238,19 @@ export class BrandRouter {
       };
     }
 
-    // 4. 通义千问 Qwen 通道
-    if (brand === 'qwen') {
-      const baseURL = matchedPreset?.baseURL || process.env.QWEN_BASE_URL || process.env.LLM_BASE_URL || this.OPENAI_DEFAULT_BASE;
-      const apiKey = process.env.QWEN_API_KEY || process.env.LLM_API_KEY || '';
-      return {
-        brand,
-        model,
-        baseURL: baseURL.replace(/\/+$/, ''),
-        apiKey,
-        presetName: matchedPreset?.name,
-        pricing: matchedPreset?.pricing,
+    // 🌟 刚性 Fail-Fast 防护：非 Mock 模式下，若所需 API Key 缺失直接阻断报错，彻底消灭 dummy_key 伪装 401
+    if (process.env.MOCK_LLM !== 'true' && !routeResult.apiKey) {
+      const envHintMap: Record<string, string> = {
+        deepseek: 'DEEPSEEK_API_KEY 或 LLM_API_KEY',
+        qwen: 'DASHSCOPE_API_KEY 或 QWEN_API_KEY 或 LLM_API_KEY',
+        moonshot: 'MOONSHOT_API_KEY 或 KIMI_API_KEY 或 LLM_API_KEY',
+        gemini: 'GEMINI_API_KEY (并设置有效代理 GEMINI_BASE_URL) 或 LLM_API_KEY',
+        gateway: 'LLM_API_KEY 或 OPENAI_API_KEY',
       };
+      const hint = envHintMap[brand] || 'LLM_API_KEY';
+      throw new Error(`[LLM Config Error] 当前选择的模型 [${model}] (通道: ${brand}) 未配置 API 密钥！请在 .env 中设置环境变量 ${hint}。`);
     }
 
-    // 5. 统一网关通道 (GPT-4o, Claude, GLM 等)
-    const baseURL = matchedPreset?.baseURL || process.env.LLM_BASE_URL || process.env.OPENAI_BASE_URL || this.OPENAI_DEFAULT_BASE;
-    const apiKey =
-      (matchedPreset?.apiKeyEnv && process.env[matchedPreset.apiKeyEnv]) ||
-      process.env.LLM_API_KEY ||
-      process.env.OPENAI_API_KEY ||
-      '';
-    return {
-      brand,
-      model,
-      baseURL: baseURL.replace(/\/+$/, ''),
-      apiKey,
-      presetName: matchedPreset?.name,
-      pricing: matchedPreset?.pricing,
-    };
+    return routeResult;
   }
 }

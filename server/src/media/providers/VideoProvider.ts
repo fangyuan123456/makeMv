@@ -8,6 +8,7 @@ export interface VideoGenerationOptions {
   durationSec?: number;
   resolution?: '480P' | '720P' | '1080P';
   aspectRatio?: '16:9' | '9:16';
+  abortSignal?: AbortSignal;
 }
 
 export interface IVideoProvider {

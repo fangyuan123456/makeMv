@@ -71,7 +71,11 @@ export class MediaDownloader {
       else ext = '.png';
     }
 
-    const baseName = customFilename || `media_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    // 🌟 路径穿越防御 (Path Traversal Guard)：剥离一切目录层级并剔除非法字符
+    const sanitizedCustom = customFilename
+      ? path.basename(customFilename).replace(/[^a-zA-Z0-9_\-\.]/g, '_')
+      : undefined;
+    const baseName = sanitizedCustom || `media_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const filename = baseName.endsWith(ext) ? baseName : `${baseName}${ext}`;
     const destinationPath = path.join(targetDir, filename);
 

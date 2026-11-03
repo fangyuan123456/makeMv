@@ -7,7 +7,9 @@ import fs from 'fs';
 import path from 'path';
 import { Hono } from 'hono';
 import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { STAGE_SEQUENCE, WorkflowStage, SessionStatus, type ProjectEntity } from '../../types/index.js';
+import { CriticReviewerAgent } from '../../agents/reviewer/CriticReviewerAgent.js';
+import { GateGuard } from '../../agents/reviewer/GateGuard.js';
+import { STAGE_SEQUENCE, WorkflowStage, SessionStatus } from '../../types/index.js';
 
 export const projectController = new Hono();
 
@@ -25,64 +27,6 @@ const STAGES_METADATA = [
 // 阶段清单接口
 projectController.get('/api/stages', (c) => {
   return c.json({ success: true, stages: STAGES_METADATA });
-});
-
-// 创建新项目
-projectController.post('/api/project/start', async (c) => {
-  try {
-    const body = await c.req.json().catch(() => ({}));
-    const rawIdea = typeof body.idea === 'string' ? body.idea.trim() : '';
-    if (!rawIdea) {
-      return c.json({ success: false, error: '缺少核心故事构思或题材创意 (idea)，创建项目必须提供明确创意输入' }, 400);
-    }
-
-    const title = (typeof body.title === 'string' && body.title.trim()) ? body.title.trim() : '未命名互动影游';
-    // 🌟 源头单一事实来源收敛 (SSOT)：严格消费标准驼峰契约，连根拔除旧别名
-    const standardRatio = (body.videoRatio === '9:16' || body.videoRatio === '1:1') ? body.videoRatio : '16:9';
-    const standardResolution = (body.videoResolution === '1080P' || body.videoResolution === '480P') ? body.videoResolution : '720P';
-
-    const meta = {
-      idea: rawIdea,
-      style: (typeof body.style === 'string' && body.style.trim()) ? body.style.trim() : '电影质感，高品质影视光影',
-      videoRatio: standardRatio as '16:9' | '9:16' | '1:1',
-      videoResolution: standardResolution as '480P' | '720P' | '1080P',
-      episodes: body.episodes || 1,
-    };
-
-    const projectId = `proj_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const store = ProjectStore.getInstance();
-
-    const project: ProjectEntity = {
-      projectId,
-      title,
-      meta,
-      status: SessionStatus.IDLE,
-      currentStage: WorkflowStage.NARRATIVE_DESIGN,
-      stageArtifacts: {},
-      history: [
-        {
-          timestamp: new Date().toISOString(),
-          stage: WorkflowStage.NARRATIVE_DESIGN,
-          action: 'PROJECT_CREATED',
-          details: `Project "${title}" created`,
-        },
-      ],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    store.saveProject(project);
-
-    return c.json({
-      success: true,
-      projectId: project.projectId,
-      status: project.status,
-      project,
-      params: meta,
-    });
-  } catch (err: any) {
-    return c.json({ success: false, error: err.message }, 400);
-  }
 });
 
 // 获取项目列表 (同时支持标准 REST /api/projects 与 /api/project/list)
@@ -146,6 +90,34 @@ projectController.post('/api/project/:projectId/stage/advance', async (c) => {
       }
     }
 
+    if (project.currentStage === WorkflowStage.COMPLETED) {
+      return c.json({
+        success: true,
+        currentStage: WorkflowStage.COMPLETED,
+        message: '项目已全部完成，无需推进',
+      });
+    }
+
+    // 🌟 门禁校验 1：当前工序必须存在实际交付产物，彻底消灭未执行技能即可空跑连跳
+    const currentArtifact = store.getArtifact(projectId, project.currentStage as any);
+    if (!currentArtifact || (typeof currentArtifact === 'object' && Object.keys(currentArtifact).length === 0)) {
+      return c.json({
+        success: false,
+        error: `当前工序【${project.currentStage}】尚未生成任何实质交付产物，严禁空跑跃迁至下一阶段`,
+      }, 400);
+    }
+
+    // 🌟 门禁校验 2：审查官刚性阻断 (双核博弈生效)——当前工序若有未失效的 FAIL 报告，坚决阻断跨工序推进
+    const effectiveReport = CriticReviewerAgent.getInstance().getEffectiveReport(projectId, project.currentStage);
+    if (effectiveReport && !effectiveReport.isStale && effectiveReport.gateStatus === 'FAIL') {
+      return c.json({
+        success: false,
+        error: `审查官刚性阻断：当前工序【${project.currentStage}】存在重大视听缺陷，审查官评定为 FAIL。请先进行自愈优化或在对辩面板辩护通过后方可推进！`,
+        gateStatus: 'FAIL',
+        report: effectiveReport,
+      }, 403);
+    }
+
     const currentIndex = STAGE_SEQUENCE.indexOf(project.currentStage as any);
     if (currentIndex !== -1 && currentIndex < STAGE_SEQUENCE.length - 1) {
       const nextStage = STAGE_SEQUENCE[currentIndex + 1];
@@ -198,21 +170,83 @@ projectController.get('/api/project/:projectId/artifact/:stage', (c) => {
   }
 });
 
-// 写入/更新项目全局状态黑板指定阶段产物 (Artifact POST/PATCH SSOT)
-const handleSaveArtifact = async (c: any) => {
+// 写入项目全局状态黑板指定阶段产物 (Artifact POST - 全量覆盖 SSOT)
+projectController.post('/api/project/:projectId/artifact/:stage', async (c) => {
   try {
     const projectId = c.req.param('projectId');
     const stage = c.req.param('stage');
     const body = await c.req.json().catch(() => ({}));
     const store = ProjectStore.getInstance();
     store.setArtifact(projectId, stage, body);
-    return c.json({ success: true, stage, message: `阶段 [${stage}] 产物已更新` });
+    return c.json({ success: true, stage, message: `阶段 [${stage}] 产物已全量更新` });
   } catch (err: any) {
     return c.json({ success: false, error: err.message }, 500);
   }
-};
-projectController.post('/api/project/:projectId/artifact/:stage', handleSaveArtifact);
-projectController.patch('/api/project/:projectId/artifact/:stage', handleSaveArtifact);
+});
+
+// 局部更新/版本切换选择项目阶段产物 (Artifact PATCH - 增量合并与防数据清空 SSOT)
+projectController.patch('/api/project/:projectId/artifact/:stage', async (c) => {
+  try {
+    const projectId = c.req.param('projectId');
+    const stage = c.req.param('stage');
+    const body = await c.req.json().catch(() => ({}));
+    const store = ProjectStore.getInstance();
+    const existing = store.getArtifact<any>(projectId, stage as any);
+
+    if (!existing) {
+      store.setArtifact(projectId, stage, body);
+      return c.json({ success: true, stage, message: `阶段 [${stage}] 产物已创建` });
+    }
+
+    // 🌟 针对创作者版本选择 (Selections) 的结构安全合流，严禁冲毁原有角色/分镜完整产物清单
+    const selections = body.selections || (typeof body === 'object' && !Array.isArray(body) && !body.characters && !body.shots ? body : undefined);
+
+    if (selections && typeof selections === 'object') {
+      let updated = false;
+
+      // 1. 角色定妆阶段产物版本合流
+      if (stage === 'character_design' && Array.isArray(existing.characters)) {
+        existing.characters = existing.characters.map((char: any) => {
+          const charKey = char.name || char.id;
+          const chosenUrl = selections[charKey] || selections[char.id] || selections[char.name];
+          if (chosenUrl && typeof chosenUrl === 'string') {
+            updated = true;
+            return { ...char, imageUrl: chosenUrl, selected: true };
+          }
+          return char;
+        });
+      }
+
+      // 2. 关键帧/分镜阶段产物版本合流
+      if (Array.isArray(existing.shots)) {
+        existing.shots = existing.shots.map((shot: any) => {
+          const shotKey = shot.shotId || shot.id;
+          const chosenUrl = selections[shotKey];
+          if (chosenUrl && typeof chosenUrl === 'string') {
+            updated = true;
+            return { ...shot, imageUrl: chosenUrl };
+          }
+          return shot;
+        });
+      }
+
+      if (updated) {
+        store.setArtifact(projectId, stage, existing);
+        return c.json({ success: true, stage, artifact: existing, message: `阶段 [${stage}] 版本选择已精准合流` });
+      }
+    }
+
+    // 3. 通用对象层级浅合并
+    const merged = typeof existing === 'object' && !Array.isArray(existing) && typeof body === 'object' && !Array.isArray(body)
+      ? { ...existing, ...body }
+      : body;
+
+    store.setArtifact(projectId, stage, merged);
+    return c.json({ success: true, stage, artifact: merged, message: `阶段 [${stage}] 产物已局部合并更新` });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
 
 // 🌟 上传阶段媒体图片 (通用文件落盘与阶段产物适配器更新)
 projectController.post('/api/project/:projectId/artifact/:stage/upload_image', async (c) => {
@@ -230,15 +264,23 @@ projectController.post('/api/project/:projectId/artifact/:stage/upload_image', a
       return c.json({ success: false, error: '缺少有效的上传文件' }, 400);
     }
 
-    const projectDir = store.getProjectDir(projectId);
-    const targetDir = path.join(projectDir, itemType);
+    // 🌟 刚性路径穿越防御：校验 itemType 并确保目标目录在 projectDir 内部
+    const sanitizedItemType = itemType.replace(/[^a-zA-Z0-9_-]/g, '') || 'characters';
+    const projectDir = path.resolve(store.getProjectDir(projectId));
+    const targetDir = path.resolve(projectDir, sanitizedItemType);
+    if (!targetDir.startsWith(projectDir)) {
+      return c.json({ success: false, error: '非法上传路径，禁止目录逃逸' }, 403);
+    }
+
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
     }
 
-    const safeItemId = encodeURIComponent(itemId);
+    const safeItemId = encodeURIComponent(itemId.replace(/[^a-zA-Z0-9_-]/g, ''));
     const originalName = (file as any).name || 'upload.png';
-    const ext = path.extname(originalName) || '.jpg';
+    const rawExt = path.extname(originalName).toLowerCase();
+    const ALLOWED_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'];
+    const ext = ALLOWED_EXTENSIONS.includes(rawExt) ? rawExt : '.png';
     const filename = `${safeItemId}_${Date.now()}${ext}`;
     const fullPath = path.join(targetDir, filename);
 
@@ -246,16 +288,17 @@ projectController.post('/api/project/:projectId/artifact/:stage/upload_image', a
     const arrayBuffer = await (file as Blob).arrayBuffer();
     fs.writeFileSync(fullPath, Buffer.from(arrayBuffer));
 
-    const localUrl = `/media/${projectId}/${itemType}/${filename}`;
+    const localUrl = `/media/${projectId}/${sanitizedItemType}/${filename}`;
 
     // 🌟 统一通过适配器回写阶段资产 (OCP 开闭原则解耦，消灭侵入式硬编码)
     let artifact = store.getArtifact<any>(projectId, stage as any);
     if (artifact) {
-      artifact = applyMediaToStageArtifact(artifact, stage, itemId, itemType, localUrl);
+      artifact = applyMediaToStageArtifact(artifact, stage, itemId, sanitizedItemType, localUrl);
       store.setArtifact(projectId, stage as any, artifact);
     }
 
     return c.json({
+      success: true,
       status: 'success',
       path: localUrl,
       artifact,

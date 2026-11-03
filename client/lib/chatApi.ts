@@ -48,6 +48,8 @@ export interface ChatSession {
   updatedAt: string;
 }
 
+export type ReviewGateStatus = 'PASS' | 'WARN' | 'FAIL' | 'STALE';
+
 export interface ReviewIssue {
   id?: string;
   severity: 'CRITICAL' | 'MAJOR' | 'MINOR';
@@ -60,7 +62,7 @@ export interface ReviewIssue {
 export interface ReviewReport {
   projectName: string;
   stageReviewed: string;
-  gateStatus: 'PASS' | 'WARN' | 'FAIL';
+  gateStatus: ReviewGateStatus;
   scores: {
     narrativeLogicScore: number;
     characterDepthScore: number;
@@ -83,7 +85,7 @@ export interface ReviewReport {
 export interface CriticDialogReply {
   reply: string;
   isDefenseAccepted?: boolean;
-  reassessedGateStatus?: 'PASS' | 'WARN' | 'FAIL';
+  reassessedGateStatus?: ReviewGateStatus;
   adjustedFlaws?: ReviewIssue[];
 }
 
@@ -96,7 +98,7 @@ export interface DirectorStreamCallbacks {
 }
 
 export interface SkillStreamCallbacks {
-  onProgress?: (percent: number, message: string) => void;
+  onProgress?: (percent: number, message: string, taskId?: string) => void;
   onDone?: (result: any) => void;
   onError?: (error: Error) => void;
 }
@@ -338,7 +340,7 @@ export async function streamSkillExecute(
   await parseSseStream(resp, (event, data) => {
     switch (event) {
       case 'progress':
-        callbacks.onProgress?.(data.percent ?? 0, data.message || '');
+        callbacks.onProgress?.(data.percent ?? 0, data.message || '', data.taskId);
         break;
       case 'done':
         callbacks.onDone?.(data);

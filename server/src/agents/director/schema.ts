@@ -17,18 +17,17 @@ export const ProposeActionParamsSchema = z.object({
   styleOverride: z.string().optional().describe('覆盖或强化的视觉影调风格'),
 }).passthrough().describe('具体执行参数');
 
-export type ProposeActionParams = z.infer<typeof ProposeActionParamsSchema>;
-
 // 2. 导演发起阶段工序行动提案 Schema (propose_stage_action)
 // 🌟 纯动态插件化微内核：skill 保持动态字符串，由 SkillRegistry 动态发现与单例刚性门禁校验，彻底消除硬编码数组
 export const ProposeStageActionSchema = z.object({
   skill: z.string().describe('要执行的目标工序技能唯一标识名 (必须完全对应当前已挂载技能清单中的 skillName)'),
   label: z.string().describe('卡片行动标题，如 一键生成角色视觉定妆照'),
-  description: z.string().describe('行动说明与推进理由'),
+  description: z.string().optional().describe('行动说明与推进理由'),
   params: ProposeActionParamsSchema.optional().describe('具体执行参数'),
 });
 
-export type ProposeStageActionInput = z.infer<typeof ProposeStageActionSchema>;
+export type ProposeActionParams = z.input<typeof ProposeActionParamsSchema>;
+export type ProposeStageActionInput = z.input<typeof ProposeStageActionSchema>;
 
 // 3. 预编译的 Vercel AI SDK 原生 Tool 实例单例
 export const proposeStageActionTool = tool({

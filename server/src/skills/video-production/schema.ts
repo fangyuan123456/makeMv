@@ -14,6 +14,8 @@ export const VideoClipItemSchema = z.object({
   resolution: z.string().describe('视频分辨率 (如 720P / 1080P)'),
   ratio: z.string().describe('画面比例 (如 16:9)'),
   status: z.literal('rendered').describe('渲染完成状态'),
+  isDegraded: z.boolean().optional().describe('是否本地离线降级生成'),
+  degradedReason: z.string().optional().describe('降级原因说明'),
 });
 
 export type VideoClipItem = z.infer<typeof VideoClipItemSchema>;

@@ -15,6 +15,7 @@ import { JsonSanitizer } from '../utils/JsonSanitizer.js';
 import { BrandRouter, ResolvedEndpoint } from './BrandRouter.js';
 import { ModelPricingRegistry } from './telemetry/ModelPricing.js';
 import type { LLMUsageRecord } from './telemetry/types.js';
+import { trace } from '../utils/trace.js';
 
 export class RealLLMService implements LLMService {
   public readonly modelName: string;
@@ -35,7 +36,7 @@ export class RealLLMService implements LLMService {
 
     const openai = createOpenAI({
       baseURL: this.endpoint.baseURL,
-      apiKey: this.endpoint.apiKey || 'dummy_key',
+      apiKey: this.endpoint.apiKey,
       fetch: customFetch,
     });
 
@@ -105,7 +106,8 @@ export class RealLLMService implements LLMService {
     usageObj: any,
     stage?: string,
     durationMs?: number,
-    customCallback?: (rec: LLMUsageRecord) => void
+    customCallback?: (rec: LLMUsageRecord) => void,
+    projectId?: string
   ): void {
     if (!usageObj) return;
     const promptTokens = usageObj.promptTokens ?? usageObj.prompt_tokens ?? 0;
@@ -129,6 +131,11 @@ export class RealLLMService implements LLMService {
     try {
       this.onUsageListener?.(record);
       customCallback?.(record);
+
+      // 🌟 算力与花费持久化追溯打点 (Trace SSOT)
+      if (projectId) {
+        trace(projectId, 'llm.usage', record);
+      }
     } catch (err) {
       console.warn('[RealLLMService] 旁路遥测通知异常 (已安全降级):', err);
     }
@@ -146,7 +153,7 @@ export class RealLLMService implements LLMService {
       });
 
       const duration = Date.now() - startTime;
-      this.dispatchUsage(result.usage, options?.stage, duration, options?.onUsage);
+      this.dispatchUsage(result.usage, options?.stage, duration, options?.onUsage, options?.projectId);
 
       return result.text;
     } catch (err: any) {
@@ -176,7 +183,7 @@ export class RealLLMService implements LLMService {
       });
 
       const duration = Date.now() - startTime;
-      this.dispatchUsage(result.usage, options?.stage, duration, options?.onUsage);
+      this.dispatchUsage(result.usage, options?.stage, duration, options?.onUsage, options?.projectId);
 
       return result.text;
     } catch (err: any) {
@@ -239,7 +246,7 @@ export class RealLLMService implements LLMService {
       } catch {
         usage = undefined;
       }
-      this.dispatchUsage(usage, options?.stage, duration, options?.onUsage);
+      this.dispatchUsage(usage, options?.stage, duration, options?.onUsage, options?.projectId);
 
       return fullText;
     } catch (err: any) {
@@ -254,6 +261,11 @@ export class RealLLMService implements LLMService {
     systemPrompt?: string,
     options?: LLMOptions
   ): Promise<string> {
+    if (!this.hasVisionCapability()) {
+      console.warn(
+        `[RealLLMService] ⚠️ 显式警告：当前配置模型 [${this.modelName}] 未声明多模态 Vision 视觉能力，图像/视频质检将退化或可能被上游 API 拒绝！建议选用 Qwen-VL / GPT-4o / Gemini 等具备原生视觉的大模型。`
+      );
+    }
     const startTime = Date.now();
     try {
       const contentParts: any[] = [{ type: 'text', text: prompt }];
@@ -275,7 +287,7 @@ export class RealLLMService implements LLMService {
       });
 
       const duration = Date.now() - startTime;
-      this.dispatchUsage(result.usage, options?.stage || 'vision', duration, options?.onUsage);
+      this.dispatchUsage(result.usage, options?.stage || 'vision', duration, options?.onUsage, options?.projectId);
 
       return result.text;
     } catch (err: any) {
@@ -310,7 +322,7 @@ export class RealLLMService implements LLMService {
       });
 
       const duration = Date.now() - startTime;
-      this.dispatchUsage(result.usage, options?.stage, duration, options?.onUsage);
+      this.dispatchUsage(result.usage, options?.stage, duration, options?.onUsage, options?.projectId);
 
       return result.object as T;
     } catch (err: any) {

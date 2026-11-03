@@ -48,19 +48,16 @@ export class CriticReviewSkill extends BaseSkill<CriticReviewParams, ReviewRepor
 
     // 调度做实后的核心智能体 CriticReviewerAgent 穿透审计
     const reviewer = CriticReviewerAgent.getInstance();
+    const effectiveTargetStage = params.targetStage || context.project?.currentStage;
     const report = await reviewer.review({
       projectId,
-      targetStage: params.targetStage,
+      targetStage: effectiveTargetStage,
       userConstraints: constraints,
       userFeedback: params.userFeedback,
       abortSignal,
     });
 
     await this.notifyProgress(context, 85, '审查官正在拟定漏洞自愈修复建议与终审门禁评语...');
-
-    // 🌟 全局状态黑板统一落盘 (SSOT)：将审查报告作为一等资产写入黑板，供 Director 双核博弈闭环感知
-    ProjectStore.getInstance().setArtifact(projectId, 'critic_review', report);
-
 
     const gateBadge = report.gateStatus === 'PASS' ? '🟢【准许放行】' : report.gateStatus === 'WARN' ? '🟡【建议优化】' : '🔴【刚性阻断】';
     const flawsText = report.criticalFlaws.length > 0

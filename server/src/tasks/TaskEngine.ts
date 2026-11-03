@@ -14,6 +14,7 @@ import { randomUUID } from 'crypto';
 import { EventEmitter } from 'events';
 import { config } from '../utils/config.js';
 import { atomicWriteJsonSync } from '../utils/index.js';
+import { trace, classify } from '../utils/trace.js';
 import { SkillRegistry } from '../skills/SkillRegistry.js';
 import { ProjectStore, ProposalStore } from '../project-store/index.js';
 import { GateGuard } from '../agents/reviewer/GateGuard.js';
@@ -26,13 +27,71 @@ export class TaskEngine {
   private static instance?: TaskEngine;
   private taskCache = new Map<string, TaskEntity>();
   private abortControllers = new Map<string, AbortController>();
+  private cancelledTaskIds = new Set<string>();
   private emitter = new EventEmitter();
+
+  private constructor() {
+    this.recoverOrphanTasks();
+  }
 
   public static getInstance(): TaskEngine {
     if (!TaskEngine.instance) {
       TaskEngine.instance = new TaskEngine();
     }
     return TaskEngine.instance;
+  }
+
+  /**
+   * 🌟 获取当前项目处于活跃运行态 (pending / running) 的任务列表 (消除导演任务盲视)
+   */
+  public getActiveTasks(projectId: string): TaskEntity[] {
+    const list: TaskEntity[] = [];
+    for (const task of this.taskCache.values()) {
+      if (task.projectId === projectId && (task.status === 'running' || task.status === 'pending')) {
+        list.push(task);
+      }
+    }
+    return list;
+  }
+
+  /**
+   * 🌟 启动孤儿任务恢复扫描 (Crash / Restart Orphan Recovery SSOT)
+   * 服务重启后，扫描磁盘中未完结（running / pending）的孤儿任务，刚性标为 failed，杜绝假死与并发排重死锁
+   */
+  private recoverOrphanTasks(): void {
+    try {
+      const projectsDir = config.paths.projects;
+      if (!fs.existsSync(projectsDir)) return;
+
+      const projectEntries = fs.readdirSync(projectsDir, { withFileTypes: true });
+      for (const entry of projectEntries) {
+        if (!entry.isDirectory()) continue;
+        const tasksDir = path.join(projectsDir, entry.name, 'tasks');
+        if (!fs.existsSync(tasksDir)) continue;
+
+        const taskFiles = fs.readdirSync(tasksDir).filter((f) => f.endsWith('.json'));
+        for (const file of taskFiles) {
+          const filePath = path.join(tasksDir, file);
+          try {
+            const raw = fs.readFileSync(filePath, 'utf-8');
+            const task = JSON.parse(raw) as TaskEntity;
+            if (task.status === 'pending' || task.status === 'running') {
+              console.warn(`[TaskEngine] ⚠️ 检测到重启遗留孤儿任务 [${task.taskId}] (状态: ${task.status})，执行自愈终止`);
+              task.status = 'failed';
+              task.error = '服务异常重启或断电，未完结任务已自动终止';
+              task.message = task.error;
+              task.updatedAt = new Date().toISOString();
+              atomicWriteJsonSync(filePath, task);
+              this.taskCache.set(task.taskId, task);
+            }
+          } catch {
+            // 忽略损坏的单任务文件
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[TaskEngine] 孤儿任务恢复扫描异常:', err);
+    }
   }
 
   private getTasksDir(projectId: string): string {
@@ -117,6 +176,13 @@ export class TaskEngine {
   }
 
   private async executeTask(task: TaskEntity, actionId?: string): Promise<void> {
+    // 🌟 刚性双锁防御：若在调度微任务窗口期已被创作者取消/中断，直接终止执行，杜绝覆写为 running 的取消丢失竞态
+    if (this.cancelledTaskIds.has(task.taskId) || task.status === 'aborted') {
+      this.cancelledTaskIds.delete(task.taskId);
+      console.log(`[TaskEngine] 任务 [${task.taskId}] 调度前已被中止，退出执行`);
+      return;
+    }
+
     const { taskId, projectId, sessionId, skillName, params } = task;
     const store = ProjectStore.getInstance();
     const skill = SkillRegistry.getInstance().get(skillName)!;
@@ -162,6 +228,14 @@ export class TaskEngine {
       task.updatedAt = task.completedAt;
       this.persistTask(task);
 
+      trace(projectId, 'task.execute', {
+        taskId,
+        skillName: skill.manifest.name,
+        status: 'completed',
+        progress: 100,
+        durationMs: task.startedAt ? Date.now() - new Date(task.startedAt).getTime() : 0,
+      });
+
       // 🌟 工序阶段跃迁与提案回标 (防误推双重刚性守卫 SSOT)
       const latestProject = store.getProject(projectId);
       if (latestProject && skill.manifest.category !== 'critic' && skill.manifest.targetStage) {
@@ -172,11 +246,43 @@ export class TaskEngine {
         // 严格判定是否属于微调/重绘 (显式 isRefinement || 目标就是当前阶段)
         const isRefinementTask = Boolean(params.isRefinement) || (targetStage === latestProject.currentStage);
 
-        // 仅在明确不是微调任务、且目标阶段严格大于当前阶段时，才允许单调向前跃迁，彻底消灭写坏状态机路径！
-        if (!isRefinementTask && targetIdx > currIdx) {
+        // 🌟 P0-2 & P1-1 终态防倒退与相邻工序单调推进门禁 (Adjacent Stage Progression Guard)：
+        // 1. 支持从 INIT 初始阶段正常跃迁至序列首个工序 (targetIdx === 0)
+        // 2. 严格要求 latestProject.currentStage !== WorkflowStage.COMPLETED (终态不可逆，坚决禁止被拉回工序阶段)
+        // 3. 仅在明确非微调任务、且目标阶段恰为紧邻下一阶段 (targetIdx === currIdx + 1) 时，才准许单步向前跃迁！禁止跨工序空跳 (如 Stage 1 直跳 Stage 7)
+        const isFromInit = latestProject.currentStage === WorkflowStage.INIT && targetIdx === 0;
+        const isStrictAdjacentNext = currIdx !== -1 && targetIdx === currIdx + 1;
+        if (!isRefinementTask && (isFromInit || isStrictAdjacentNext) && latestProject.currentStage !== WorkflowStage.COMPLETED) {
           latestProject.currentStage = targetStage;
           store.saveProject(latestProject);
-          console.log(`[TaskEngine] 🚀 任务 ${taskId} 执行成功，权威阶段跃迁至: ${targetStage}`);
+          console.log(`[TaskEngine] 🚀 任务 ${taskId} 执行成功，权威阶段跃迁至相邻下一工序: ${targetStage}`);
+        } else if (!isRefinementTask && currIdx !== -1 && targetIdx > currIdx + 1) {
+          console.warn(`[TaskEngine] ⚠️ 拦截非法跨工序空跳：当前阶段 [${latestProject.currentStage}]，目标技能工序 [${targetStage}]，拒绝跃迁`);
+        }
+      }
+
+      // 提案原子回标 (ProposalStore + Messages SSOT 双持久化保全)
+      const targetActionId = actionId || params.actionId;
+      if (targetActionId) {
+        ProposalStore.getInstance().updateProposalStatus(projectId, targetActionId, 'executed', {
+          executedAt: task.completedAt,
+          resultSummary: result.summary,
+        });
+
+        const sessionsToSearch = sessionId
+          ? [store.getSession(projectId, sessionId)].filter((s): s is NonNullable<typeof s> => Boolean(s))
+          : store.listSessions(projectId);
+
+        for (const sess of sessionsToSearch) {
+          const messages = store.getMessages(projectId, sess.sessionId);
+          const targetMsg = messages.find((m) => m.actionProposal?.actionId === targetActionId);
+          if (targetMsg?.actionProposal) {
+            targetMsg.actionProposal.status = 'executed';
+            targetMsg.actionProposal.executedAt = task.completedAt;
+            targetMsg.actionProposal.resultSummary = result.summary;
+            store.saveMessages(projectId, sess.sessionId, messages);
+            break;
+          }
         }
       }
 
@@ -186,15 +292,6 @@ export class TaskEngine {
         if (currentProject?.currentStage && currentSession && currentSession.currentStage !== currentProject.currentStage) {
           currentSession.currentStage = currentProject.currentStage;
           store.saveSession(currentSession);
-        }
-
-        // 提案原子回标
-        const targetActionId = actionId || params.actionId;
-        if (targetActionId) {
-          ProposalStore.getInstance().updateProposalStatus(projectId, targetActionId, 'executed', {
-            executedAt: task.completedAt,
-            resultSummary: result.summary,
-          });
         }
 
         // 注入总结通知消息
@@ -208,10 +305,25 @@ export class TaskEngine {
       }
     } catch (err: any) {
       task.status = abortController.signal.aborted ? 'aborted' : 'failed';
+      const classified = classify(err);
+      task.errorCode = classified.code;
+      task.errorDetail = classified.detail;
       task.error = err.message || '任务失败';
-      task.message = task.error!;
+      task.message = `[${classified.code}] ${task.error}`;
       task.updatedAt = new Date().toISOString();
+      if (err?.partial) {
+        task.partialResult = err.partial;
+      }
       this.persistTask(task);
+
+      trace(projectId, 'task.execute', {
+        taskId,
+        skillName: skill.manifest.name,
+        status: task.status,
+        errorCode: task.errorCode,
+        errorDetail: task.errorDetail,
+        durationMs: task.startedAt ? Date.now() - new Date(task.startedAt).getTime() : 0,
+      });
 
       // 🌟 任务异常失败后，原子回标提案状态为 failed，支持一键重试与自愈流转
       const targetActionId = actionId || params.actionId;
@@ -221,15 +333,22 @@ export class TaskEngine {
           failedAt: task.updatedAt,
         });
 
-        if (sessionId) {
-          const messages = store.getMessages(projectId, sessionId);
+        const sessionsToSearch = sessionId
+          ? [store.getSession(projectId, sessionId)].filter((s): s is NonNullable<typeof s> => Boolean(s))
+          : store.listSessions(projectId);
+
+        for (const sess of sessionsToSearch) {
+          const messages = store.getMessages(projectId, sess.sessionId);
           const targetMsg = messages.find((m) => m.actionProposal?.actionId === targetActionId);
           if (targetMsg?.actionProposal) {
             targetMsg.actionProposal.status = 'failed';
             targetMsg.actionProposal.description = `[执行未收敛] ${task.error}。可点击卡片重新执行本工序。`;
-            store.saveMessages(projectId, sessionId, messages);
+            store.saveMessages(projectId, sess.sessionId, messages);
+            break;
           }
+        }
 
+        if (sessionId) {
           const alertMsg: ChatMessage = {
             id: `msg_task_err_${randomUUID().slice(0, 8)}`,
             role: 'assistant',
@@ -242,6 +361,7 @@ export class TaskEngine {
       }
     } finally {
       this.abortControllers.delete(taskId);
+      this.cancelledTaskIds.delete(taskId);
     }
   }
 
@@ -282,6 +402,7 @@ export class TaskEngine {
    * 取消/中断运行中的任务
    */
   public cancelTask(projectId: string, taskId: string): boolean {
+    this.cancelledTaskIds.add(taskId);
     const controller = this.abortControllers.get(taskId);
     if (controller) {
       controller.abort();

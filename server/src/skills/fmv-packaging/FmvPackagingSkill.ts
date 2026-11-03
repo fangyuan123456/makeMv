@@ -42,20 +42,25 @@ export class FmvPackagingSkill extends BaseSkill<FmvPackagingParams, FmvPackagin
   ): Promise<{ data: FmvPackagingArtifact; summary: string }> {
     const { projectId } = context;
     const store = ProjectStore.getInstance();
-    const project = store.getProject(projectId);
+    const project = context.project || store.getProject(projectId);
 
     await this.notifyProgress(context, 15, '正在校验全网互动节点拓扑连通性与视频切片完整度...');
 
-    const narrative = store.getArtifact<any>(projectId, WorkflowStage.NARRATIVE_DESIGN);
-    const scriptArtifact = store.getArtifact<any>(projectId, WorkflowStage.SCENE_SCRIPT);
-    const storyboardArtifact = store.getArtifact<any>(projectId, WorkflowStage.STORYBOARD);
-    const videoArtifact = store.getArtifact<any>(projectId, WorkflowStage.VIDEO_PRODUCTION);
+    const narrative = context.artifacts?.[WorkflowStage.NARRATIVE_DESIGN] || store.getArtifact<any>(projectId, WorkflowStage.NARRATIVE_DESIGN);
+    const scriptArtifact = context.artifacts?.[WorkflowStage.SCENE_SCRIPT] || store.getArtifact<any>(projectId, WorkflowStage.SCENE_SCRIPT);
+    const storyboardArtifact = context.artifacts?.[WorkflowStage.STORYBOARD] || store.getArtifact<any>(projectId, WorkflowStage.STORYBOARD);
+    const videoArtifact = context.artifacts?.[WorkflowStage.VIDEO_PRODUCTION] || store.getArtifact<any>(projectId, WorkflowStage.VIDEO_PRODUCTION);
 
     const rawNodes = narrative?.storyGraph?.nodes || [];
     const clips = videoArtifact?.clips || [];
 
     if (rawNodes.length === 0) {
       throw new Error('缺少叙事拓扑节点，无法进行母带打包装配');
+    }
+
+    // 🌟 刚性校验视频切片：杜绝 clips 为空时生成假 default_clip.mp4 导致前端全盘 404
+    if (clips.length === 0) {
+      throw new Error('未检索到已渲染完成的视频切片（clips 列表为空），无法进行影游运行清单装配，请先完成前置视频生成工序');
     }
 
     await this.notifyProgress(context, 45, '正在编译剧情树拓扑路由、分支决策点与视频切片映射...');
@@ -82,22 +87,34 @@ export class FmvPackagingSkill extends BaseSkill<FmvPackagingParams, FmvPackagin
 
     // 🌟 编译标准 FMVManifest.nodes 字典对象 (Record<string, FMVNodeAsset>)
     const nodesRecord: Record<string, FMVNodeAsset> = {};
-    const fallbackVideoUrl = clips[0]?.videoUrl || `/media/${projectId}/video/default_clip.mp4`;
+    const fallbackVideoUrl = clips[0]?.videoUrl || '';
+    const missingNodeIds: string[] = [];
+    const usedClipIds = new Set<string>();
 
     for (let i = 0; i < rawNodes.length; i++) {
       const node = rawNodes[i];
       const matchedClips = nodeClipsMap.get(node.id) || [];
-      // 优先匹配当前节点专属切片，若无则按顺序分配或兜底
-      const selectedClip = matchedClips[0] || clips[i % (clips.length || 1)];
+      const hasMatchedClip = matchedClips.length > 0;
+
+      if (!hasMatchedClip) {
+        missingNodeIds.push(node.id);
+      }
+
+      // 🌟 杜绝伪造假收敛：优先使用专属切片；无专属切片时标记 isMissing，严禁静默偷换
+      const selectedClip = hasMatchedClip ? matchedClips[0] : null;
       const videoUrl = selectedClip?.videoUrl || fallbackVideoUrl;
       const durationSec = selectedClip?.durationSec || 5;
+
+      if (selectedClip?.clipId) {
+        usedClipIds.add(selectedClip.clipId);
+      }
 
       // 编译分支抉择选项
       const fmvChoices: FMVChoice[] = (node.choices || []).map((ch: any, idx: number) => ({
         id: `choice_${node.id}_${idx + 1}`,
         fromNodeId: node.id,
-        toNodeId: ch.targetNodeId || ch.toNodeId,
-        choiceText: ch.text || ch.choiceText || `分支选项 ${idx + 1}`,
+        toNodeId: ch.targetNodeId,
+        choiceText: ch.text || `分支选项 ${idx + 1}`,
         timeoutSeconds: 10,
         isTimeoutDefault: idx === 0,
       }));
@@ -112,11 +129,18 @@ export class FmvPackagingSkill extends BaseSkill<FmvPackagingParams, FmvPackagin
         decisionTimeSec: Math.max(1, durationSec - 2),
         isDecisionPoint,
         choices: isDecisionPoint ? fmvChoices : undefined,
+        isMissing: !hasMatchedClip,
       };
     }
 
     const startNodeId = narrative?.storyGraph?.rootNodeId || rawNodes[0]?.id || 'node_1';
-    const totalDurationSec = clips.reduce((acc: number, c: any) => acc + (c.durationSec || 0), 0) || 120;
+    // 🌟 真实独立切片时长求和 (SSOT 去重计算，彻底消除轮转兜底导致成片总长虚高)
+    const effectiveClips = clips.filter((c: any) => usedClipIds.has(c.clipId));
+    const totalDurationSec =
+      effectiveClips.length > 0
+        ? effectiveClips.reduce((acc: number, c: any) => acc + (c.durationSec || 0), 0)
+        : clips.reduce((acc: number, c: any) => acc + (c.durationSec || 0), 0) || 120;
+
     const gameTitle = project?.title || narrative?.title || '互动影游母带成片';
 
     const fmvManifest: FMVManifest = {
@@ -141,6 +165,11 @@ export class FmvPackagingSkill extends BaseSkill<FmvPackagingParams, FmvPackagin
       'utf-8'
     );
 
+    const isDegraded = missingNodeIds.length > 0;
+    const degradedReason = isDegraded
+      ? `存在 ${missingNodeIds.length} 个分支剧情节点未匹配到独立视频切片 (缺失节点: ${missingNodeIds.join(', ')})`
+      : undefined;
+
     const artifact: FmvPackagingArtifact = {
       title: gameTitle,
       gameManifestUrl: `/media/${projectId}/package/game_manifest.json`,
@@ -149,21 +178,19 @@ export class FmvPackagingSkill extends BaseSkill<FmvPackagingParams, FmvPackagin
       totalClips: clips.length,
       totalEndings: narrative?.storyGraph?.endingsCount || 4,
       playableDurationSec: totalDurationSec,
+      isDegraded: isDegraded || undefined,
+      degradedReason,
+      missingNodeIds: isDegraded ? missingNodeIds : undefined,
       status: 'packaged',
       createdAt: new Date().toISOString(),
     };
 
-    // 写入状态黑板并将项目置为 COMPLETED
-
-    if (project) {
-
-      project.status = SessionStatus.COMPLETED;
-      store.saveProject(project);
-    }
-
+    // 🌟 P0-2 权能纯化：严禁技能越权修改 project.status！状态机的推进收尾唯一收拢至创作者确认 advance
     this.exportToLocalDisk(projectId, artifact);
 
-    const summary = `🎉《${artifact.title}》全剧母带工程与交互播放清单装配发布完成！共计编译 ${artifact.totalNodes} 个分支剧情节点与 ${artifact.totalClips} 支动态视频切片，包含 ${artifact.totalEndings} 重结局，互动影游运行时已完全就绪！`;
+    const summary = isDegraded
+      ? `⚠️《${artifact.title}》互动影游母带完成装配，但处于降级状态：共计 ${artifact.totalNodes} 个节点中，有 ${missingNodeIds.length} 个节点缺失专属视频（${missingNodeIds.join(', ')}）。播放器已就绪，请在视窗中试玩或针对缺失节点补齐分镜与视频！`
+      : `🎉《${artifact.title}》互动影游分支节点清单与播放运行时编译装配完成！全量 ${artifact.totalNodes} 个分支剧情节点均拥有真实切片支撑，包含 ${artifact.totalEndings} 重结局，互动播放器已完全就绪！`;
 
     return {
       data: artifact,

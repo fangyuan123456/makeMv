@@ -12,6 +12,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { LLMRegistry } from '../../llm/LLMRegistry.js';
 import { ProjectStore, ProposalStore } from '../../project-store/index.js';
 import { WorkflowStage } from '../../types/index.js';
@@ -46,11 +47,24 @@ export class CriticReviewerAgent {
     return CriticReviewerAgent.instance;
   }
 
+  private computeArtifactFingerprint(artifact: any): string {
+    if (!artifact) return '';
+    try {
+      const serialized = JSON.stringify(artifact);
+      return crypto.createHash('md5').update(serialized).digest('hex');
+    } catch {
+      return '';
+    }
+  }
+
   /**
    * 🌟 发起跨工序全景交叉深度审查
    */
   public async review(input: ReviewInput): Promise<ReviewReport> {
     const { projectId, targetStage, userConstraints, userFeedback, abortSignal } = input;
+    if (!projectId) {
+      throw new Error('[CriticReviewerAgent] review 失败: projectId 不能为空');
+    }
     const projectStore = ProjectStore.getInstance();
     const project = projectStore.getProject(projectId);
 
@@ -102,11 +116,20 @@ export class CriticReviewerAgent {
     );
 
     // 4. 标准归一化保证类型健全与放行门禁刚性计算
-    const overallScore = Math.min(100, Math.max(0, Number(rawReport.scores?.overallScore ?? 75)));
+    const subScores = [
+      rawReport.scores?.narrativeLogicScore,
+      rawReport.scores?.characterDepthScore,
+      rawReport.scores?.branchTensionScore,
+      rawReport.scores?.visualFeasibilityScore,
+    ].filter((s): s is number => typeof s === 'number');
+    const computedOverall = subScores.length > 0
+      ? Math.round(subScores.reduce((a, b) => a + b, 0) / subScores.length)
+      : 75;
+    const overallScore = Math.min(100, Math.max(0, Number(rawReport.scores?.overallScore ?? computedOverall)));
     const flawsList = Array.isArray(rawReport.criticalFlaws) ? rawReport.criticalFlaws : [];
     const hasCriticalFlaw = flawsList.some((f: any) => f.severity === 'CRITICAL');
 
-    let gateStatus: ReviewGateStatus = (rawReport.gateStatus as ReviewGateStatus) || 'WARN';
+    let gateStatus: ReviewGateStatus = 'WARN';
     if (overallScore >= 80 && !hasCriticalFlaw) {
       gateStatus = 'PASS';
     } else if (overallScore < 60 || hasCriticalFlaw) {
@@ -137,6 +160,7 @@ export class CriticReviewerAgent {
       polishSuggestions: Array.isArray(rawReport.polishSuggestions) ? rawReport.polishSuggestions : [],
       verdict: rawReport.verdict || '审阅完成',
       reviewedAt: new Date().toISOString(),
+      artifactFingerprint: this.computeArtifactFingerprint(projectStore.getArtifact(projectId, activeStage as any)) || undefined,
       debateLogs: [],
     };
 
@@ -145,7 +169,50 @@ export class CriticReviewerAgent {
     projectStore.setArtifact(projectId, `critic_review_${activeStage}`, report);
     this.exportReportToDisk(projectId, report);
 
+    // 🌟 质检放行时，自动解除挂起的门禁拦截卡片 (ProposalStore + Messages SSOT)
+    if (gateStatus === 'PASS' || gateStatus === 'WARN') {
+      this.dismissGateIntercepts(
+        projectId,
+        activeStage,
+        `[🛡️ 门禁已通过质检放行解除] 审查官已重新质检并裁决放行 (${gateStatus})。`
+      );
+    }
+
     return report;
+  }
+
+  /**
+   * 🌟 门禁阻断卡片自愈同步：当辩护放行或重新质检通过时，自动将历史会话与独立提案库中悬挂的门禁拦截待确认卡片标记为已解除 (cleared/dismissed)
+   */
+  public dismissGateIntercepts(projectId: string, stage: string, reason: string): number {
+    const projectStore = ProjectStore.getInstance();
+    try {
+      const sessions = projectStore.listSessions(projectId);
+      for (const sess of sessions) {
+        let sessionUpdated = false;
+        const msgs = projectStore.getMessages(projectId, sess.sessionId);
+        for (const msg of msgs) {
+          const proposal = msg.actionProposal;
+          if (
+            proposal &&
+            proposal.status === 'pending' &&
+            (proposal.isGateIntercept || proposal.actionType === 'CRITIC_DEBATE' || proposal.skill === 'critic-review') &&
+            (!proposal.payload?.stage || proposal.payload?.stage === stage || proposal.payload?.targetStage === stage)
+          ) {
+            proposal.status = 'dismissed';
+            proposal.description = reason;
+            sessionUpdated = true;
+          }
+        }
+        if (sessionUpdated) {
+          projectStore.saveMessages(projectId, sess.sessionId, msgs);
+        }
+      }
+    } catch (proposalCleanErr) {
+      console.warn('[CriticReviewerAgent] 自愈更新门禁阻断卡片警告:', proposalCleanErr);
+    }
+
+    return ProposalStore.getInstance().dismissProposalsForStage(projectId, stage, reason);
   }
 
   /**
@@ -155,15 +222,41 @@ export class CriticReviewerAgent {
     const projectStore = ProjectStore.getInstance();
     
     // 优先读取指定阶段历史报告，缺省读取全局最新报告
-    const report =
-      (stage ? projectStore.getArtifact<ReviewReport>(projectId, `critic_review_${stage}`) : null) ||
-      projectStore.getArtifact<ReviewReport>(projectId, 'critic_review');
+    let report: ReviewReport | null = null;
+    if (stage) {
+      report = projectStore.getArtifact<ReviewReport>(projectId, `critic_review_${stage}`) || null;
+      if (!report) {
+        const globalReport = projectStore.getArtifact<ReviewReport>(projectId, 'critic_review');
+        if (globalReport && globalReport.stageReviewed === stage) {
+          report = globalReport;
+        }
+      }
+    } else {
+      report = projectStore.getArtifact<ReviewReport>(projectId, 'critic_review') || null;
+    }
 
     if (!report) return null;
 
     const reviewedStage = report.stageReviewed;
     if (reviewedStage) {
       const stageArtifact = projectStore.getArtifact<any>(projectId, reviewedStage as any);
+      const currentFingerprint = this.computeArtifactFingerprint(stageArtifact);
+
+      // 🌟 1. 基于产物内容散列指纹的比对 (防作弊与防产物篡改)
+      if (
+        report.artifactFingerprint &&
+        currentFingerprint &&
+        report.artifactFingerprint !== currentFingerprint
+      ) {
+        return {
+          ...report,
+          gateStatus: 'STALE',
+          isStale: true,
+          staleReason: `工序【${reviewedStage}】产物内容已发生演进微调（指纹已更新），旧质检判定自动失效，建议重新发起质检。`,
+        };
+      }
+
+      // 🌟 2. 基于时间戳更新的比对 (双重保全)
       const artifactTime = stageArtifact?.updatedAt || stageArtifact?.createdAt;
       if (
         artifactTime &&
@@ -187,6 +280,12 @@ export class CriticReviewerAgent {
    */
   public async chat(input: CriticDialogInput): Promise<CriticDialogReply> {
     const { projectId, sessionId, userMessage, targetStage, currentReport, abortSignal } = input;
+    if (!projectId) {
+      throw new Error('[CriticReviewerAgent] chat 失败: projectId 不能为空');
+    }
+    if (!userMessage || !userMessage.trim()) {
+      throw new Error('[CriticReviewerAgent] 质询辩解内容不能为空');
+    }
     const projectStore = ProjectStore.getInstance();
     const project = projectStore.getProject(projectId);
 
@@ -226,8 +325,33 @@ export class CriticReviewerAgent {
     // 🌟 辩护真收敛：无论辩护是否被采纳，对辩记录 100% 持久化沉淀入库 (杜绝失败辩护静默吞噬与回退越权)
     try {
       const baseReport = effectiveReport;
-      const rawFlaws = result.adjustedFlaws || baseReport?.criticalFlaws || [];
-      const currentFlaws: ReviewIssue[] = rawFlaws.map((f: any, idx: number) => ({
+
+      // 提取调整后的瑕疵清单
+      const rawFlaws = (result.adjustedFlaws && result.adjustedFlaws.length > 0)
+        ? result.adjustedFlaws
+        : (baseReport?.criticalFlaws || []);
+      const hasCriticalInAdjusted = rawFlaws.some((f: any) => f.severity === 'CRITICAL');
+
+      // 🌟 刚性门禁回退加固 (Fail-Fast Gate Safeguard)：
+      // 1. 若辩护失败，坚决保持 FAIL；
+      // 2. 若辩护声称成立，但调整后瑕疵中仍存在 CRITICAL 致命硬伤，坚决保持 FAIL（杜绝模型幻觉越权放行）；
+      // 3. 只有当辩护明确被采纳且无 CRITICAL 硬伤时，才准许按评估裁定为 PASS 或 WARN。
+      let newGateStatus: ReviewGateStatus;
+      if (result.isDefenseAccepted && !hasCriticalInAdjusted) {
+        newGateStatus = result.reassessedGateStatus === 'WARN' ? 'WARN' : 'PASS';
+      } else {
+        newGateStatus = 'FAIL';
+      }
+
+      let finalScores = baseReport?.scores ? { ...baseReport.scores } : {
+        narrativeLogicScore: result.isDefenseAccepted && !hasCriticalInAdjusted ? 80 : 50,
+        characterDepthScore: result.isDefenseAccepted && !hasCriticalInAdjusted ? 80 : 50,
+        branchTensionScore: result.isDefenseAccepted && !hasCriticalInAdjusted ? 80 : 50,
+        visualFeasibilityScore: result.isDefenseAccepted && !hasCriticalInAdjusted ? 80 : 50,
+        overallScore: result.isDefenseAccepted && !hasCriticalInAdjusted ? 80 : 50,
+      };
+
+      let finalFlaws: ReviewIssue[] = rawFlaws.map((f: any, idx: number) => ({
         id: f.id || `flaw_adj_${idx + 1}`,
         severity: f.severity || 'MAJOR',
         dimension: f.dimension || 'LOGIC',
@@ -236,22 +360,8 @@ export class CriticReviewerAgent {
         suggestion: f.suggestion || '',
       }));
 
-      // 🌟 刚性门禁回退加固 (Fail-Fast Gate Safeguard)：辩护失败坚决保持 FAIL，杜绝空值误判为 PASS 破防
-      let fallbackStatus: ReviewGateStatus = result.isDefenseAccepted
-        ? 'PASS'
-        : (baseReport?.gateStatus || 'FAIL');
-      const newGateStatus = (result.reassessedGateStatus || fallbackStatus) as ReviewGateStatus;
-
-      let finalScores = baseReport?.scores ? { ...baseReport.scores } : {
-        narrativeLogicScore: result.isDefenseAccepted ? 80 : 50,
-        characterDepthScore: result.isDefenseAccepted ? 80 : 50,
-        branchTensionScore: result.isDefenseAccepted ? 80 : 50,
-        visualFeasibilityScore: result.isDefenseAccepted ? 80 : 50,
-        overallScore: result.isDefenseAccepted ? 80 : 50,
-      };
-      let finalFlaws: ReviewIssue[] = currentFlaws;
-
-      const isDefenseCleared = result.isDefenseAccepted || newGateStatus === 'PASS' || newGateStatus === 'WARN';
+      // 🌟 只有在辩护明确被采纳且新门禁为 PASS 或 WARN 时方可放行与更新漏洞
+      const isDefenseCleared = Boolean(result.isDefenseAccepted) && (newGateStatus === 'PASS' || newGateStatus === 'WARN');
 
       if (isDefenseCleared) {
         if (newGateStatus === 'PASS') {
@@ -262,7 +372,7 @@ export class CriticReviewerAgent {
             visualFeasibilityScore: Math.max(80, finalScores.visualFeasibilityScore),
             overallScore: Math.max(80, finalScores.overallScore),
           };
-          finalFlaws = finalFlaws.map((f: any) =>
+          finalFlaws = finalFlaws.map((f) =>
             f.severity === 'CRITICAL' ? { ...f, severity: 'MINOR' as const, description: `[辩护已澄清] ${f.description}` } : f
           );
         } else if (newGateStatus === 'WARN') {
@@ -273,42 +383,15 @@ export class CriticReviewerAgent {
             visualFeasibilityScore: Math.max(65, finalScores.visualFeasibilityScore),
             overallScore: Math.max(65, finalScores.overallScore),
           };
-          finalFlaws = finalFlaws.map((f: any) =>
+          finalFlaws = finalFlaws.map((f) =>
             f.severity === 'CRITICAL' ? { ...f, severity: 'MAJOR' as const, description: `[辩护已澄清] ${f.description}` } : f
           );
         }
 
         // 🌟 单一事实来源 (SSOT)：审查告诫统一由状态黑板 critic_review 供给，白板专注创作者纯净意图，无旧胶水残留
 
-        // 🌟 门禁阻断卡片自愈同步：当辩护放行后，自动将历史会话中悬挂的门禁拦截待确认卡片标记为已解除 (cleared)
-        try {
-          const sessions = projectStore.listSessions(projectId);
-          for (const sess of sessions) {
-            let sessionUpdated = false;
-            const msgs = projectStore.getMessages(projectId, sess.sessionId);
-            for (const msg of msgs) {
-              const proposal = msg.actionProposal;
-              if (
-                proposal &&
-                proposal.status === 'pending' &&
-                (proposal.isGateIntercept || proposal.actionType === 'CRITIC_DEBATE' || proposal.skill === 'critic-review') &&
-                (!proposal.payload?.stage || proposal.payload?.stage === activeStage)
-              ) {
-                proposal.status = 'dismissed';
-                proposal.description = `[🛡️ 门禁已通过辩护解除] 审查官已听取创作者说明并裁决放行 (${newGateStatus})。`;
-                sessionUpdated = true;
-              }
-            }
-            if (sessionUpdated) {
-              projectStore.saveMessages(projectId, sess.sessionId, msgs);
-            }
-          }
-        } catch (proposalCleanErr) {
-          console.warn('[CriticReviewerAgent] 自愈更新门禁阻断卡片警告:', proposalCleanErr);
-        }
-
-        // 🌟 独立提案实体原子级解除 (ProposalStore SSOT)
-        ProposalStore.getInstance().dismissProposalsForStage(
+        // 🌟 门禁阻断卡片自愈同步：当辩护放行后，自动将历史会话与独立提案库中悬挂的门禁拦截待确认卡片标记为已解除 (cleared)
+        this.dismissGateIntercepts(
           projectId,
           activeStage,
           `[🛡️ 门禁已通过辩护解除] 审查官已听取创作者说明并裁决放行 (${newGateStatus})。`
@@ -325,6 +408,10 @@ export class CriticReviewerAgent {
       };
       const debateLogs = [...(baseReport?.debateLogs || []), newLog];
 
+      const verdictPrefix = isDefenseCleared
+        ? '【辩护已审定】'
+        : (result.isDefenseAccepted && hasCriticalInAdjusted ? '【辩护部分采纳，但仍存CRITICAL核心硬伤阻断】' : '【辩护被驳回】');
+
       const updatedReport: ReviewReport = {
         projectName,
         stageReviewed: activeStage,
@@ -333,16 +420,18 @@ export class CriticReviewerAgent {
         scores: finalScores,
         criticalFlaws: finalFlaws,
         polishSuggestions: baseReport?.polishSuggestions || [],
-        verdict: `【辩护已审定】${result.reply}`,
+        verdict: `${verdictPrefix}${result.reply}`,
         reviewedAt: new Date().toISOString(),
+        artifactFingerprint: this.computeArtifactFingerprint(projectStore.getArtifact(projectId, activeStage as any)) || baseReport?.artifactFingerprint,
         debateLogs,
       };
 
       projectStore.setArtifact(projectId, 'critic_review', updatedReport);
       projectStore.setArtifact(projectId, `critic_review_${activeStage}`, updatedReport);
       this.exportReportToDisk(projectId, updatedReport);
-    } catch (err) {
-      console.warn('[CriticReviewerAgent] 辩护后同步报告与日志警告:', err);
+    } catch (err: any) {
+      console.error('[CriticReviewerAgent] 辩护后同步报告与对辩日志失败，刚性阻断防止状态失忆:', err);
+      throw new Error(`[CriticReviewerAgent] 对辩记录落盘失败: ${err.message || '未知错误'}`);
     }
 
     return {

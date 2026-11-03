@@ -45,15 +45,26 @@ export interface SkillContext<TParams = any> {
   artifacts?: Record<string, any>; // 🌟 显式透传当前所有阶段产物快照
 }
 
-export interface SkillResult<TData = any> {
-  success: boolean;
-  data: TData;
-  summary: string; // 结果中文汇报
-  durationMs: number; // 耗时毫秒
-  error?: string;
-}
+export type SkillResult<TData = any> =
+  | {
+      success: true;
+      data: TData;
+      summary: string; // 结果中文汇报
+      durationMs: number; // 耗时毫秒
+      error?: undefined;
+    }
+  | {
+      success: false;
+      error: string;
+      summary: string;
+      durationMs: number;
+      data?: never;
+      partial?: TData; // 🌟 部分成功保全：失败时允许带出局部成功产物，杜绝整批作废
+      errorCode?: string;
+    };
 
 export interface ISkill<TParams = any, TData = any> {
   readonly manifest: SkillManifest;
   execute(context: SkillContext<TParams>): Promise<SkillResult<TData>>;
+  executeOrThrow(context: SkillContext<TParams>): Promise<{ data: TData; summary: string; durationMs: number }>;
 }

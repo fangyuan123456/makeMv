@@ -140,8 +140,8 @@ export class ProposalStore {
     for (const proposal of map.values()) {
       if (
         proposal.status === 'pending' &&
-        (proposal.actionId.startsWith('act_gate_intercept_') || proposal.skill === 'critic-review') &&
-        (!proposal.payload?.stage || proposal.payload?.stage === stage)
+        (Boolean(proposal.isGateIntercept) || proposal.actionType === 'CRITIC_DEBATE' || proposal.skill === 'critic-review') &&
+        (!proposal.payload?.stage || proposal.payload?.stage === stage || proposal.payload?.targetStage === stage)
       ) {
         proposal.status = 'dismissed';
         if (reason) proposal.description = reason;

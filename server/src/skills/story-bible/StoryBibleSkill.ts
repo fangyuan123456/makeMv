@@ -61,7 +61,7 @@ export class StoryBibleSkill extends BaseSkill<StoryBibleParams, StoryBibleArtif
   ): Promise<{ data: StoryBibleArtifact; summary: string }> {
     const { projectId, sessionId, params, abortSignal, userConstraints } = context;
     const projectStore = ProjectStore.getInstance();
-    const project = projectStore.getProject(projectId);
+    const project = context.project || projectStore.getProject(projectId);
 
     // 确定入参（优先 params，其次 project.meta，严格执行源头 Fail-Fast 阻断）
     const idea = (params.idea || project?.meta?.idea || '').trim();
@@ -137,6 +137,40 @@ export class StoryBibleSkill extends BaseSkill<StoryBibleParams, StoryBibleArtif
     );
 
     const characters = charactersOutput.characters || [];
+    if (!spine.goldenSpine || spine.goldenSpine.length === 0) {
+      throw new Error('故事黄金三幕骨架推演失败，未产生有效幕次数据');
+    }
+    if (!graph.nodes || graph.nodes.length === 0) {
+      throw new Error('网状剧情拓扑编译失败，未产生有效节点数据');
+    }
+
+    // 🌟 P1-1 剧情拓扑主键与分支指针刚性断言 (Key Integrity Guard)
+    const nodeIds = new Set<string>();
+    for (const n of graph.nodes) {
+      if (!n.id || typeof n.id !== 'string') {
+        throw new Error('拓扑节点 ID 缺失或非法');
+      }
+      if (nodeIds.has(n.id)) {
+        throw new Error(`拓扑节点 ID 重复冲突: [${n.id}]，违反全局主键唯一性契约`);
+      }
+      nodeIds.add(n.id);
+    }
+
+    // 悬空分支引用刚性校验：严禁任何选项指向未定义的幽灵节点
+    for (const n of graph.nodes) {
+      if (Array.isArray(n.choices)) {
+        for (const choice of n.choices) {
+          if (choice.targetNodeId && !nodeIds.has(choice.targetNodeId)) {
+            throw new Error(`节点 [${n.id}] 的分支选项指向了不存在的悬空目标节点: [${choice.targetNodeId}]`);
+          }
+        }
+      }
+    }
+
+    if (!characters || characters.length === 0) {
+      throw new Error('核心角色档案推演失败，未产生有效角色数据');
+    }
+
     const characterNames = characters.map((c) => c.name);
 
     // 5. 整合最终故事世界观圣经产物

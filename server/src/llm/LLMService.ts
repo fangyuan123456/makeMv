@@ -17,6 +17,7 @@ export interface LLMOptions {
   thinking?: boolean;
   thinkingBudget?: number;
   stage?: string;
+  projectId?: string; // 🌟 透传项目 ID 用于旁路成本与 Token 遥测打点
   onUsage?: (record: LLMUsageRecord) => void;
   onThought?: (thought: string) => Promise<void> | void;
   onToolCall?: (toolCall: LLMStreamToolCall) => Promise<void> | void;

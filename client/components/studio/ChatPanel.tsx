@@ -1455,6 +1455,17 @@ export default function ChatPanel({
     );
   };
 
+  // 🌟 唯一的「生成中」裁决点：同一时刻只允许出现一个等待指示
+  // 只要最后一条 AI 消息已经开始输出（正文或推演），等待卡立即让位，不等流结束
+  const lastMessage = messages[messages.length - 1];
+  const lastAgentHasOutput = Boolean(
+    lastMessage &&
+      lastMessage.sender === 'agent' &&
+      ((lastMessage.content && lastMessage.content.trim()) ||
+        (lastMessage.thought && lastMessage.thought.trim()))
+  );
+  const showWaitingCard = isRunning && !lastAgentHasOutput;
+
   return (
     <div className="flex flex-col h-full bg-slate-50/70 border-r border-slate-200/90 text-slate-800">
       {/* 隐藏的文件上传 input */}
@@ -1510,6 +1521,18 @@ export default function ChatPanel({
           const isPackagerAttached = !isUser && msg.id === packagerMsgId;
           const isCriticAttached = !isUser && (msg.id === criticMsgId || msg.content.includes('审查官') || msg.content.includes('质检结论'));
 
+          // 刚发出、还没吐字的 AI 占位消息不渲染气泡：空壳气泡会与下方推演卡构成"两个生成中"的错觉
+          const isPendingEmptyAgentMsg =
+            !isUser &&
+            isRunning &&
+            msg.id === messages[messages.length - 1]?.id &&
+            !msg.content?.trim() &&
+            !msg.thought?.trim() &&
+            !msg.actionProposal &&
+            !msg.stopPoint &&
+            !(msg.actions && msg.actions.length);
+          if (isPendingEmptyAgentMsg) return null;
+
           return (
             <div
               key={msg.id}
@@ -1560,10 +1583,11 @@ export default function ChatPanel({
 
                 {msg.content ? (
                   <div className="whitespace-pre-wrap">{msg.content}</div>
-                ) : isRunning && msg.id === messages[messages.length - 1]?.id ? (
+                ) : msg.thought && isRunning && msg.id === messages[messages.length - 1]?.id ? (
+                  // 推演已开始、正文未到：等待卡已让位，这里只补一行轻提示，不与推演块重复
                   <div className="text-[11px] text-slate-400 italic flex items-center gap-1.5 py-1">
                     <Loader2 className="w-3 h-3 animate-spin text-indigo-500" />
-                    <span>导演正在梳理视听方案与行动提案...</span>
+                    <span>正在组织答复...</span>
                   </div>
                 ) : null}
 
@@ -1744,7 +1768,7 @@ export default function ChatPanel({
         {!packagerMsgId && packagerArtifact && renderPackagerCard()}
         {!criticMsgId && artifacts?.critic_review && renderCriticCard()}
 
-        {isRunning && (
+        {showWaitingCard && (
           <div className="flex items-start gap-3">
             <div className="w-7 h-7 rounded-xl bg-white text-indigo-600 border border-slate-200 shadow-2xs flex items-center justify-center shrink-0">
               <Bot className="w-3.5 h-3.5 animate-pulse text-indigo-600" />
@@ -1818,14 +1842,16 @@ export default function ChatPanel({
           <div className="flex items-center justify-between p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 shadow-2xs">
             <span className="font-bold flex items-center gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-              当前工序产物已就绪，等待您的指示
+              {currentStage === 'fmv_packaging'
+                ? '全流程母带已封包就绪，等待您的终审交付裁决'
+                : '当前工序产物已就绪，等待您的指示'}
             </span>
             <button
               onClick={onConfirmNext}
               disabled={isRunning}
               className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
-              <span>确认满意，进入下一步</span>
+              <span>{currentStage === 'fmv_packaging' ? '🏆 确认满意，交付影游成片' : '确认满意，进入下一步'}</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>

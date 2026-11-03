@@ -18,9 +18,14 @@ export interface IProjectStateStore {
   deleteProject(projectId: string): void;
   listProjects(): ProjectEntity[];
 
-  // 阶段产物单点存取 (Artifacts)：通用 stage 标识
+  // 阶段产物单点存取 (Artifacts)：通用 stage 标识，支持出处元数据与历史快照溯源
   getArtifact<T = any>(projectId: string, stage: string): T | undefined;
-  setArtifact<T = any>(projectId: string, stage: string, artifact: T): void;
+  setArtifact<T = any>(
+    projectId: string,
+    stage: string,
+    artifact: T,
+    meta?: { taskId?: string; skill?: string; model?: string; degraded?: boolean; paramsHash?: string }
+  ): void;
 
   // 🌟 会话与白板统合存取 (Sessions & Scratchpad SSOT)
   createSession(projectId: string, title?: string, initialStage?: string, customSessionId?: string): ChatSession;

@@ -47,9 +47,17 @@ export class DirectorProposalResolver {
         console.warn(`[DirectorProposalResolver] 刚性拦截：未知的技能标识 [${candidate}]，拒绝隐式降级`);
         return undefined;
       }
-      const resolvedSkill = skillEntity.manifest.name;
 
+      const resolvedSkill = skillEntity.manifest.name;
       const executionParams = args.params || {};
+
+      // 🌟 P1-1: 统一使用与提示词相同的可用技能白名单 (SSOT) 校验邻接性，禁止跨工序越级连跳
+      const availableSkills = registry.getAvailableSkills(currentStage);
+      const isAllowedInCurrentStage = availableSkills.some((s) => s.name === resolvedSkill);
+      if (!isAllowedInCurrentStage) {
+        console.warn(`[DirectorProposalResolver] 跨工序违规拦截：技能 [${resolvedSkill}] 不在当前工序 [${currentStage}] 的合法白名单中`);
+        return undefined;
+      }
 
       let proposal: ActionProposal = {
         actionId: `act_${randomUUID().slice(0, 8)}`,
@@ -94,18 +102,27 @@ export class DirectorProposalResolver {
           status: 'pending',
           payload: {
             stage: currentStage,
+            targetStage: currentStage,
             skill: 'critic-review',
             interceptedSkill: resolvedSkill,
             gateStatus: 'FAIL',
             reason: gateResult.reason || '存在严重逻辑破绽',
             userFeedback: candidateHealingText || undefined,
             hasHealingIntent,
+            params: {
+              targetStage: currentStage,
+              userFeedback: candidateHealingText || undefined,
+            },
           },
         };
       }
 
       if (callbacks?.onProposal) {
-        await callbacks.onProposal(proposal);
+        try {
+          await callbacks.onProposal(proposal);
+        } catch (cbErr) {
+          console.warn('[DirectorProposalResolver] onProposal 回调通知异常:', cbErr);
+        }
       }
 
       return proposal;

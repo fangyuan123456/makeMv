@@ -8,6 +8,7 @@ export interface ImageGenerationOptions {
   n?: number;
   negativePrompt?: string;
   seed?: number;
+  abortSignal?: AbortSignal;
 }
 
 export interface IImageProvider {

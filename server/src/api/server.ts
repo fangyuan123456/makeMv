@@ -6,6 +6,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { Readable } from 'stream';
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { cors } from 'hono/cors';
@@ -33,8 +34,25 @@ import {
 export function createServer(): Hono {
   const app = new Hono();
 
-  // 1. 跨域支持
-  app.use('*', cors());
+  // 1. 跨域安全配置 (收紧至信任客户端与环境变量，防止公网网页恶意跨域窃取)
+  const allowedOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
+    : ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:8000', 'http://127.0.0.1:8000'];
+
+  app.use(
+    '*',
+    cors({
+      origin: (origin) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+          return origin || allowedOrigins[0];
+        }
+        return null;
+      },
+      allowMethods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+      allowHeaders: ['Content-Type', 'Authorization', 'Range'],
+      exposeHeaders: ['Content-Range', 'Content-Length', 'Accept-Ranges'],
+    })
+  );
 
   // 2. 初始化注册全链路核心技能包
   const skillRegistry = SkillRegistry.getInstance();
@@ -51,29 +69,63 @@ export function createServer(): Hono {
   app.get('/media/:projectId/*', (c) => {
     const projectId = c.req.param('projectId');
     const relativePath = c.req.path.replace(`/media/${projectId}/`, '');
-    const projectDir = ProjectStore.getInstance().getProjectDir(projectId);
+    const projectDir = path.resolve(ProjectStore.getInstance().getProjectDir(projectId));
     const fullPath = path.resolve(projectDir, relativePath);
 
-    if (!fullPath.startsWith(projectDir)) {
+    // 🌟 严格边界安全检查：必须以 projectDir + path.sep 开头，杜绝兄弟前缀 (proj_x vs proj_x_backup) 穿越
+    if (!fullPath.startsWith(projectDir + path.sep) && fullPath !== projectDir) {
       return c.text('Forbidden: Access denied', 403);
     }
 
-    if (fs.existsSync(fullPath)) {
-      const ext = path.extname(fullPath).toLowerCase();
-      const mimeTypes: Record<string, string> = {
-        '.png': 'image/png',
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.mp4': 'video/mp4',
-        '.mp3': 'audio/mpeg',
-        '.wav': 'audio/wav',
-        '.json': 'application/json',
-      };
-      const contentType = mimeTypes[ext] || 'application/octet-stream';
-      const fileBuffer = fs.readFileSync(fullPath);
-      return new Response(fileBuffer, { headers: { 'Content-Type': contentType } });
+    if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) {
+      return c.text('Media not found', 404);
     }
-    return c.text('Media not found', 404);
+
+    const ext = path.extname(fullPath).toLowerCase();
+    const mimeTypes: Record<string, string> = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.webp': 'image/webp',
+      '.mp4': 'video/mp4',
+      '.mp3': 'audio/mpeg',
+      '.wav': 'audio/wav',
+      '.json': 'application/json',
+    };
+    const contentType = mimeTypes[ext] || 'application/octet-stream';
+    const stat = fs.statSync(fullPath);
+    const fileSize = stat.size;
+
+    // 🌟 支持视频 Range 分片与非阻塞流式管道，消灭 readFileSync 阻塞 Node 主线程事件循环
+    const range = c.req.header('range');
+    if (range && contentType.startsWith('video/')) {
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunksize = end - start + 1;
+      const fileStream = fs.createReadStream(fullPath, { start, end });
+      const webStream = Readable.toWeb(fileStream);
+
+      return new Response(webStream as any, {
+        status: 206,
+        headers: {
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': String(chunksize),
+          'Content-Type': contentType,
+        },
+      });
+    }
+
+    const fileStream = fs.createReadStream(fullPath);
+    const webStream = Readable.toWeb(fileStream);
+    return new Response(webStream as any, {
+      headers: {
+        'Content-Type': contentType,
+        'Content-Length': String(fileSize),
+        'Accept-Ranges': 'bytes',
+      },
+    });
   });
 
   // 4. 挂载领域控制器路由 (Controllers Mount)
@@ -82,8 +134,43 @@ export function createServer(): Hono {
   app.route('/', reviewerController);
   app.route('/', skillController);
 
-  // 5. 系统配置与健康检查
-  app.get('/api/config', (c) => c.json({ success: true, config }));
+  // 5. 系统配置与健康检查 (敏感凭据 100% 脱敏，杜绝明文泄露)
+  app.get('/api/config', (c) => {
+    const safeConfig = {
+      port: config.port,
+      host: config.host,
+      mockMode: config.mockMode,
+      llm: {
+        provider: config.llm.provider,
+        baseUrl: config.llm.baseUrl,
+        model: config.llm.model,
+        hasApiKey: Boolean(config.llm.apiKey),
+      },
+      image: {
+        provider: config.image.provider,
+        baseUrl: config.image.baseUrl,
+        model: config.image.model,
+        qualityLevel: config.image.qualityLevel,
+        maxKb: config.image.maxKb,
+        hasApiKey: Boolean(config.image.apiKey),
+      },
+      video: {
+        provider: config.video.provider,
+        baseUrl: config.video.baseUrl,
+        model: config.video.model,
+        qualityLevel: config.video.qualityLevel,
+        resolution: config.video.resolution,
+        maxMb: config.video.maxMb,
+        crf: config.video.crf,
+        hasApiKey: Boolean(config.video.apiKey),
+      },
+      comfyui: {
+        baseUrl: config.comfyui.baseUrl,
+        timeoutMs: config.comfyui.timeoutMs,
+      },
+    };
+    return c.json({ success: true, config: safeConfig });
+  });
   app.get('/health', (c) => c.json({ status: 'ok', time: Date.now() }));
   app.get('/api/system/status', (c) => c.json({ status: 'ok', time: Date.now() }));
 

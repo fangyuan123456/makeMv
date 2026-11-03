@@ -11,6 +11,14 @@ import { SessionStatus, WorkflowStage, type ProjectEntity } from '../../types/in
 
 export const chatController = new Hono();
 
+// 🌟 会话级并发互斥锁 (防止并行 stream 覆写提案与丢失消息)
+const activeSessionLocks = new Set<string>();
+
+// 🌟 安全 ID 正则守卫：严防包含路径穿越特殊字符
+function isValidSafeId(id: string): boolean {
+  return typeof id === 'string' && /^[a-zA-Z0-9_\-]+$/.test(id);
+}
+
 // 创建新会话
 chatController.post('/api/chat/:projectId/sessions', async (c) => {
   try {
@@ -76,12 +84,27 @@ chatController.post('/api/chat/:projectId/stream', async (c) => {
   const sessionId = body.sessionId;
   const userContent = body.content || '';
 
-  if (!sessionId) {
-    return c.json({ success: false, error: '缺少 sessionId 参数' }, 400);
+  if (!isValidSafeId(projectId)) {
+    return c.json({ success: false, error: '非法 projectId 格式' }, 400);
+  }
+  if (!sessionId || !isValidSafeId(sessionId)) {
+    return c.json({ success: false, error: '缺少或存在非法的 sessionId' }, 400);
   }
   if (!userContent.trim()) {
     return c.json({ success: false, error: '发送内容不能为空' }, 400);
   }
+
+  const lockKey = `${projectId}:${sessionId}`;
+  if (activeSessionLocks.has(lockKey)) {
+    return c.json(
+      {
+        success: false,
+        error: '该会话正在由 AI 导演推演中，请等待上一轮完成或中止后再发送新消息。',
+      },
+      429
+    );
+  }
+  activeSessionLocks.add(lockKey);
 
   const store = ProjectStore.getInstance();
 
@@ -176,6 +199,8 @@ chatController.post('/api/chat/:projectId/stream', async (c) => {
         event: 'error',
         data: JSON.stringify({ error: err.message || 'Director execution failed' }),
       });
+    } finally {
+      activeSessionLocks.delete(lockKey);
     }
   });
 });

@@ -52,22 +52,22 @@ export class KeyframeReferenceSkill extends BaseSkill<KeyframeReferenceParams, K
   ): Promise<{ data: KeyframeReferenceArtifact; summary: string }> {
     const { projectId, params, abortSignal } = context;
     const store = ProjectStore.getInstance();
-    const project = store.getProject(projectId);
+    const project = context.project || store.getProject(projectId);
 
     await this.notifyProgress(context, 15, '正在读取导演视听分镜镜头构图与机位数据...');
 
-    const storyboardArtifact = store.getArtifact<any>(projectId, WorkflowStage.STORYBOARD);
+    const storyboardArtifact = context.artifacts?.[WorkflowStage.STORYBOARD] || store.getArtifact<any>(projectId, WorkflowStage.STORYBOARD);
     const shots = storyboardArtifact?.shots || [];
 
     if (shots.length === 0) {
       throw new Error('缺少前序分镜数据，请先执行前置工序【视听分镜】');
     }
 
-    const narrative = store.getArtifact<any>(projectId, WorkflowStage.NARRATIVE_DESIGN);
+    const narrative = context.artifacts?.[WorkflowStage.NARRATIVE_DESIGN] || store.getArtifact<any>(projectId, WorkflowStage.NARRATIVE_DESIGN);
     const style = narrative?.style || project?.meta?.style || '电影质感，冷色调，高对比度光影';
 
     // 🌟 全链路特征透传（防人设/物种漂移）：强制读取 Stage 2 角色定妆视觉锚点资产
-    const charArtifact = store.getArtifact<any>(projectId, WorkflowStage.CHARACTER_DESIGN);
+    const charArtifact = context.artifacts?.[WorkflowStage.CHARACTER_DESIGN] || store.getArtifact<any>(projectId, WorkflowStage.CHARACTER_DESIGN);
     const charList = charArtifact?.characters || [];
     let charactersAnchorContext = '';
     if (charList.length > 0) {
@@ -77,6 +77,12 @@ export class KeyframeReferenceSkill extends BaseSkill<KeyframeReferenceParams, K
 
     // 🌟 单镜靶向过滤 (Targeted Refinement SSOT)：若指定了 targetShotId，仅推演与渲染该镜头
     const targetShotId = params.targetShotId;
+    const existingArtifact = context.artifacts?.[WorkflowStage.KEYFRAME_REFERENCE] || store.getArtifact<KeyframeReferenceArtifact>(projectId, WorkflowStage.KEYFRAME_REFERENCE);
+
+    if (targetShotId && (!existingArtifact || !Array.isArray(existingArtifact.shots) || existingArtifact.shots.length === 0)) {
+      throw new Error('当前项目尚无既有关键帧资产，无法执行单镜头靶向微调，请先执行全量首帧渲染');
+    }
+
     const shotsToProcess = targetShotId
       ? shots.filter((s: any) => s.shotId === targetShotId)
       : shots;
@@ -121,9 +127,14 @@ export class KeyframeReferenceSkill extends BaseSkill<KeyframeReferenceParams, K
         }
       );
 
-      for (const kf of kfResult.keyframes || []) {
-        promptsMap.set(kf.shotId, kf.prompt);
-      }
+      (kfResult.keyframes || []).forEach((kf, kfIdx) => {
+        const matchingShot = chunk.find((s: any) => s.shotId === kf.shotId) || chunk[kfIdx];
+        if (matchingShot) {
+          promptsMap.set(matchingShot.shotId, kf.prompt);
+        } else if (kf.shotId) {
+          promptsMap.set(kf.shotId, kf.prompt);
+        }
+      });
     }
 
     await this.notifyProgress(
@@ -142,37 +153,43 @@ export class KeyframeReferenceSkill extends BaseSkill<KeyframeReferenceParams, K
       shotsToProcess,
       async (s: any) => {
         const kfPrompt = promptsMap.get(s.shotId) || `${s.visualComposition}，${s.shotScale}，${s.cameraMovement}，电影质感，超清8K`;
-        // 🌟 100% 意图透传：将推演得到的专业提示词透传给物理渲染器，并携带 isMock 防扣费标记
-        const physicalImageUrl = await VisualMediaRenderer.renderKeyframeImage(
+        // 🌟 100% 意图透传：将推演得到的专业提示词透传给物理渲染器，透传 abortSignal 并接收降级标记
+        const renderRes = await VisualMediaRenderer.renderKeyframeImage(
           projectId,
           s.shotId,
           ratio,
           kfPrompt,
-          { isMock: params.isMock }
+          { isMock: params.isMock, abortSignal }
         );
 
         return {
           shotId: s.shotId,
           shotNumber: s.shotNumber,
           prompt: kfPrompt,
-          imageUrl: physicalImageUrl,
+          imageUrl: renderRes.url,
           aspectRatio: ratio,
           status: 'rendered',
+          isDegraded: renderRes.isDegraded,
+          degradedReason: renderRes.degradedReason,
         };
       },
       (completed, total, item) => {
         const percent = 65 + Math.round((completed / total) * 30);
         this.notifyProgress(context, percent, `正在并发渲染分镜首帧图 (${completed}/${total}): ${item.shotId}`);
-      }
+      },
+      abortSignal
     );
 
+    if (newlyRenderedShots.length === 0) {
+      throw new Error('分镜头首帧参考图渲染失败，未产生有效画面');
+    }
+
     // 🌟 靶向单镜重做与增量合并 (按 shotId 替换，绝不破坏既有资产)
-    const existingArtifact = store.getArtifact<KeyframeReferenceArtifact>(projectId, WorkflowStage.KEYFRAME_REFERENCE);
     let mergedShots: KeyframeItem[] = [];
 
     if (targetShotId && existingArtifact && Array.isArray(existingArtifact.shots)) {
       const updateMap = new Map(newlyRenderedShots.map((s) => [s.shotId, s]));
-      mergedShots = existingArtifact.shots.map((oldShot) => updateMap.get(oldShot.shotId) || oldShot);
+      mergedShots = existingArtifact.shots.map((oldShot: KeyframeItem) => updateMap.get(oldShot.shotId) || oldShot);
       for (const freshShot of newlyRenderedShots) {
         if (!mergedShots.some((s) => s.shotId === freshShot.shotId)) {
           mergedShots.push(freshShot);
@@ -192,19 +209,17 @@ export class KeyframeReferenceSkill extends BaseSkill<KeyframeReferenceParams, K
       updatedAt: new Date().toISOString(),
     };
 
-    // 写入状态黑板 (SSOT)
-    store.setArtifact(projectId, WorkflowStage.KEYFRAME_REFERENCE, artifact);
-
-    if (project) {
-      store.saveProject(project);
-    }
-
     // 本地持久化
     this.exportToLocalDisk(projectId, artifact);
 
+    const newlyDegraded = newlyRenderedShots.filter((s) => s.isDegraded);
+    const degradedNote = newlyDegraded.length > 0
+      ? ` (⚠️ 其中 ${newlyDegraded.length} 镜因 [${newlyDegraded[0].degradedReason}] 降级为本地预演占位)`
+      : ' (✔ 真实模型电影级渲染)';
+
     const summary = targetShotId
-      ? `🎯 镜头 [${targetShotId}] 高清首帧基准图靶向微调完成！既有全片分镜资产已增量合并保全。`
-      : `🖼️ 全剧 ${artifact.completedKeyframes} 张分镜头高清首帧基准图渲染完成！机位画幅 (${ratio}) 已锁定，物种与人设特征已锚定。`;
+      ? `🎯 镜头 [${targetShotId}] 高清首帧基准图靶向微调完成！${degradedNote}。既有全片分镜资产已增量合并保全。`
+      : `🖼️ 全剧 ${artifact.completedKeyframes} 张分镜头高清首帧基准图渲染交付！${degradedNote}。机位画幅 (${ratio}) 已锁定，物种与人设特征已锚定。`;
 
     return {
       data: artifact,
