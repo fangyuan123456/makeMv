@@ -17,7 +17,7 @@ import { ProjectStore } from '../../../project-store/ProjectStore.js';
 import { ProposalStore } from '../../../project-store/ProposalStore.js';
 import { VisualMediaRenderer } from '../../../media/VisualMediaRenderer.js';
 import { asyncPoolSettled } from '../../../utils/concurrency.js';
-import { assembleDeltaMotionPrompt } from '../../../knowledge/motion-dialects.js';
+import { assembleDeltaMotionPrompt } from './motion-engine.js';
 import { WorkflowStage } from '../../../types/index.js';
 import {
   VideoProductionArtifactSchema,

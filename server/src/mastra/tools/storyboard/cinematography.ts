@@ -1,5 +1,5 @@
 /**
- * server/src/knowledge/cinematography.ts
+ * mastra/tools/storyboard/cinematography.ts
  * 影视级 5-Aspect 摄影学与运镜原语知识库 (Cinematography Knowledge SSOT)
  * 借鉴 OpenMontage 影视摄影分类学，纯中文专业术语体系
  */

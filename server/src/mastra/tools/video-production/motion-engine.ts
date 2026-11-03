@@ -1,5 +1,5 @@
 /**
- * server/src/knowledge/motion-dialects.ts
+ * mastra/tools/video-production/motion-engine.ts
  * 图生视频 (I2V) 纯动量增量引擎 (Delta Motion Engine SSOT)
  * 核心法则：源头结构化物理隔离，彻底断绝静态长相污染，仅注入时序动作、物理运镜与环境动力学
  */
