@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { JsonSanitizer } from '../../utils/JsonSanitizer.js';
+import { JsonSanitizer } from '../../src/utils/JsonSanitizer.js';
 
 describe('JsonSanitizer 大模型文本清洗与非标自愈', () => {
   it('cleanInvisibleChars 剥离零宽字符与 BOM', () => {

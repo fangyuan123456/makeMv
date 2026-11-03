@@ -7,9 +7,9 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { fmvPackagingTool } from '../../mastra/tools/fmv-packaging/index.js';
-import { WorkflowStage, SessionStatus } from '../../types/index.js';
+import { ProjectStore } from '../../src/project-store/ProjectStore.js';
+import { fmvPackagingTool } from '../../src/mastra/tools/fmv-packaging/index.js';
+import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
 
 describe('FmvPackagingTool - 互动母带装配与打包工具测试套件', () => {
   const testProjectId = 'test_fmv_pkg_proj';

@@ -12,8 +12,8 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import { atomicWriteJsonSync } from '../../utils/atomicFile.js';
-import { config } from '../../utils/config.js';
+import { atomicWriteJsonSync } from '../../src/utils/atomicFile.js';
+import { config } from '../../src/utils/config.js';
 
 describe('atomicFile 物理文件原子写入与 Windows 防锁对抗测试', () => {
   const sandboxDir = path.resolve(config.paths.projects, 'test_atomic_file_sandbox');

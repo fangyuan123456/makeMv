@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { asyncPool, asyncPoolSettled } from '../../utils/concurrency.js';
+import { asyncPool, asyncPoolSettled } from '../../src/utils/concurrency.js';
 
 describe('asyncPool 异步并发池控制', () => {
   it('严格限制最大并发数：并发数不超过指定上限', async () => {

@@ -7,11 +7,11 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { criticReviewTool } from '../../mastra/tools/critic-review/index.js';
-import { WorkflowStage, SessionStatus } from '../../types/index.js';
-import { LLMRegistry } from '../../llm/LLMRegistry.js';
-import { MockLLMService } from '../../llm/MockLLMService.js';
+import { ProjectStore } from '../../src/project-store/ProjectStore.js';
+import { criticReviewTool } from '../../src/mastra/tools/critic-review/index.js';
+import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
+import { LLMRegistry } from '../../src/llm/LLMRegistry.js';
+import { MockLLMService } from '../../src/llm/MockLLMService.js';
 
 describe('CriticReviewTool - 影视独立审查官挑刺工具测试套件', () => {
   const testProjectId = 'test_critic_review_proj';

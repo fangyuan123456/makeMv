@@ -7,11 +7,11 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import { ProjectStore, ProposalStore } from '../../project-store/index.js';
-import { DirectorRouter, ProposalExecutor } from '../../mastra/router/index.js';
-import { WorkflowStage, SessionStatus } from '../../types/index.js';
-import { LLMRegistry } from '../../llm/LLMRegistry.js';
-import { MockLLMService } from '../../llm/MockLLMService.js';
+import { ProjectStore, ProposalStore } from '../../src/project-store/index.js';
+import { DirectorRouter, ProposalExecutor } from '../../src/mastra/router/index.js';
+import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
+import { LLMRegistry } from '../../src/llm/LLMRegistry.js';
+import { MockLLMService } from '../../src/llm/MockLLMService.js';
 
 describe('DirectorStateGraphRouter - 动态状态图路由与人在回路测试套件', () => {
   const testProjectId = 'test_graph_router_proj';

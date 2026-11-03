@@ -131,6 +131,7 @@ makeMv/
 │       ├── lib/                # mastra.ts 客户端总线与网络工具
 │       └── types/              # 视图层与客户端契约
 └── server/                     # 服务端：Mastra 微内核 + 影视生成引擎
+    ├── tests/                  # 单元测试与极端对抗实证测试矩阵 (独立物理隔离)
     └── src/
         ├── index.ts            # 主服务入口 (HTTP, SSE 流式管道, 媒体切片托管)
         ├── mastra/             # 【Mastra 官方微内核 SSOT】
@@ -154,8 +155,7 @@ makeMv/
         ├── media/              # 视听与多媒体渲染 (ComfyUI / DashScope / FFmpeg)
         ├── llm/                # 统一大模型集成服务 (LLMRegistry, RealLLMService, MockLLMService)
         ├── types/              # 全局业务强类型契约
-        ├── utils/              # 基础原子安全工具 (JsonSanitizer, atomicFile, lock, trace)
-        └── __tests__/          # 单元测试与极端对抗实证测试矩阵
+        └── utils/              # 基础原子安全工具 (JsonSanitizer, atomicFile, lock, trace)
 ```
 
 ### 5.2 严格交付验收标准

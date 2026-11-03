@@ -12,8 +12,8 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import { FFmpegService, ffmpegService } from '../../media/ffmpeg.js';
-import { config } from '../../utils/config.js';
+import { FFmpegService, ffmpegService } from '../../src/media/ffmpeg.js';
+import { config } from '../../src/utils/config.js';
 
 describe('FFmpegService 视听合规与切片服务独立单元测试套件', () => {
   const sandboxDir = path.resolve(config.paths.projects, 'test_ffmpeg_sandbox');

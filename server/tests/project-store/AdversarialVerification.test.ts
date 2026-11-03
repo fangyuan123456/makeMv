@@ -2,12 +2,12 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { FileProjectStateStore } from '../../project-store/FileProjectStateStore.js';
-import { ProposalStore } from '../../project-store/ProposalStore.js';
-import { config } from '../../utils/config.js';
-import { WorkflowStage, SessionStatus } from '../../types/index.js';
-import type { ActionProposal } from '../../chat/session/types.js';
+import { ProjectStore } from '../../src/project-store/ProjectStore.js';
+import { FileProjectStateStore } from '../../src/project-store/FileProjectStateStore.js';
+import { ProposalStore } from '../../src/project-store/ProposalStore.js';
+import { config } from '../../src/utils/config.js';
+import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
+import type { ActionProposal } from '../../src/chat/session/types.js';
 
 describe('Milestone 1 对抗实证验证 (Adversarial Verification Suite)', () => {
   const store = ProjectStore.getInstance();

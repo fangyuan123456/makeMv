@@ -35,12 +35,12 @@ import fs from 'fs';
 import path from 'path';
 import http from 'http';
 import { AddressInfo } from 'net';
-import { MediaDownloader } from '../../media/MediaDownloader.js';
-import { VisualMediaRenderer } from '../../media/VisualMediaRenderer.js';
-import { MediaProviderFactory } from '../../media/providers/MediaProviderFactory.js';
-import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { config } from '../../utils/config.js';
-import { SessionStatus, WorkflowStage } from '../../types/index.js';
+import { MediaDownloader } from '../../src/media/MediaDownloader.js';
+import { VisualMediaRenderer } from '../../src/media/VisualMediaRenderer.js';
+import { MediaProviderFactory } from '../../src/media/providers/MediaProviderFactory.js';
+import { ProjectStore } from '../../src/project-store/ProjectStore.js';
+import { config } from '../../src/utils/config.js';
+import { SessionStatus, WorkflowStage } from '../../src/types/index.js';
 
 describe('MediaSecurityFuzz 媒体下载与视听渲染安全边界模糊测试套件', () => {
   const fuzzProjectId = 'test_security_fuzz_sandbox';

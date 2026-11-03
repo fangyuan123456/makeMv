@@ -2,10 +2,10 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { config } from '../../utils/config.js';
-import { trace } from '../../utils/trace.js';
-import { WorkflowStage, SessionStatus } from '../../types/index.js';
+import { ProjectStore } from '../../src/project-store/ProjectStore.js';
+import { config } from '../../src/utils/config.js';
+import { trace } from '../../src/utils/trace.js';
+import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
 
 describe('FileProjectStateStore 生产级文件状态黑板 (SSOT)', () => {
   const store = ProjectStore.getInstance();

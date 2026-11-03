@@ -15,11 +15,11 @@ import path from 'path';
 import http from 'http';
 import { AddressInfo } from 'net';
 import { execSync } from 'child_process';
-import { MediaDownloader } from '../../media/MediaDownloader.js';
-import { FFmpegService } from '../../media/ffmpeg.js';
-import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { config } from '../../utils/config.js';
-import { SessionStatus, WorkflowStage } from '../../types/index.js';
+import { MediaDownloader } from '../../src/media/MediaDownloader.js';
+import { FFmpegService } from '../../src/media/ffmpeg.js';
+import { ProjectStore } from '../../src/project-store/ProjectStore.js';
+import { config } from '../../src/utils/config.js';
+import { SessionStatus, WorkflowStage } from '../../src/types/index.js';
 
 // 子类暴露 protected 方法用于对抗性测试
 class TestableFFmpegService extends FFmpegService {

@@ -15,8 +15,8 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { WorkflowStage, SessionStatus } from '../../types/index.js';
+import { ProjectStore } from '../../src/project-store/ProjectStore.js';
+import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
 
 describe('FileProjectStateStore 极限高并发与大体积落盘对抗实证', () => {
   const store = ProjectStore.getInstance();

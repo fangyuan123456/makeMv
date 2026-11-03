@@ -13,10 +13,10 @@ import { describe, it, before, after, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import { MediaDownloader } from '../../media/MediaDownloader.js';
-import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { config } from '../../utils/config.js';
-import { SessionStatus, WorkflowStage } from '../../types/index.js';
+import { MediaDownloader } from '../../src/media/MediaDownloader.js';
+import { ProjectStore } from '../../src/project-store/ProjectStore.js';
+import { config } from '../../src/utils/config.js';
+import { SessionStatus, WorkflowStage } from '../../src/types/index.js';
 
 describe('MediaDownloader 媒体离线持久化下载器单元测试套件', () => {
   const testProjectId = 'test_media_downloader_sandbox';

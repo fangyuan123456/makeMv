@@ -11,11 +11,11 @@
 
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { storyBibleTool } from '../../mastra/tools/story-bible/story-bible.tool.js';
-import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { LLMRegistry } from '../../llm/LLMRegistry.js';
-import { MockLLMService } from '../../llm/MockLLMService.js';
-import { WorkflowStage, SessionStatus } from '../../types/index.js';
+import { storyBibleTool } from '../../src/mastra/tools/story-bible/story-bible.tool.js';
+import { ProjectStore } from '../../src/project-store/ProjectStore.js';
+import { LLMRegistry } from '../../src/llm/LLMRegistry.js';
+import { MockLLMService } from '../../src/llm/MockLLMService.js';
+import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
 
 describe('StoryBibleFailFast - 刚性阻断与源头防御测试套件', () => {
   const store = ProjectStore.getInstance();

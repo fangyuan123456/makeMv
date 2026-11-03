@@ -13,12 +13,12 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import { storyBibleTool } from '../../mastra/tools/story-bible/story-bible.tool.js';
-import { StoryBibleInputSchema } from '../../mastra/tools/story-bible/schema.js';
-import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { LLMRegistry } from '../../llm/LLMRegistry.js';
-import { MockLLMService } from '../../llm/MockLLMService.js';
-import { WorkflowStage, SessionStatus } from '../../types/index.js';
+import { storyBibleTool } from '../../src/mastra/tools/story-bible/story-bible.tool.js';
+import { StoryBibleInputSchema } from '../../src/mastra/tools/story-bible/schema.js';
+import { ProjectStore } from '../../src/project-store/ProjectStore.js';
+import { LLMRegistry } from '../../src/llm/LLMRegistry.js';
+import { MockLLMService } from '../../src/llm/MockLLMService.js';
+import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
 
 describe('StoryBibleAdversarial - 对抗实证与架构法典测试套件', () => {
   const store = ProjectStore.getInstance();

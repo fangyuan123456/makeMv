@@ -7,16 +7,16 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import { storyBibleTool } from '../../mastra/tools/story-bible/story-bible.tool.js';
-import { directorAgent } from '../../mastra/agents/director.agent.js';
+import { storyBibleTool } from '../../src/mastra/tools/story-bible/story-bible.tool.js';
+import { directorAgent } from '../../src/mastra/agents/director.agent.js';
 import {
   StoryBibleInputSchema,
   StoryBibleArtifactSchema,
-} from '../../mastra/tools/story-bible/schema.js';
-import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { LLMRegistry } from '../../llm/LLMRegistry.js';
-import { MockLLMService } from '../../llm/MockLLMService.js';
-import { WorkflowStage, SessionStatus } from '../../types/index.js';
+} from '../../src/mastra/tools/story-bible/schema.js';
+import { ProjectStore } from '../../src/project-store/ProjectStore.js';
+import { LLMRegistry } from '../../src/llm/LLMRegistry.js';
+import { MockLLMService } from '../../src/llm/MockLLMService.js';
+import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
 
 describe('StoryBibleContract - 故事圣经契约与正常推演套件', () => {
   const store = ProjectStore.getInstance();
