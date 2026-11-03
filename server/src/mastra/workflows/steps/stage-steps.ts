@@ -46,13 +46,25 @@ export const storyBibleStep = createStep({
   outputSchema: WorkflowContextSchema,
   execute: async ({ inputData }) => {
     const { projectId, feedback } = inputData;
+    const store = ProjectStore.getInstance();
+    const project = store.getProject(projectId);
 
-    const { stage, targetStage, ...cleanPayload } = (inputData.payload || {}) as any;
+    const rawParams = {
+      ...(inputData.payload || {}),
+      ...(inputData.overrideParams || {}),
+    };
+
+    const idea = rawParams.idea || rawParams.initialPrompt || project?.meta?.idea;
+    const style = rawParams.style || project?.meta?.style;
+    const userFeedback = feedback || rawParams.userFeedback;
+    const sessionId = rawParams.sessionId;
+
     const toolResult: any = await (storyBibleTool.execute as any)({
       projectId,
-      userFeedback: feedback,
-      ...cleanPayload,
-      ...(inputData.overrideParams || {}),
+      ...(idea ? { idea } : {}),
+      ...(style ? { style } : {}),
+      ...(userFeedback ? { userFeedback } : {}),
+      ...(sessionId ? { sessionId } : {}),
     });
 
     if (!toolResult?.success) {
