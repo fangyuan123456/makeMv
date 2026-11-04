@@ -16,6 +16,7 @@ import path from 'path';
 import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
 import { ProjectStore } from '../project-store/ProjectStore.js';
+import { MediaResolver } from './MediaResolver.js';
 
 export class MediaDownloader {
   private static instance?: MediaDownloader;
@@ -162,7 +163,7 @@ export class MediaDownloader {
 
         // 验证文件是否真实完整落盘 (法典 4.2 拒绝假收敛)
         if (fs.existsSync(destinationPath) && fs.statSync(destinationPath).size > 0) {
-          return `/media/${projectId}/${safeSubfolder}/${filename}`;
+          return MediaResolver.toMediaUrl(projectId, safeSubfolder, filename);
         } else {
           // 清理空文件或损坏文件
           if (fs.existsSync(destinationPath)) {

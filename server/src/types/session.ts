@@ -11,20 +11,26 @@ export interface ToolCallItem {
   args: Record<string, any>;
 }
 
-export type ActionProposalStatus = 'pending' | 'executed' | 'dismissed' | 'failed';
+export type ActionProposalStatus = 'pending' | 'running' | 'executed' | 'dismissed' | 'failed';
+
+export type ActionType = 'FULL_GENERATION' | 'TARGETED_REVISE' | 'CRITIC_REVIEW' | string;
 
 export interface ActionProposal {
   actionId: string;
-  actionType: string;
+  actionType: ActionType;
+  projectId?: string; // 归属的项目工程 ID
   skill?: string; // 顶层标准技能标识 (SSOT，对应外挂技能包名称如 story-bible, critic-review)
+  sessionId?: string; // 绑定的交互会话 ID (白板记忆管道 SSOT)
   label: string;
   description?: string;
-  status: ActionProposalStatus; // 生命周期状态机 (pending | executed | dismissed | failed)
+  status: ActionProposalStatus; // 生命周期状态机 (pending | running | executed | dismissed | failed)
   isGateIntercept?: boolean; // 显式指示该提案是否为审查官门禁拦截自愈卡片 (SSOT)
   payload?: Record<string, any>;
   createdAt?: string;
+  startedAt?: string; // 任务后台启动执行时间戳 (SSOT)
   executedAt?: string;
   failedAt?: string;
+  lastMessage?: string; // 运行进度描述 (如 "正在生成镜头分镜...")
   resultSummary?: string;
   error?: string;
 }

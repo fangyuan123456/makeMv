@@ -131,7 +131,24 @@ export class MemoryProjectStateStore implements IProjectStateStore {
     this.validateProjectId(projectId);
     const msgs = this.getMessages(projectId, sessionId);
     msgs.push(message);
-    this.saveMessages(projectId, sessionId, msgs);
+
+    // C4: 限制最大 200 条并同步对齐已提炼计数
+    const MAX_MESSAGES = 200;
+    let trimmed = msgs;
+    let removedCount = 0;
+    if (msgs.length > MAX_MESSAGES) {
+      removedCount = msgs.length - MAX_MESSAGES;
+      trimmed = msgs.slice(-MAX_MESSAGES);
+    }
+    this.saveMessages(projectId, sessionId, trimmed);
+
+    const s = this.getSession(projectId, sessionId);
+    if (s) {
+      if (removedCount > 0 && typeof s.scratchpad?.lastSummarizedCount === 'number') {
+        s.scratchpad.lastSummarizedCount = Math.max(0, s.scratchpad.lastSummarizedCount - removedCount);
+      }
+      this.saveSession(s);
+    }
   }
 
   public getScratchpad(projectId: string, sessionId: string): ScratchpadMemory {

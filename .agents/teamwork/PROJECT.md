@@ -1,5 +1,10 @@
 # Project: makeMv 互动影游 AI 导演系统（全景架构与演进总纲）
 
+> [!NOTE] 历史里程碑归档说明 (Milestone Archive)
+> 本文档记录了 makeMv 早期 M1 ~ M4 阶段的基础设施迁移快照（ProjectStore 移植、MediaDownloader 改造、StoryBible Tool 化）。
+> 当前系统已全面演进至 Mastra 1.81.0 官方微内核、WorkflowEngine 通用调度状态机、7 大工序与全流程 ConfirmUI 前后端联调阶段。
+> 最新的系统架构设计、数据契约及 API 规范，请以根目录 [README.md](../../README.md)、[docs/fmv-architecture-blueprint.md](../../docs/fmv-architecture-blueprint.md) 及 [docs/api-specification.md](../../docs/api-specification.md) 为单一事实来源（SSOT）。
+
 ## Architecture
 - **状态黑板与单一事实来源 (SSOT)**：
   - `server/src/project-store/`：基于物理磁盘的工程黑板，提供工序产物 (Artifacts)、多会话白板 (Scratchpad)、消息持久化、有界 LRU 缓存、Windows 原子防锁落盘与历史版本快照归档。

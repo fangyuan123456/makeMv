@@ -260,113 +260,14 @@ export class JsonSanitizer {
   }
 
   /**
-   * 针对 fallback 返回的 JSON 对象执行 Schema 级清洗与属性对齐
-   */
-  public static sanitizeAndNormalize<T>(obj: any, schema: any): T {
-    if (!obj || typeof obj !== 'object') {
-      return (obj || {}) as T;
-    }
-
-    let properties: Record<string, { type?: string; description?: string; default?: any }> = {};
-
-    if (schema) {
-      if (schema.properties) {
-        properties = schema.properties;
-      } else if (schema.jsonSchema && schema.jsonSchema.properties) {
-        properties = schema.jsonSchema.properties;
-      } else if (schema.schema && schema.schema.properties) {
-        properties = schema.schema.properties;
-      } else if (schema._def?.typeName === 'ZodObject' || schema.shape) {
-        const shape = typeof schema.shape === 'function' ? schema.shape() : (schema.shape || schema._def?.shape?.());
-        if (shape) {
-          for (const k of Object.keys(shape)) {
-            const node = shape[k];
-            let typeName = node?._def?.typeName || '';
-            let defaultValue: any = undefined;
-
-            if (typeName === 'ZodDefault') {
-              defaultValue = typeof node._def.defaultValue === 'function' ? node._def.defaultValue() : node._def.defaultValue;
-              typeName = node._def.innerType?._def?.typeName || '';
-            } else if (typeName === 'ZodOptional' || typeName === 'ZodNullable') {
-              typeName = node._def.innerType?._def?.typeName || '';
-            }
-
-            let expectedType = 'string';
-            if (typeName === 'ZodArray') expectedType = 'array';
-            else if (typeName === 'ZodNumber') expectedType = 'number';
-            else if (typeName === 'ZodBoolean') expectedType = 'boolean';
-            else if (typeName === 'ZodObject' || typeName === 'ZodRecord') expectedType = 'object';
-
-            properties[k] = {
-              type: expectedType,
-              description: node?.description || '',
-              default: defaultValue,
-            };
-          }
-        }
-      }
-    }
-
-    obj = this.deepSanitizeValues(obj);
-
-    if (!properties || Object.keys(properties).length === 0) {
-      return obj as T;
-    }
-
-    const result = { ...obj };
-
-    for (const key of Object.keys(properties)) {
-      const propDef = properties[key];
-      const expectedType = propDef.type;
-
-      if (result[key] === undefined || result[key] === null || result[key] === '') {
-        const potentialKeys = [
-          key.toLowerCase(),
-          key.toUpperCase(),
-          key.replace(/([A-Z])/g, '_$1').toLowerCase(),
-          key.replace(/_([a-z])/g, (_, g) => g.toUpperCase()),
-        ];
-
-        for (const altKey of potentialKeys) {
-          if (obj[altKey] !== undefined && obj[altKey] !== null && obj[altKey] !== '') {
-            result[key] = obj[altKey];
-            break;
-          }
-        }
-      }
-
-      if (result[key] === undefined || result[key] === null || result[key] === '') {
-        if (propDef.default !== undefined) {
-          result[key] = propDef.default;
-        } else if (expectedType === 'array') {
-          result[key] = [];
-        } else if (expectedType === 'string') {
-          result[key] = '';
-        } else if (expectedType === 'number' || expectedType === 'integer') {
-          result[key] = 0;
-        } else if (expectedType === 'boolean') {
-          result[key] = false;
-        } else if (expectedType === 'object') {
-          result[key] = {};
-        }
-      }
-
-      if (expectedType === 'array' && !Array.isArray(result[key])) {
-        result[key] = result[key] ? [result[key]] : [];
-      }
-    }
-
-    return result as T;
-  }
-
-  /**
    * 全局递归深度自愈器
    */
   public static deepSanitizeValues(val: any): any {
     if (val === null || val === undefined) return val;
 
     if (typeof val === 'string') {
-      const trimmed = val.trim();
+      const cleaned = this.cleanInvisibleChars(val);
+      const trimmed = cleaned.trim();
       if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('(') && trimmed.endsWith(')'))) {
         try {
           const parsed = JSON.parse(trimmed.replace(/^\(/, '[').replace(/\)$/, ']'));
@@ -380,7 +281,7 @@ export class JsonSanitizer {
           }
         }
       }
-      return val;
+      return cleaned;
     }
 
     if (Array.isArray(val)) {

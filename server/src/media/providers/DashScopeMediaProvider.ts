@@ -9,9 +9,7 @@
  * 4. 防路径穿越安全校验与 NodeNext .js 规范。
  */
 
-import fs from 'fs';
-import path from 'path';
-import { ProjectStore } from '../../project-store/ProjectStore.js';
+import { MediaResolver } from '../MediaResolver.js';
 import type { IImageProvider, ImageGenerationOptions } from './ImageProvider.js';
 import type { IVideoProvider, VideoGenerationOptions } from './VideoProvider.js';
 
@@ -102,37 +100,7 @@ export class DashScopeMediaProvider implements IImageProvider, IVideoProvider {
     const submitUrl = `${this.baseUrl}/services/aigc/video-generation/video-synthesis`;
     const inputPayload: Record<string, any> = { prompt };
     if (options?.referenceImageUrl) {
-      const refUrl = options.referenceImageUrl.trim();
-      if (refUrl.startsWith('http://') || refUrl.startsWith('https://') || refUrl.startsWith('data:image/')) {
-        inputPayload.img_url = refUrl;
-      } else if (refUrl.startsWith('/media/')) {
-        // 解决公网模型无法访问本地相对路径：自动定位本地物理文件并编码为合规 Base64 Data URI
-        try {
-          const parts = refUrl.replace(/^\/media\//, '').split('/');
-          const projectId = parts[0];
-          const projectDir = ProjectStore.getInstance().getProjectDir(projectId);
-          const localDiskPath = path.resolve(projectDir, ...parts.slice(1));
-
-          // 路径穿越校验防御
-          if (localDiskPath.startsWith(path.resolve(projectDir) + path.sep)) {
-            if (fs.existsSync(localDiskPath) && fs.statSync(localDiskPath).size > 0) {
-              const ext = path.extname(localDiskPath).toLowerCase();
-              const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
-              const base64Str = fs.readFileSync(localDiskPath).toString('base64');
-              inputPayload.img_url = `data:${mime};base64,${base64Str}`;
-            } else {
-              inputPayload.img_url = refUrl;
-            }
-          } else {
-            console.warn(`[DashScopeMediaProvider] 忽略非法越界参考图路径: ${refUrl}`);
-            inputPayload.img_url = refUrl;
-          }
-        } catch {
-          inputPayload.img_url = refUrl;
-        }
-      } else {
-        inputPayload.img_url = refUrl;
-      }
+      inputPayload.img_url = MediaResolver.toDataUri(options.referenceImageUrl);
     }
 
     const res = await fetch(submitUrl, {

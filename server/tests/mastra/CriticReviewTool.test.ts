@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { ProjectStore } from '../../src/project-store/ProjectStore.js';
-import { criticReviewTool } from '../../src/mastra/tools/critic-review/index.js';
+import { criticReviewTool } from '../../src/tools/critic-review/index.js';
 import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
 import { LLMRegistry } from '../../src/llm/LLMRegistry.js';
 import { MockLLMService } from '../../src/llm/MockLLMService.js';

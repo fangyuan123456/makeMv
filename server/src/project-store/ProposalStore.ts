@@ -75,10 +75,42 @@ export class ProposalStore {
     return map;
   }
 
+  /**
+   * 滚动裁剪终态历史提案：
+   * 1. 100% 绝对保留所有 pending 状态的待办提案；
+   * 2. 对已处于终态 (executed / dismissed / failed) 的提案，按保留上限（默认最多 30 条）裁剪更早历史，防止 proposals.json 无限膨胀。
+   */
+  private pruneTerminalProposals(map: Map<string, ActionProposal>, maxTerminal: number = 30): void {
+    const terminalList: Array<{ id: string; time: number }> = [];
+
+    for (const [id, proposal] of map.entries()) {
+      if (proposal.status !== 'pending') {
+        let time = 0;
+        const timeStr = proposal.executedAt || proposal.failedAt || proposal.createdAt;
+        if (timeStr) {
+          time = new Date(timeStr).getTime();
+        } else {
+          const match = id.match(/prop_(\d+)/);
+          time = match ? parseInt(match[1], 10) : 0;
+        }
+        terminalList.push({ id, time });
+      }
+    }
+
+    if (terminalList.length > maxTerminal) {
+      terminalList.sort((a, b) => a.time - b.time);
+      const toDeleteCount = terminalList.length - maxTerminal;
+      for (let i = 0; i < toDeleteCount; i++) {
+        map.delete(terminalList[i].id);
+      }
+    }
+  }
+
   private persist(projectId: string): void {
     this.validateProjectId(projectId);
     const map = this.cache.get(projectId);
     if (!map) return;
+    this.pruneTerminalProposals(map);
     const list = Array.from(map.values());
     const file = this.getProposalsFile(projectId);
     try {
@@ -147,7 +179,15 @@ export class ProposalStore {
     projectId: string,
     actionId: string,
     status: ActionProposalStatus,
-    extra?: { executedAt?: string; failedAt?: string; resultSummary?: string; description?: string; error?: string }
+    extra?: {
+      startedAt?: string;
+      executedAt?: string;
+      failedAt?: string;
+      lastMessage?: string;
+      resultSummary?: string;
+      description?: string;
+      error?: string;
+    }
   ): ActionProposal | undefined {
     this.validateProjectId(projectId);
     const map = this.loadProposals(projectId);
@@ -155,8 +195,10 @@ export class ProposalStore {
     if (!existing) return undefined;
 
     existing.status = status;
+    if (extra?.startedAt) existing.startedAt = extra.startedAt;
     if (extra?.executedAt) existing.executedAt = extra.executedAt;
     if (extra?.failedAt) existing.failedAt = extra.failedAt;
+    if (extra?.lastMessage) existing.lastMessage = extra.lastMessage;
     if (extra?.resultSummary) existing.resultSummary = extra.resultSummary;
     if (extra?.description) existing.description = extra.description;
     if (extra?.error) existing.error = extra.error;

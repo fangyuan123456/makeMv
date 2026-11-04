@@ -4,7 +4,9 @@
  */
 
 import http from 'http';
-import { mastra } from './mastra/index.js';
+import { mastra } from './mastra.js';
+import { WorkflowEngine } from './workflow-engine/index.js';
+import { registerDirectorWorkflows } from './agents/director/workflows/index.js';
 import { dispatchHttpRequest } from './api/app.js';
 
 const PORT = process.env.PORT || 4111;
@@ -14,11 +16,14 @@ async function bootstrap() {
   console.log('🎬 makeMv - Mastra 动态状态图与自由对话微内核已就绪');
   console.log('====================================================');
 
-  const directorAgent = mastra.getAgent('directorAgent');
+  const directorAgent = mastra.getAgent('director-agent');
   console.log(`[Mastra Agent] 挂载成功: id=${directorAgent.id}, name=${directorAgent.name}`);
 
-  const workflow = mastra.getWorkflow('pipelineWorkflow');
-  console.log(`[Mastra Workflow] 挂载成功: id=${workflow.id}`);
+  // 业务工序与状态机动态注册 (IoC 模式挂载 8 大影视生产工序)
+  registerDirectorWorkflows();
+
+  // 启动期执行孤儿提案自愈扫描 (恢复因崩溃/重启卡在 running 的孤儿条目)
+  WorkflowEngine.getInstance().recoverOrphanProposals();
 
   const server = http.createServer(dispatchHttpRequest);
 
@@ -26,7 +31,6 @@ async function bootstrap() {
     console.log(`\n🚀 Mastra 后端服务正在监听: http://localhost:${PORT}`);
     console.log(`📡 提供核心接口:`);
     console.log(`   - POST http://localhost:${PORT}/api/chat (自由对话、SSE流式打字机与双轨记忆落盘)`);
-    console.log(`   - POST http://localhost:${PORT}/api/workflow/resume (Mastra 工作流恢复与人在回路)`);
     console.log(`   - POST http://localhost:${PORT}/api/proposals/:id/approve (安全互斥批准提案)`);
     console.log(`   - POST http://localhost:${PORT}/api/proposals/:id/reject  (驳回提案)`);
     console.log(`   - GET  http://localhost:${PORT}/api/projects/:id/graph (状态图全景拓扑与阶段隔离门禁)`);

@@ -5,14 +5,12 @@
 
 import type { IncomingMessage, ServerResponse } from 'http';
 import { ProjectStore, ProposalStore } from '../../project-store/index.js';
-import { WorkflowManager } from '../../mastra/workflows/index.js';
 import { WorkflowStage, SessionStatus } from '../../types/index.js';
 import { readJsonBody, sendJson, sendError } from '../helpers.js';
 
 export async function handleProjectRoutes(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
   const projectStore = ProjectStore.getInstance();
   const proposalStore = ProposalStore.getInstance();
-  const workflowManager = WorkflowManager.getInstance();
 
   // 1. 项目列表: GET /api/projects
   if (pathname === '/api/projects' && req.method === 'GET') {
@@ -27,7 +25,7 @@ export async function handleProjectRoutes(req: IncomingMessage, res: ServerRespo
     const { title, idea, style, videoRatio } = body;
 
     const now = new Date().toISOString();
-    const projectId = `proj_${Date.now()}`;
+    const projectId = `proj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const entity = {
       projectId,
       title: title || '未命名互动影游',
@@ -83,7 +81,6 @@ export async function handleProjectRoutes(req: IncomingMessage, res: ServerRespo
 
     const criticReport = projectStore.getArtifact<any>(projectId, `critic_review_${project.currentStage}`) || projectStore.getArtifact<any>(projectId, 'critic_review');
     const pendingProposals = proposalStore.listProposals(projectId, { status: 'pending' });
-    const activeWorkflow = workflowManager.getStatus(projectId);
 
     sendJson(res, 200, {
       success: true,
@@ -93,7 +90,6 @@ export async function handleProjectRoutes(req: IncomingMessage, res: ServerRespo
       nodes,
       criticGate: criticReport?.gateStatus || 'NONE',
       pendingProposalsCount: pendingProposals.length,
-      activeWorkflow,
     });
     return true;
   }
@@ -115,7 +111,21 @@ export async function handleProjectRoutes(req: IncomingMessage, res: ServerRespo
       sendError(res, 404, '项目不存在');
       return true;
     }
-    sendJson(res, 200, { success: true, project });
+
+    // 聚合当前项目的活跃会话消息作为 history (消灭历史消息空数组断裂，SSOT 闭环)
+    const sessions = projectStore.listSessions(projectId);
+    let messages: any[] = [];
+    if (sessions.length > 0) {
+      messages = projectStore.getMessages(projectId, sessions[0].sessionId) || [];
+    }
+
+    const projectWithHistory = {
+      ...project,
+      history: messages,
+      sessions,
+    };
+
+    sendJson(res, 200, { success: true, project: projectWithHistory });
     return true;
   }
 

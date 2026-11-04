@@ -7,12 +7,12 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import { storyBibleTool } from '../../src/mastra/tools/story-bible/story-bible.tool.js';
-import { directorAgent } from '../../src/mastra/agents/director.agent.js';
+import { storyBibleTool } from '../../src/tools/story-bible/story-bible.tool.js';
+import { directorAgent } from '../../src/agents/director/director.agent.js';
 import {
   StoryBibleInputSchema,
   StoryBibleArtifactSchema,
-} from '../../src/mastra/tools/story-bible/schema.js';
+} from '../../src/tools/story-bible/schema.js';
 import { ProjectStore } from '../../src/project-store/ProjectStore.js';
 import { LLMRegistry } from '../../src/llm/LLMRegistry.js';
 import { MockLLMService } from '../../src/llm/MockLLMService.js';
@@ -62,13 +62,12 @@ describe('StoryBibleContract - 故事圣经契约与正常推演套件', () => {
     assert.ok(storyBibleTool.description.length > 0);
   });
 
-  it('1.2 DirectorAgent 成功挂载 storyBibleTool', async () => {
+  it('1.2 DirectorAgent 挂载高阶提案与状态工具，解耦底层原子工具', async () => {
     const tools = await (directorAgent as any).listTools();
     assert.ok(tools, 'directorAgent.listTools 必须返回工具列表');
-    const registeredTool = tools.storyBibleTool;
-    assert.ok(registeredTool, 'directorAgent 必须挂载 storyBibleTool');
-    assert.equal(registeredTool.id, 'story-bible-generator');
-    assert.equal(registeredTool.requireApproval, true);
+    assert.ok(tools.proposeStageActionTool, 'directorAgent 必须挂载 proposeStageActionTool');
+    assert.ok(tools.inspectProjectStateTool, 'directorAgent 必须挂载 inspectProjectStateTool');
+    assert.equal(tools.storyBibleTool, undefined, 'directorAgent 绝不直接持有底层原子生成工具');
   });
 
   it('1.3 正常推演故事圣经：入参与出参强类型契约校验', async () => {

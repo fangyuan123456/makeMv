@@ -26,6 +26,19 @@ export interface LLMOptions {
 export interface LLMService {
   generateText(prompt: string, systemPrompt?: string, options?: LLMOptions): Promise<string>;
   generateObject<T>(prompt: string, schema: any, systemPrompt?: string, options?: LLMOptions): Promise<T>;
+  streamObject?<T>(
+    prompt: string,
+    schema: any,
+    systemPrompt?: string,
+    onChunk?: (chunk: { type: 'reply' | 'thought'; text: string }) => void,
+    options?: LLMOptions
+  ): Promise<T>;
+  streamText?(
+    prompt: string,
+    systemPrompt?: string,
+    onChunk?: (chunk: string) => void,
+    options?: LLMOptions
+  ): Promise<string>;
   generateTextWithImages?(prompt: string, images: string[], systemPrompt?: string, options?: LLMOptions): Promise<string>;
   generateMultiTurn?(
     systemPrompt: string,

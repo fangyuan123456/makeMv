@@ -98,6 +98,35 @@ export const config = {
     timeoutMs: parseInt(process.env.COMFYUI_TIMEOUT_MS || '180000', 10),
   },
 
+  // 影视生产流水线编排与人在回路策略 (Workflow Orchestration & Approval Policy)
+  workflow: {
+    // 是否需要人工在前端点击确认卡片才启动工作流 (架构诚实铁律：杜绝黑盒静默烧卡)
+    // 默认行为：
+    // - 测试环境: 默认 true (严格验证卡片状态机)
+    // - 生产日常: 默认严格保护高昂算力工序 ['keyframe-reference', 'video-production', 'character-portrait']，必须由创作者明确授权后方可执行渲染
+    // 环境变量显式覆盖：
+    // - WORKFLOW_REQUIRE_CONFIRMATION="true":  全流程所有 8 大工序一律强制人工确认
+    // - WORKFLOW_REQUIRE_CONFIRMATION="false": 极速全自动直通模式 (创作者主动放弃人工把关)
+    // - WORKFLOW_REQUIRE_CONFIRMATION="a,b,c": 自定义需确认的工序清单
+    get requireConfirmation(): boolean | string[] {
+      const envVal = process.env.WORKFLOW_REQUIRE_CONFIRMATION?.trim();
+      if (envVal === 'false') return false;
+      if (envVal === 'true') return true;
+      if (envVal) {
+        try {
+          const parsed = JSON.parse(envVal);
+          if (Array.isArray(parsed)) return parsed;
+        } catch {}
+        if (envVal.includes(',')) {
+          return envVal.split(',').map((s) => s.trim()).filter(Boolean);
+        }
+      }
+      // 核心法典约束：影视生产 8 大工序推进默认一律全面开启人在回路 (Human-in-the-Loop)
+      // 杜绝后台静默全自动跑卡与大模型多步长程阻塞，除非创作者显式设置 WORKFLOW_REQUIRE_CONFIRMATION="false"
+      return true;
+    },
+  },
+
   // 本地数据与项目资产存储路径
   paths: {
     root: serverDir,

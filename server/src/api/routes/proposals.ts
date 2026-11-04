@@ -1,84 +1,74 @@
 /**
  * api/routes/proposals.ts
- * 人在回路提案审批 (带锁防并发)、驳回与 Mastra 工作流恢复业务路由
+ * 人在回路提案审批 (带锁防并发) 与驳回业务路由 (Proposal Router SSOT)
+ * 
+ * 核心安全特性：
+ * 1. 唯一标准契约端点，彻底根除历史向下兼容空壳 (/api/workflow/resume) 与 URL 别名冗余；
+ * 2. 调度 ProposalExecutor 串行单项目互斥锁 (ProjectLockManager)，杜绝高昂渲染并发重跑；
+ * 3. 拦截未过审工序跨阶段推进 (Critic FAIL 守卫)。
  */
 
 import type { IncomingMessage, ServerResponse } from 'http';
-import { ProposalExecutor } from '../../mastra/router/index.js';
-import { WorkflowManager } from '../../mastra/workflows/index.js';
+import { WorkflowEngine } from '../../workflow-engine/index.js';
 import { readJsonBody, sendJson, sendError } from '../helpers.js';
 
 export async function handleProposalRoutes(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
-  const executor = ProposalExecutor.getInstance();
-  const workflowManager = WorkflowManager.getInstance();
+  const engine = WorkflowEngine.getInstance();
 
-  // 1. Mastra 原生工作流推进与恢复端点: POST /api/workflow/resume
-  if (pathname === '/api/workflow/resume' && req.method === 'POST') {
+  // 1. 人在回路批准提案: POST /api/proposals/:proposalId/approve (SSOT)
+  const approveMatch = pathname.match(/^\/api\/proposals\/([^\/]+)\/approve$/);
+  if (approveMatch && req.method === 'POST') {
     try {
+      const proposalId = approveMatch[1];
       const body = await readJsonBody(req);
-      const { projectId, stepId, overrideData } = body;
-      if (!projectId) {
-        sendError(res, 400, '缺少 projectId 参数');
-        return true;
-      }
-
-      const runStatus = await workflowManager.resumeWorkflow(projectId, stepId, overrideData);
-      sendJson(res, 200, { success: true, runStatus });
-    } catch (err: any) {
-      console.error('[HTTP API] 工作流恢复异常:', err);
-      sendError(res, 500, '工作流恢复异常，请检查工序参数');
-    }
-    return true;
-  }
-
-  // 2. 人在回路批准提案: POST /api/proposals/:proposalId/approve (含并发锁与状态机防御)
-  if (pathname.startsWith('/api/proposals/') && pathname.endsWith('/approve') && req.method === 'POST') {
-    try {
-      const parts = pathname.split('/');
-      const proposalId = parts[3];
-      const body = await readJsonBody(req);
-      const { projectId, overrideParameters } = body;
+      const projectId = body.projectId;
 
       if (!projectId) {
         sendError(res, 400, '缺少 projectId 参数');
         return true;
       }
 
-      console.log(`[HTTP API] 批准执行提案 [${proposalId}] -> 项目 [${projectId}]`);
-      const execResult = await executor.executeProposal({
+      console.log(`[HTTP API] 异步启动执行提案 [${proposalId}] -> 项目 [${projectId}]`);
+      const startResult = await engine.startProposal({
         projectId,
         proposalId,
-        overrideParameters,
+        overrideParameters: body.overrideParameters,
       });
 
-      sendJson(res, 200, execResult);
+      sendJson(res, 200, {
+        success: true,
+        accepted: startResult.accepted,
+        proposal: startResult.proposal,
+      });
     } catch (err: any) {
-      console.error('[HTTP API] 执行提案异常:', err);
-      sendError(res, 500, '执行提案异常，请检查工序参数');
+      console.error('[HTTP API] 启动提案异常:', err);
+      sendError(res, 500, err.message || '启动提案异常，请检查工序参数');
     }
     return true;
   }
 
-  // 3. 人在回路驳回提案: POST /api/proposals/:proposalId/reject
-  if (pathname.startsWith('/api/proposals/') && pathname.endsWith('/reject') && req.method === 'POST') {
+  // 2. 人在回路驳回提案: POST /api/proposals/:proposalId/reject (SSOT)
+  const rejectMatch = pathname.match(/^\/api\/proposals\/([^\/]+)\/reject$/);
+  if (rejectMatch && req.method === 'POST') {
     try {
-      const parts = pathname.split('/');
-      const proposalId = parts[3];
+      const proposalId = rejectMatch[1];
       const body = await readJsonBody(req);
-      const { projectId, reason } = body;
+      const projectId = body.projectId;
 
       if (!projectId) {
         sendError(res, 400, '缺少 projectId 参数');
         return true;
       }
 
-      console.log(`[HTTP API] 创作者驳回提案 [${proposalId}] -> 原因: ${reason || '无'}`);
-      const proposal = executor.rejectProposal(projectId, proposalId, reason);
+      const reason = body.reason || '创作者主动驳回';
+      console.log(`[HTTP API] 创作者驳回提案 [${proposalId}] -> 原因: ${reason}`);
+      const proposal = await engine.rejectProposal(projectId, proposalId, reason);
 
       sendJson(res, 200, { success: true, proposal });
     } catch (err: any) {
       console.error('[HTTP API] 驳回提案异常:', err);
-      sendError(res, 500, '驳回提案异常，请稍后重试');
+      const statusCode = err?.statusCode || 500;
+      sendError(res, statusCode, err?.message || '驳回提案异常，请稍后重试');
     }
     return true;
   }

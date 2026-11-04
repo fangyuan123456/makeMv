@@ -1,154 +1,73 @@
-# ConfirmUI 工作流搭建清单（交接文档）
+# ConfirmUI 工作流搭建与人在回路清单（交接文档）
 
-> 目标：搭一套「workflow suspend → 前端确认卡片 → resume 带回结构化 JSON」的确认体系。
-> 用户确认的不是"通过/拒绝"一个信号，而是一份 **schema 合法的 JSON 工件**，下游 agent/workflow 直接消费。
-> 技术栈：Mastra workflow `suspend/resume` + Zod schema 单一事实源 + Next.js 前端卡片。
+> **目标**：搭建一套「WorkflowEngine 挂起/AOP 拦截 ➔ 前端交互确认卡片 ➔ Resume 恢复执行/提案批准」的人在回路确认体系。
+> **核心原则**：创作者确认的不仅是"通过/拒绝"信号，而是一份 **Schema 合法的结构化 JSON 契约工件**，供下游 Agent、工作流和视听机床直接消费。
+> **技术栈**：Mastra 官方微内核 + WorkflowEngine AOP 拦截 + Zod Schema 单一事实源 + Vite 6 / React 18 / Tailwind CSS 4 交互座舱。
 
 ---
 
 ## 0. 三条总纪律（验收时逐条检查）
 
-1. **出口即合法**：任何 JSON 离开 confirm UI 前必须过 `schema.parse()`，不合法锁死提交按钮。非法数据不允许进入 workflow resume 或 artifacts。
-2. **JSON 是唯一事实源**：agent 指令中明确"以下 JSON 为权威，冲突时以 JSON 为准，禁止改写、只做消费/扩写"。防止模型把用户的修改改回自己的版本。
-3. **改 schema 只改一处**：workflow inputSchema、agent 工具入参、前端表单渲染，全部从 `schemas/` 目录的同一份 Zod 定义生成。前端手写第二份字段定义 = 纪律已破。
+1. **出口即合法**：任何 JSON 离开 ConfirmUI 前必须经过对应工序的 Zod Schema 校验（`schema.parse()`），不合法则锁死提交按钮，严禁非法数据进入工作流与资产黑板。
+2. **JSON 是唯一事实源**：下游工序及 Agent 指令中明确“传入的结构化 JSON 为权威规范，冲突时以 JSON 为准，禁止私自改写、只做消费与精准渲染”。
+3. **改 Schema 只改一处（SSOT）**：各工序的输入/输出 Schema 在其专属工具或 types 目录中唯一合法声明，前端交互卡片与后端校验直接共享或派生自同一契约，严禁在下游编写第二套字段别名。
 
 ---
 
-## 1. 前置任务（先做，其他都依赖它）
+## 1. 架构映射与核心协议
 
-| # | 任务 | 内容 | 验收 |
+| # | 任务模块 | 实际工程落地路径 | 核心规范 |
 |---|---|---|---|
-| P1 | 建 `server/src/mastra/schemas/` 目录 | `story-bible.ts`、`scene-script.ts`、`shot-plan.ts`、`asset-batch.ts` 等，每份导出 Zod schema + `z.infer` 类型 | schema 文件存在且被 workflow/工具/前端三方 import |
-| P2 | 定义通用 suspend/resume 协议 | 见 §3 | 协议类型落盘并被所有 suspend 点使用 |
-| P3 | 前端卡片路由器 | 按 `uiType` 分发渲染组件，未知 uiType 显示原始 JSON + 兜底通过/拒绝 | 任意 uiType 不白屏 |
+| P1 | 工序强类型 Schema 契约 | `server/src/tools/*/schema.ts` 与 `server/src/types/` | 导出 Zod Schema + TypeScript 强类型，统一收敛至各工序工具。 |
+| P2 | 通用提案与挂起协议 | `server/src/types/session.ts` 中 `ActionProposal` | 提案包含 `actionId`, `actionType`, `skill`, `label`, `payload`, `status` 等规范字段。 |
+| P3 | 前端卡片渲染路由器 | `client/src/components/ProposalCard.tsx` 等 | 按工序与提案类型分发交互视图，支持手修参数、Prompt 微调与一键批准。 |
+| P4 | 通用工作流调度引擎 | `server/src/workflow-engine/` | 支持步骤前后 AOP 拦截、状态挂起（Suspend）与带参恢复（Resume）。 |
 
 ---
 
-## 2. Confirm 点清单（8 个）
+## 2. 核心确认点清单 (Confirm Points)
 
-★ = 默认必须停；☆ = 可在设置里跳过。**默认停的只有 5 个**：1、2、5、6、7 + 门禁。
+★ = 默认必须停；☆ = 可在设置里跳过。**默认停的核心关口**：故事大纲、角色定妆、影视分镜、关键帧首样、视频样片、终审交付及门禁拦截。
 
-| # | 工序 | confirm 点 | 停不停 | 确认什么 | uiType | 为什么 |
-|---|---|---|---|---|---|---|
-| 1 | 叙事圣经 | 创意拍板 | ★ | 三幕结构、结局分支（2~4 个）、角色名单 | `story_bible_review` | 一切错误的源头，纯主观审美，机器无法替判 |
-| 2 | 角色定妆 | 出图前确认提示词 | ★ | 每个角色的 `visualPrompt` 文本 | `character_prompt_review` | 生图烧钱；锚点文本是全片一致性的基准 |
-| 3 | 场景剧本 | 剧本验收 | ☆ | 分场数量、抉择点代价设计 | `scene_script_review` | 文本便宜可后改；但分支逻辑错误传播远 |
-| 4 | 分镜 | 镜头方案验收 | ★ | 镜头切分、景别、`nodeId` 映射完整性 | `shot_plan_review` | 主键源头：nodeId 对不上打包全错位 |
-| 5 | 关键帧 | 风格基准定调 | ★ | **先出第 1 镜**，验收后批量 | `style_sample_review` | 全片视觉基调由第一张定，批量后发现不对=全烧 |
-| 6 | 视频切片 | 样片确认 | ★ | **先渲 1 个镜头**，验收后批量渲 9 个 | `video_sample_review` | 全流程最贵工序，样片确认是成本杠杆最大点 |
-| 7 | 影游装配 | 终审交付 | ★ | manifest 试玩预览、节点覆盖率、总时长 | `final_review` | 交付不可逆 |
-| 8 | 横向：门禁 FAIL | 审查不通过时 | ★ | 三选一：按意见修改重跑 / 逐条辩护 / 强制通过 | `gate_report` | 双核闭环的裁决出口 |
-| 9 | 横向：定点重修 | "重画第 3 镜"类请求 | ★ | 覆盖已验收产物前确认影响范围 | `impact_scope_review` | 明确"只有这一格受影响，其余不动" |
+| # | 对应工序 | Confirm 确认点 | 模式 | 确认与手修核心内容 | 为什么必须人在回路 |
+|---|---|---|---|---|---|
+| 1 | 故事圣经 (Stage 1) | 创意骨架拍板 | ★ | 三幕节拍、抉择分支 DAG、核心主角小传 | 创意的源头，机器无法替代人类进行宏观主观审美定夺。 |
+| 2 | 角色定妆 (Stage 2) | 出图提示词与锁脸锚点 | ★ | 角色的纯中文 Visual Prompt 与特征参考图 | 生图算力高昂；视觉锚点是全片多镜头一致性的绝对基石。 |
+| 3 | 分场剧本 (Stage 3) | 场次与台词剧本验收 | ☆ | 分场切分、对白台词、决策倒计时点 | 文本算力相对轻量；可在设置中开启自动放行。 |
+| 4 | 影视分镜 (Stage 4) | 镜头语言与运镜规划 | ★ | 镜头切分、景别构图、运镜矢量、绝对时间戳 | 分镜头是切片装配的主键，镜头错漏将直接导致母带错位。 |
+| 5 | 关键帧 (Stage 5) | 视觉母板与首镜定调 | ★ | **首镜画面验收**，达标后再批量渲染 | 画面色调透视由首张定调，若直接批量生成一旦偏离将耗损算力。 |
+| 6 | 视频切片 (Stage 6) | 动态样片确认 | ★ | **首镜头动态视频样片**，达标后批量跑线 | 图生视频是算力成本最高环节，样片确认可最大化控制质量与成本。 |
+| 7 | 母带装配 (Stage 7) | 终审母带与互动试玩 | ★ | `game-manifest.json` 连通性、呼吸循环切片、试玩 | 最终交付阶段，直接面对观众/玩家，不可逆。 |
+| 8 | 横向审查门禁 | 审查官拦截 (FAIL/WARN) | ★ | 质检明细、致命硬伤清单、逐条辩护或重绘指令 | 质量防御底线，阻断带病工序向下游扩散。 |
 
 ---
 
-## 3. 通用 suspend/resume 协议（所有 confirm 点共用一份类型）
+## 3. 标准数据契约与接口链路
 
-```ts
-// schemas/confirm.ts —— 唯一协议定义
-export const suspendPayload = z.object({
-  uiType: z.enum(['story_bible_review', 'character_prompt_review', 'scene_script_review',
-                  'shot_plan_review', 'style_sample_review', 'video_sample_review',
-                  'final_review', 'gate_report', 'impact_scope_review']),
-  stage: z.string(),              // 当前工序 id
-  data: z.unknown(),              // 具体内容，由各工序 schema 约束（uiType → schema 映射见 §2）
-  cost: z.object({                // 确认卡必须显示"这次要花多少钱"
-    estimated: z.number(),
-    currency: z.literal('CNY'),
-  }).optional(),
-  impactScope: z.array(z.string()).optional(),  // 定点重修时：受影响的镜头/节点 id
-  feedbackOptions: z.array(z.string()).optional(), // 快捷反馈，如 "运镜太快" "人物崩了"
-});
+### 3.1 提案确认与恢复接口
+创作者在 ConfirmUI 点击卡片“批准生成”或提交修改后的参数时，调用：
+```http
+POST /api/proposals/:actionId/approve
+Content-Type: application/json
 
-export const resumePayload = z.object({
-  decision: z.enum(['approve', 'revise', 'debate', 'force', 'reject']),
-  edits: z.unknown().optional(),   // 用户修改后的完整 JSON（不是 diff，不是留言）
-  feedback: z.string().optional(), // 自由文本补充
-});
+{
+  "projectId": "proj_123456",
+  "payload": {
+    /* 经过前端表单修改并校验合法的结构化参数 */
+  }
+}
 ```
 
-实现要点：
-- 每个 workflow step 在需要确认处调 `suspend(payload)`；resume 时先 `resumePayload.parse()` 再消费。
-- `edits` 必须是**整份替换的 JSON**，用户在卡片上改字段 → 前端合并 → parse → 提交。禁止把用户修改当自然语言传给模型去"领会"。
+### 3.2 确认后系统内三大出口同步
+1. **工作流引擎恢复 (`WorkflowEngine.resume`)**：带回创作者修正后的参数，恢复对应工序的机床渲染；
+2. **状态黑板持久化 (`ProjectStore.getInstance()`)**：将最新产物与参数落盘至工程目录，更新 `Artifacts`；
+3. **双轨工作记忆同步 (`ChatMemoryManager`)**：将确认后的事实写入全局对话记忆，确保大模型后续推理感知最新定调。
 
 ---
 
-## 4. 前端卡片要求（每个 uiType 一个组件）
+## 4. 交付验收标准
 
-| uiType | 卡片形态 | 可编辑内容 | 特殊交互 |
-|---|---|---|---|
-| `story_bible_review` | A/B 骨架对比 + 角色名单表 | 三幕标题/摘要、结局 label/tone、角色增删 | 导出 JSON 按钮 |
-| `character_prompt_review` | 文本卡：N 个角色各一栏 | `visualPrompt` 多行编辑 | — |
-| `scene_script_review` | 列表卡：场次折叠预览 | 每场摘要、抉择点 | 设置里可关闭此确认 |
-| `shot_plan_review` | 表格卡：镜头列表 | 景别/描述；**只读列**：nodeId | nodeId 缺口/悬空引用**红色标出且禁用通过按钮** |
-| `style_sample_review` | 单图大图卡 | 重画提示词 | 通过 → 触发批量；重画 → 原参数+修改重调同一工具 |
-| `video_sample_review` | 单视频卡 + 播放器 | 重渲提示词 | 快捷反馈 chips（feedbackOptions）一键填入 |
-| `final_review` | 试玩嵌入（播放器）+ 覆盖率报告 | 只读 | 节点覆盖率 < 100% 时禁用交付按钮 |
-| `gate_report` | FAIL 明细列表，每条可展开 | 逐条辩护文本 / 修改指令 | 三按钮：修改重跑 / 辩护 / 强制通过（强制需二次确认弹窗） |
-| `impact_scope_review` | 影响面卡：只显示受影响的格子 | — | 明示"其余镜头不受影响" |
-
-通用要求：
-- 所有卡片提交前 `schema.parse()`，失败红字提示并锁按钮。
-- 每张卡显示 `cost.estimated`（批量卡显示总价）。
-- suspend 状态落库后用户可以**明天再来确认**——卡片要从持久化的 run 状态恢复渲染，不依赖前端内存。
-
----
-
-## 5. JSON 的三个出口（用户点"确认"后同时/按需触发）
-
-```ts
-// ① resume 进 workflow —— 媒体工序的输入
-await run.resume({ resumeData: { decision: 'approve', edits: confirmedJson } });
-
-// ② 注入 agent working memory —— 后续对话的事实源
-await mastra.getMemory().saveWorkingMemory({
-  threadId, resourceid: projectId,
-  workingMemory: JSON.stringify(confirmedJson),
-});
-
-// ③ 存 artifacts / 导出下载
-await fetch(`/api/project/${projectId}/artifact/${stage}`, {
-  method: 'PATCH', body: JSON.stringify(confirmedJson),
-});
-// 导出下载：Blob + a[download]，文件名 `{stage}_{ts}.json`
-```
-
----
-
-## 6. 原子资产工具族（confirm 卡里"重画"按钮的执行方）
-
-四个能力各做一个 `createTool`（用工厂函数收敛公共逻辑），`requireApproval: true`：
-
-| 工具 | 输入 schema 要点 |
-|---|---|
-| `generate-character` | characterName + visualPrompt（来自定稿的 story-bible JSON） |
-| `generate-pose` | characterAssetId（引用已有资产，不重传图）+ posePrompt + poseCount(1~8) |
-| `generate-three-view` | characterAssetId |
-| `generate-from-reference` | referenceImageUrl（用户上传）+ visualPrompt |
-
-统一 outputSchema：`assetId / imageUrl / width / height / cost / isDegraded / degradedReason`。
-纪律：**工具之间不互相调用**，组合只发生在 agent 推理循环或 workflow step 里；缺输入就 throw 让上游补。
-
----
-
-## 7. 验收标准（拿一条真实链路走通才算完）
-
-端到端场景：新建项目 → 对话给出立意 → 产出故事圣经草稿 → **卡 1** 编辑角色并确认 → JSON 注入记忆 + 落 artifacts → 分镜生成 → **卡 4** nodeId 有意制造一个悬空引用 → 卡片红标、通过按钮禁用 → 修复后通过 → 关键帧**卡 5**：重画一次第 1 镜 → 批量 → 中途 kill 进程重启 → run 从 suspend 点恢复，卡片还在。
-
-逐条检查：
-- [ ] 9 个 uiType 各有组件，未知 uiType 不白屏
-- [ ] 所有出口 JSON 过 `schema.parse()`，非法提交被锁
-- [ ] 门禁 FAIL 时除 gate_report 三选一外**没有任何别的推进路径**（grep 不到第二处 advance 判断）
-- [ ] 每张确认卡显示预估成本
-- [ ] 进程重启后 suspend 卡片可恢复
-- [ ] schema 改动只发生在 `schemas/` 一处，前端表单自动跟随
-- [ ] 默认停的确认点 = 5 个，scene_script_review 可在设置关闭
-
----
-
-## 8. 明确不要做的事
-
-- 不要做拖拽式流程编辑器、不要做通用"表单引擎"——9 个 uiType 手写组件就够
-- 不要把大 payload（图片/视频二进制）塞进 suspend/resume——只放 URL 和参数
-- 不要让 agent 参与"决定是否需要确认"——确认点是 workflow 里的静态挂起点，不是模型自由发挥
-- 不要做确认历史的时间线/审计看板——artifacts 的版本快照已经有了，够用
+- [ ] 所有提案卡片提交前执行强类型校验，非法输入禁用提交按钮并红字提示；
+- [ ] 门禁审查报告拦截（FAIL）时，坚决阻断跨阶段跃迁，只允许针对当前工序自愈重绘或辩护；
+- [ ] 媒体产物写入磁盘通过 `fs.existsSync` 与尺寸校验，杜绝虚假成功；
+- [ ] 进程重启后可从本地 `ProjectStore` 恢复项目状态与未处理提案卡片。

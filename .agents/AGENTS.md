@@ -60,15 +60,15 @@
 
 ### 2.1 对话中枢与微内核设计（Chat-Centric & Mastra Microkernel）
 - **官方微内核核心驱动**：系统全面基于 **Mastra 官方微内核（`@mastra/core`）** 与 **Vercel AI SDK** 驱动，彻底告别零散拼接模式；
-- **纯天然流式对话与人在回路（Chat + Human-in-the-Loop）**：创作者通过自然语言与 AI 导演副手（`directorAgent`）交互，由意图路由器（`DirectorRouter`）分析意图并生成待审核提案（`ActionProposal`），经创作者确认后由提案执行器（`ProposalExecutor`）恢复执行；
+- **纯天然流式对话与人在回路（Chat + Human-in-the-Loop）**：创作者通过自然语言与 AI 导演副手（`directorAgent`）交互，由导演智能体结合工程上下文调用高阶调度工具（`proposeStageActionTool`）生成强类型待审核提案（`ActionProposal`），经创作者在 UI 卡片确认授权后，由通用工作流调度引擎（`WorkflowEngine`）AOP 恢复执行；
 - **全流程动态状态机工作流（pipelineWorkflow）**：通过 Mastra 原生 `Workflow` 状态机编排各工序（Step 与 Suspend/Resume），实现可靠的断点续传与人在回路仲裁；
 - **视听专精声明式工具包（Mastra Tools）**：
   - 各工序实体（`storyBibleTool`, `characterPortraitTool`, `sceneScriptTool`, `storyboardTool`, `keyframeReferenceTool`, `videoProductionTool`, `criticReviewTool`, `fmvPackagingTool` 等）统一继承自 Mastra 原生 `createTool`；
   - 工具对外暴露严密 Zod Schema 校验的强类型入参与产物（纯数据契约进出），统一在 Mastra 实例中总装注册，实现高度正交与即插即用。
 
 ### 2.2 自主行动提案与人在回路（Action Proposals & Human-in-the-Loop）
-- **大模型自主提案协议**：`DirectorAgent` 在流式推理中通过标准协议块 `<action_proposal>` 自主抛出阶段推进、定妆生成、分镜拆解或提示词微调建议；
-- **打字机流式分离与安全拦截**：`StreamTagParser` 实时拦截提案协议块并分离思考流（Thinking），杜绝将原始 JSON 文本混入自然语言聊天；
+- **大模型自主提案协议**：`DirectorAgent` 在流式推理中结合全局上下文感知（`ContextAssembler`）自主调用 `proposeStageActionTool` 生成待审核提案，精准抛出阶段推进、定妆生成、分镜拆解或提示词微调建议；
+- **打字机流式分离与安全拦截**：`StreamTagParser` 实时拦截并分离思考流（`<think>...</think>`），杜绝思考草稿混入自然语言聊天；
 - **生成待确认行动卡片**：解析后的提案转化为生命周期为 `pending` 的 `ActionProposal` 实体，渲染为 UI 交互卡片，由创作者点击确认或授权触发；
 - **杜绝黑盒失控**：坚决禁止大模型在后台静默私自调用高昂算力工具，确保**“模型负责提议，人类负责裁决，技能负责落地”**。
 
@@ -139,22 +139,28 @@ makeMv/
         │   ├── helpers.ts      # 统一 HTTP 工具 (CORS, readJsonBody, sendJson)
         │   ├── media.ts        # 静态媒体切片安全沙箱托管
         │   └── routes/         # 业务路由分发 (chat, projects, proposals)
-        ├── mastra/             # 【Mastra 官方微内核 SSOT】
-        │   ├── index.ts        # Mastra 容器总装入口 (Mastra 实例注册)
-        │   ├── agents/         # 导演副手 Agent (directorAgent)
-        │   ├── workflows/      # SOP 状态机图与人在回路恢复 (pipelineWorkflow)
-        │   │   ├── steps/      # 各影视工序原子执行 Step
-        │   │   └── confirm/    # 人在回路挂起与创作者确认 Step
-        │   ├── router/         # 意图路由与提案执行器 (DirectorRouter, ProposalExecutor)
-        │   └── tools/          # 8 大视听工序声明式工具包 (统一继承 createTool)
-        │       ├── story-bible/
-        │       ├── character-portrait/
-        │       ├── scene-script/
-        │       ├── storyboard/
-        │       ├── keyframe-reference/
-        │       ├── video-production/
-        │       ├── critic-review/
-        │       └── fmv-packaging/
+        ├── mastra.ts           # 【Mastra 官方微内核容器总装出口 (Canonical Mastra SSOT)】
+        ├── workflow-engine/    # 【通用工作流调度引擎 (Run, Resume, AOP 确认拦截切面)】
+        ├── agents/             # 【多智能体系统：按角色建立专属自治领地】
+        │   └── director/       # 【总导演智能体专属自治目录】
+        │       ├── director.agent.ts     # 导演智能体定义 (Mastra Agent)
+        │       ├── context-assembler.ts  # 导演专用视听全景感知
+        │       ├── tools/      # 【总导演专属的高阶调度与状态感知元工具】
+        │       │   ├── propose-stage-action.tool.ts
+        │       │   └── inspect-project-state.tool.ts
+        │       └── workflows/  # 【总导演专属管辖的影视工序流水线状态机】
+        │           ├── steps/  # 8 大工序原子 Step 微内核 (私有调用 tools/)
+        │           └── pipeline.workflow.ts
+        ├── tools/              # 【影视流水线工序原子生产工具族 (供 Workflow Steps 私有调用)】
+        │   ├── story-bible/
+        │   ├── character-portrait/
+        │   ├── scene-script/
+        │   ├── storyboard/
+        │   ├── keyframe-reference/
+        │   ├── video-production/
+        │   ├── voice-production/
+        │   ├── critic-review/
+        │   └── fmv-packaging/
         ├── project-store/      # 全局状态黑板层 (ProjectStore SSOT, FileProjectStateStore, ProposalStore)
         ├── media/              # 视听与多媒体渲染 (ComfyUI / DashScope / FFmpeg)
         ├── llm/                # 统一大模型集成服务 (LLMRegistry, RealLLMService, MockLLMService)

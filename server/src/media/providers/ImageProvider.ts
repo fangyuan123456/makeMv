@@ -9,6 +9,9 @@ export interface ImageGenerationOptions {
   negativePrompt?: string;
   seed?: number;
   abortSignal?: AbortSignal;
+  referenceImageUrl?: string;
+  outfitImageUrl?: string;
+  mode?: 'character_t2i' | 'character_ref2i' | 'character_pose_outfit' | 'character_three_view' | 'general_t2i';
 }
 
 export interface IImageProvider {

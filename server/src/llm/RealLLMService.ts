@@ -7,6 +7,8 @@ import { createOpenAI } from '@ai-sdk/openai';
 import {
   generateText as aiGenerateText,
   generateObject as aiGenerateObject,
+  streamText as aiStreamText,
+  streamObject as aiStreamObject,
 } from 'ai';
 import type { LLMService, LLMOptions } from './LLMService.js';
 import { config } from '../utils/config.js';
@@ -70,5 +72,70 @@ export class RealLLMService implements LLMService {
       abortSignal: effectiveSignal,
     });
     return object as T;
+  }
+
+  public async streamText(
+    prompt: string,
+    systemPrompt?: string,
+    onChunk?: (chunk: string) => void,
+    options?: LLMOptions
+  ): Promise<string> {
+    const effectiveSignal = this.getEffectiveSignal(options?.abortSignal);
+    const result = aiStreamText({
+      model: this.modelInstance,
+      system: systemPrompt,
+      prompt,
+      temperature: options?.temperature,
+      abortSignal: effectiveSignal,
+    });
+
+    let fullText = '';
+    for await (const chunk of result.textStream) {
+      fullText += chunk;
+      if (onChunk) {
+        onChunk(chunk);
+      }
+    }
+    return fullText;
+  }
+
+  public async streamObject<T>(
+    prompt: string,
+    schema: any,
+    systemPrompt?: string,
+    onChunk?: (chunk: { type: 'reply' | 'thought'; text: string }) => void,
+    options?: LLMOptions
+  ): Promise<T> {
+    const effectiveSignal = this.getEffectiveSignal(options?.abortSignal);
+    const { partialObjectStream, object } = aiStreamObject({
+      model: this.modelInstance,
+      schema,
+      system: systemPrompt,
+      prompt,
+      temperature: options?.temperature,
+      abortSignal: effectiveSignal,
+    });
+
+    let replySent = 0;
+    let thoughtSent = 0;
+
+    for await (const partial of partialObjectStream as any) {
+      if (onChunk) {
+        const reply = partial.reply ?? '';
+        if (reply.length > replySent) {
+          onChunk({ type: 'reply', text: reply.slice(replySent) });
+          replySent = reply.length;
+        }
+
+        const thought = partial.thought ?? '';
+        if (thought.length > thoughtSent) {
+          onChunk({ type: 'thought', text: thought.slice(thoughtSent) });
+          thoughtSent = thought.length;
+        }
+      }
+    }
+
+    const finalObject = await object;
+    return finalObject as T;
   }
 }

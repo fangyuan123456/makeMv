@@ -1,12 +1,11 @@
 /**
  * api/media.ts
- * 静态媒体切片托管服务 (安全沙箱与防路径穿越防逃逸)
+ * 静态媒体切片托管服务 (委托 MediaResolver 安全沙箱与统一 MIME 门面)
  */
 
 import fs from 'fs';
-import path from 'path';
 import type { ServerResponse } from 'http';
-import { ProjectStore } from '../project-store/index.js';
+import { MediaResolver } from '../media/MediaResolver.js';
 import { sendError } from './helpers.js';
 
 export function handleMediaRequest(pathname: string, res: ServerResponse): boolean {
@@ -14,34 +13,20 @@ export function handleMediaRequest(pathname: string, res: ServerResponse): boole
     return false;
   }
 
-  const parts = pathname.replace('/media/', '').split('/');
-  const projectId = parts[0];
-  const relativeFilePath = parts.slice(1).join('/');
+  const resolved = MediaResolver.resolveDiskPath(pathname);
 
-  if (!projectId || !relativeFilePath) {
+  if (!resolved.projectId || !resolved.relativePath) {
     sendError(res, 400, '非法媒体请求路径');
     return true;
   }
 
-  const projectStore = ProjectStore.getInstance();
-  const projectDir = projectStore.getProjectDir(projectId);
-  const safePath = path.resolve(projectDir, relativeFilePath);
-
-  // 安全沙箱刚性防御：严格检查 relative 路径不能逃逸出 projectDir
-  const relative = path.relative(projectDir, safePath);
-  if (relative.startsWith('..') || path.isAbsolute(relative) || !fs.existsSync(safePath)) {
+  if (!resolved.isValid || !resolved.diskPath) {
     sendError(res, 404, '媒体文件不存在或禁止跨项目越权访问');
     return true;
   }
 
-  const ext = path.extname(safePath).toLowerCase();
-  let contentType = 'application/octet-stream';
-  if (ext === '.mp4') contentType = 'video/mp4';
-  else if (ext === '.png') contentType = 'image/png';
-  else if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
-  else if (ext === '.json') contentType = 'application/json';
-
+  const contentType = MediaResolver.getMimeType(resolved.diskPath);
   res.writeHead(200, { 'Content-Type': contentType });
-  fs.createReadStream(safePath).pipe(res);
+  fs.createReadStream(resolved.diskPath).pipe(res);
   return true;
 }

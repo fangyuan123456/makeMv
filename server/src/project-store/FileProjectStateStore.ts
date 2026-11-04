@@ -10,6 +10,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { config } from '../utils/config.js';
 import { atomicWriteJsonSync, trace } from '../utils/index.js';
+import { JsonSanitizer } from '../utils/JsonSanitizer.js';
 import type { ProjectEntity, ChatSession, ChatMessage, ScratchpadMemory } from '../types/index.js';
 import type { IProjectStateStore } from './IProjectStateStore.js';
 import type { ProjectStateSnapshot } from './types.js';
@@ -229,20 +230,21 @@ export class FileProjectStateStore implements IProjectStateStore {
       }
     }
 
-    // 2. 注入 __meta 来源追溯信息
-    if (artifact && typeof artifact === 'object') {
-      if (!(artifact as any).createdAt) {
-        (artifact as any).createdAt = now;
+    // 2. 注入 __meta 来源追溯信息并深度消毒大模型文本
+    const targetArtifact = JsonSanitizer.deepSanitizeValues(artifact);
+    if (targetArtifact && typeof targetArtifact === 'object') {
+      if (!(targetArtifact as any).createdAt) {
+        (targetArtifact as any).createdAt = now;
       }
-      (artifact as any).updatedAt = now;
-      (artifact as any).__meta = {
+      (targetArtifact as any).updatedAt = now;
+      (targetArtifact as any).__meta = {
         ...(meta || {}),
-        degraded: (artifact as any).isDegraded ?? meta?.degraded ?? false,
+        degraded: (targetArtifact as any).isDegraded ?? meta?.degraded ?? false,
         updatedAt: now,
       };
     }
 
-    project.stageArtifacts[stage] = artifact;
+    project.stageArtifacts[stage] = targetArtifact;
     project.updatedAt = now;
 
     try {
@@ -508,10 +510,23 @@ export class FileProjectStateStore implements IProjectStateStore {
     this.validateProjectId(projectId);
     const messages = this.getMessages(projectId, sessionId);
     messages.push(message);
-    this.saveMessages(projectId, sessionId, messages);
+
+    // C4: 限制 messages.json 最大 200 条，防止长会话文件无限增长
+    const MAX_MESSAGES = 200;
+    let trimmed = messages;
+    let removedCount = 0;
+    if (messages.length > MAX_MESSAGES) {
+      removedCount = messages.length - MAX_MESSAGES;
+      trimmed = messages.slice(-MAX_MESSAGES);
+    }
+    this.saveMessages(projectId, sessionId, trimmed);
 
     const session = this.getSession(projectId, sessionId);
     if (session) {
+      // 若发生了历史窗口裁剪，同步对齐已提炼计数，杜绝索引错位
+      if (removedCount > 0 && typeof session.scratchpad?.lastSummarizedCount === 'number') {
+        session.scratchpad.lastSummarizedCount = Math.max(0, session.scratchpad.lastSummarizedCount - removedCount);
+      }
       this.saveSession(session);
     }
   }

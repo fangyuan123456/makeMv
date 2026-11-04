@@ -9,6 +9,7 @@ import { handleMediaRequest } from './media.js';
 import { handleProjectRoutes } from './routes/projects.js';
 import { handleChatRoute } from './routes/chat.js';
 import { handleProposalRoutes } from './routes/proposals.js';
+import { handleMastraRoutes } from './routes/mastra.js';
 
 export async function dispatchHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
   // 1. 跨域 OPTIONS 预检请求拦截
@@ -30,17 +31,22 @@ export async function dispatchHttpRequest(req: IncomingMessage, res: ServerRespo
     return;
   }
 
-  // 4. 对话与流式管道: POST /api/chat
+  // 4. Mastra 微内核与 Studio 发现路由: /api/agents, /api/workflows
+  if (await handleMastraRoutes(req, res, pathname)) {
+    return;
+  }
+
+  // 5. 对话与流式管道: POST /api/chat
   if (await handleChatRoute(req, res, pathname, parsedUrl.searchParams)) {
     return;
   }
 
-  // 5. 提案流转与工作流恢复: /api/workflow/resume, /api/proposals/...
+  // 6. 提案流转与人在回路审核: /api/proposals/:id/approve, /api/proposals/:id/reject
   if (await handleProposalRoutes(req, res, pathname)) {
     return;
   }
 
-  // 6. 项目 CRUD 与拓扑状态图: /api/projects/...
+  // 7. 项目 CRUD 与拓扑状态图: /api/projects/...
   if (await handleProjectRoutes(req, res, pathname)) {
     return;
   }

@@ -41,7 +41,52 @@ export class MockLLMService implements LLMService {
       const data = this.customStageData.get(stage);
       return typeof data === 'string' ? data : JSON.stringify(data);
     }
+    if (stage === 'director_chat_stream' || stage === 'director_chat_text') {
+      return '收到您的创作构想！作为总导演，我认为这个戏剧冲突设定极具视听张力。我已为您构思好了核心人物关系与网状剧情走向，建议立即启动工序进行剧本深耕。';
+    }
     return JSON.stringify({ success: true, message: 'Mock LLM Response' });
+  }
+
+  public async streamText(
+    prompt: string,
+    systemPrompt?: string,
+    onChunk?: (chunk: string) => void,
+    options?: LLMOptions
+  ): Promise<string> {
+    const fullText = await this.generateText(prompt, systemPrompt, options);
+    const chunkSize = 8;
+    for (let i = 0; i < fullText.length; i += chunkSize) {
+      const slice = fullText.slice(i, i + chunkSize);
+      if (onChunk) {
+        onChunk(slice);
+      }
+    }
+    return fullText;
+  }
+
+  public async streamObject<T>(
+    prompt: string,
+    schema: any,
+    systemPrompt?: string,
+    onChunk?: (chunk: { type: 'reply' | 'thought'; text: string }) => void,
+    options?: LLMOptions
+  ): Promise<T> {
+    const fullObject = await this.generateObject<T>(prompt, schema, systemPrompt, options);
+    const reply = (fullObject as any)?.reply || '';
+    const thought = (fullObject as any)?.thought || '';
+
+    if (onChunk) {
+      if (thought) {
+        onChunk({ type: 'thought', text: thought });
+      }
+      if (reply) {
+        const chunkSize = 8;
+        for (let i = 0; i < reply.length; i += chunkSize) {
+          onChunk({ type: 'reply', text: reply.slice(i, i + chunkSize) });
+        }
+      }
+    }
+    return fullObject;
   }
 
   public async generateObject<T>(
@@ -258,7 +303,7 @@ export class MockLLMService implements LLMService {
       } as T;
     }
 
-    if (stage === 'director_router_decision') {
+    if (stage === 'director_router_decision' || stage === 'director_decision_structured') {
       return {
         thought: '创作者提出了关于故事世界观构建的设想，建议启动故事圣经工具进行推演。',
         reply: '收到您的创作构想！我已为您规划好黄金三幕与剧情网状分支，建议执行故事圣经工序。',
