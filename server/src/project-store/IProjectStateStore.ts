@@ -26,6 +26,7 @@ export interface IProjectStateStore {
     meta?: { taskId?: string; skill?: string; model?: string; degraded?: boolean; paramsHash?: string }
   ): void;
 
+
   // 🌟 会话与白板统合存取 (Sessions & Scratchpad SSOT)
   createSession(projectId: string, title?: string, initialStage?: string, customSessionId?: string): ChatSession;
   getSession(projectId: string, sessionId: string): ChatSession | undefined;

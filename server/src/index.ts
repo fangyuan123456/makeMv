@@ -4,9 +4,10 @@
  */
 
 import http from 'http';
+import './mastra-compat/index.js';
 import { mastra } from './mastra.js';
-import { WorkflowEngine } from './workflow-engine/index.js';
-import { registerDirectorWorkflows } from './agents/director/workflows/index.js';
+import { Workflow } from './workflow-engine/index.js';
+import { registerPipelineWorkflows } from './agents/director/generator/index.js';
 import { dispatchHttpRequest } from './api/app.js';
 
 const PORT = process.env.PORT || 4111;
@@ -20,10 +21,10 @@ async function bootstrap() {
   console.log(`[Mastra Agent] 挂载成功: id=${directorAgent.id}, name=${directorAgent.name}`);
 
   // 业务工序与状态机动态注册 (IoC 模式挂载 8 大影视生产工序)
-  registerDirectorWorkflows();
+  registerPipelineWorkflows();
 
   // 启动期执行孤儿提案自愈扫描 (恢复因崩溃/重启卡在 running 的孤儿条目)
-  WorkflowEngine.getInstance().recoverOrphanProposals();
+  Workflow.getInstance().recoverOrphanProposals();
 
   const server = http.createServer(dispatchHttpRequest);
 
@@ -49,6 +50,8 @@ async function bootstrap() {
 
   process.on('SIGINT', handleShutdown);
   process.on('SIGTERM', handleShutdown);
+// Trigger tsx reload: 2026-11-04T17:56:00Z
+
 }
 
 bootstrap().catch((err) => {

@@ -85,9 +85,9 @@ export default function NarrativeViewer({ artifact }: NarrativeViewerProps) {
   const characters = artifact.characters || artifact.bible?.characters || [];
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto p-6 pb-28 space-y-6 bg-slate-950 text-slate-200">
+    <div className="flex flex-col h-full overflow-y-auto p-6 pb-48 space-y-6 bg-slate-950 text-slate-200">
       {/* 1. 故事概览总头卡 */}
-      <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-xl space-y-4">
+      <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-xl space-y-4 shrink-0">
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
@@ -201,7 +201,7 @@ export default function NarrativeViewer({ artifact }: NarrativeViewerProps) {
 
       {/* 2. 黄金故事主干：四幕戏剧弧线 */}
       {(activeTab === 'all' || activeTab === 'spine') && goldenSpine.length > 0 && (
-        <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-xl space-y-4">
+        <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-xl space-y-4 shrink-0">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div>
               <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
@@ -282,7 +282,7 @@ export default function NarrativeViewer({ artifact }: NarrativeViewerProps) {
 
       {/* 3. 核心登场角色与 8K 视觉定妆设定 */}
       {(activeTab === 'all' || activeTab === 'characters') && characters.length > 0 && (
-        <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-xl space-y-4">
+        <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-xl space-y-4 shrink-0">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div>
               <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
@@ -397,25 +397,21 @@ export default function NarrativeViewer({ artifact }: NarrativeViewerProps) {
 
       {/* 4. 网状故事拓扑可视化 */}
       {(activeTab === 'all' || activeTab === 'graph') && (
-        <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-xl flex flex-col w-full max-w-full overflow-hidden">
-          <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+        <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-xl flex flex-col w-full max-w-full space-y-4 shrink-0">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-800">
             <div>
               <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <GitFork className="w-4 h-4 text-indigo-400" />
                 网状互动故事拓扑图谱 (Interactive Story Graph)
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                {storyGraph
-                  ? `包含 ${storyGraph.nodes?.length ?? 0} 个互动节点、核心选择分支与多结局收敛点`
-                  : '尚未生成拓扑图谱，请先完成故事圣经工序'}
+                包含网状互动节点、核心选择分支与多结局收敛点
               </p>
             </div>
           </div>
 
-          <div className="w-full max-w-full min-h-[480px]">
-            <StoryGraphErrorBoundary>
-              <StoryGraphViewer graph={storyGraph} />
-            </StoryGraphErrorBoundary>
+          <div className="w-full shrink-0">
+            <StoryGraphViewer graph={storyGraph} />
           </div>
         </div>
       )}

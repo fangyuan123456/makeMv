@@ -168,4 +168,72 @@ export class MemoryProjectStateStore implements IProjectStateStore {
     s.scratchpad = { ...s.scratchpad, ...patch, lastUpdatedAt: new Date().toISOString() };
     return s.scratchpad;
   }
+
+  public repairArtifact(
+    projectId: string,
+    stage: string,
+    repair: { type: 'RENAME_CHARACTER' | 'UPDATE_FIELD'; payload: any }
+  ): { success: boolean; modifiedFields: string[]; summary: string } {
+    this.validateProjectId(projectId);
+    const project = this.getProject(projectId);
+    if (!project) throw new Error(`未找到项目: ${projectId}`);
+
+    if (repair.type === 'RENAME_CHARACTER') {
+      const { oldName, newName } = repair.payload || {};
+      if (!oldName || !newName || oldName === newName) {
+        throw new Error('RENAME_CHARACTER 必须提供有效且不相同的 oldName 与 newName');
+      }
+
+      const bible = project.stageArtifacts?.['narrative_design'];
+      if (!bible) {
+        throw new Error('未找到故事圣经资产，无法执行角色重命名修补');
+      }
+
+      // 1. 替换角色列表中的姓名
+      if (Array.isArray(bible.characters)) {
+        for (const c of bible.characters) {
+          if (c.name === oldName) c.name = newName;
+        }
+      }
+      if (Array.isArray(bible.characterNames)) {
+        bible.characterNames = bible.characterNames.map((n: string) => (n === oldName ? newName : n));
+      }
+
+      // 2. 级联替换大纲与剧情节点
+      const replaceRegex = new RegExp(oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+      if (typeof bible.logline === 'string') {
+        bible.logline = bible.logline.replace(replaceRegex, newName);
+      }
+      if (Array.isArray(bible.goldenSpine)) {
+        for (const act of bible.goldenSpine) {
+          if (act.summary) act.summary = act.summary.replace(replaceRegex, newName);
+          if (act.cliffhanger) act.cliffhanger = act.cliffhanger.replace(replaceRegex, newName);
+        }
+      }
+      if (bible.storyGraph && Array.isArray(bible.storyGraph.nodes)) {
+        for (const node of bible.storyGraph.nodes) {
+          if (node.title) node.title = node.title.replace(replaceRegex, newName);
+          if (node.summary) node.summary = node.summary.replace(replaceRegex, newName);
+          if (Array.isArray(node.characterNames)) {
+            node.characterNames = node.characterNames.map((n: string) => (n === oldName ? newName : n));
+          }
+          if (Array.isArray(node.choices)) {
+            for (const ch of node.choices) {
+              if (ch.text) ch.text = ch.text.replace(replaceRegex, newName);
+              if (ch.dramaticTension) ch.dramaticTension = ch.dramaticTension.replace(replaceRegex, newName);
+            }
+          }
+        }
+      }
+
+      this.saveProject(project);
+      return {
+        success: true,
+        modifiedFields: ['characters', 'characterNames', 'goldenSpine', 'storyGraph'],
+        summary: `已将角色【${oldName}】就地修补更名为【${newName}】`,
+      };
+    }
+
+    return { success: false, modifiedFields: [], summary: '不支持的修补操作' };
+  }
 }

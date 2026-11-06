@@ -23,9 +23,8 @@ export async function handleMastraRoutes(
       const agentsList = [
         {
           id: 'director-agent',
-          name: directorAgent.name || 'AI 互动影游总导演',
-          description: '基于自然语言意图规划互动影游全工序状态机，并生成人在回路待审提案 (ActionProposal)',
-          tools: ['proposeStageActionTool', 'inspectProjectStateTool'],
+          name: directorAgent.name || 'AI 视听总导演智能体',
+          description: 'AI 视听总导演，统领整个互动影游生成制片与资产定向精修',
         },
       ];
       sendJson(res, 200, { success: true, agents: agentsList });
@@ -132,9 +131,9 @@ export async function handleMastraRoutes(
       const { stepId, resumeData } = body;
       const run = await wf.createRun();
       const result = await run.resume({
-        stepId,
-        context: resumeData || {},
-      });
+        step: stepId,
+        resumeData: resumeData || {},
+      } as any);
 
       sendJson(res, 200, {
         success: result.status === 'success',

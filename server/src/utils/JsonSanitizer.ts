@@ -260,6 +260,114 @@ export class JsonSanitizer {
   }
 
   /**
+   * 针对大模型返回的 JSON 对象执行 Schema 级清洗与属性对齐
+   * @param obj 解析出的普通 JS 对象
+   * @param schema Zod Schema 或 JSON Schema 校验规则
+   */
+  public static sanitizeAndNormalize<T>(obj: any, schema: any): T {
+    if (!obj || typeof obj !== 'object') {
+      return (obj || {}) as T;
+    }
+
+    // 尝试提取 JSON Schema 的 properties 定义 或 ZodSchema 的 shape 定义
+    let properties: Record<string, { type?: string; description?: string; default?: any }> = {};
+
+    if (schema) {
+      if (schema.properties) {
+        properties = schema.properties;
+      } else if (schema.jsonSchema && schema.jsonSchema.properties) {
+        properties = schema.jsonSchema.properties;
+      } else if (schema.schema && schema.schema.properties) {
+        properties = schema.schema.properties;
+      } else if (schema._def?.typeName === 'ZodObject' || schema.shape) {
+        const shape = typeof schema.shape === 'function' ? schema.shape() : (schema.shape || schema._def?.shape?.());
+        if (shape) {
+          for (const k of Object.keys(shape)) {
+            const node = shape[k];
+            let typeName = node?._def?.typeName || '';
+            let defaultValue: any = undefined;
+
+            if (typeName === 'ZodDefault') {
+              defaultValue = typeof node._def.defaultValue === 'function' ? node._def.defaultValue() : node._def.defaultValue;
+              typeName = node._def.innerType?._def?.typeName || '';
+            } else if (typeName === 'ZodOptional' || typeName === 'ZodNullable') {
+              typeName = node._def.innerType?._def?.typeName || '';
+            }
+
+            let expectedType = 'string';
+            if (typeName === 'ZodArray') expectedType = 'array';
+            else if (typeName === 'ZodNumber') expectedType = 'number';
+            else if (typeName === 'ZodBoolean') expectedType = 'boolean';
+            else if (typeName === 'ZodObject' || typeName === 'ZodRecord') expectedType = 'object';
+
+            properties[k] = {
+              type: expectedType,
+              description: node?.description || '',
+              default: defaultValue,
+            };
+          }
+        }
+      }
+    }
+
+    // 🌟 全局底层预自愈：递归处理任何文本降级带来的字符串向量与无效占位
+    obj = this.deepSanitizeValues(obj);
+
+    if (!properties || Object.keys(properties).length === 0) {
+      return obj as T;
+    }
+
+    const result = { ...obj };
+
+    // 遍历 schema 要求的每一个字段
+    for (const key of Object.keys(properties)) {
+      const propDef = properties[key];
+      const expectedType = propDef.type;
+
+      // 1. 如果该字段没有值或为空串，尝试进行常见语义别名、驼峰/蛇形/大小写不敏感匹配
+      if (result[key] === undefined || result[key] === null || result[key] === '') {
+        const potentialKeys = [
+          key.toLowerCase(),
+          key.toUpperCase(),
+          key.replace(/([A-Z])/g, '_$1').toLowerCase(),
+          key.replace(/_([a-z])/g, (_, g) => g.toUpperCase()),
+        ];
+
+        for (const altKey of potentialKeys) {
+          if (obj[altKey] !== undefined && obj[altKey] !== null && obj[altKey] !== '') {
+            result[key] = obj[altKey];
+            break;
+          }
+        }
+      }
+
+      // 2. 如果依然为 undefined 或空串，赋智能默认值兜底 (优先消费 Zod 的 defaultValue)
+      if (result[key] === undefined || result[key] === null || result[key] === '') {
+        if (propDef.default !== undefined) {
+          result[key] = propDef.default;
+        } else if (expectedType === 'array') {
+          result[key] = [];
+        } else if (expectedType === 'string') {
+          result[key] = '';
+        } else if (expectedType === 'number' || expectedType === 'integer') {
+          result[key] = 0;
+        } else if (expectedType === 'boolean') {
+          result[key] = false;
+        } else if (expectedType === 'object') {
+          result[key] = {};
+        }
+      }
+
+      // 3. 强类型转换/保证（例如模型对于应该为 array 的字段返回了非 array 甚至 null，强行修正为数组）
+      if (expectedType === 'array' && !Array.isArray(result[key])) {
+        result[key] = result[key] ? [result[key]] : [];
+      }
+    }
+
+    return result as T;
+  }
+
+  /**
    * 全局递归深度自愈器
    */
   public static deepSanitizeValues(val: any): any {

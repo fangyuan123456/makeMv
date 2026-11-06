@@ -1,3 +1,9 @@
+export interface ProposalProgress {
+  current: number; // 当前已完成切片数 (如 3)
+  total: number;   // 总切片数 (如 12)
+  percent: number; // 0..100 百分比
+}
+
 export interface ActionProposal {
   actionId: string;
   actionType?: string;
@@ -10,6 +16,9 @@ export interface ActionProposal {
   resultSummary?: string;
   startedAt?: string;
   lastMessage?: string;
+  error?: string;
+  failedAt?: string;
+  progress?: ProposalProgress;
   updatedAt?: string;
 }
 
@@ -95,6 +104,7 @@ export interface ChatMessageItem {
   timestamp: string;
   stage?: string;
   actionProposal?: ActionProposal;
+  isExecutionTrigger?: boolean;
   milestoneId?: MilestoneId;
   stopPoint?: {
     id: string;

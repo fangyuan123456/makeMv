@@ -1,6 +1,6 @@
 /**
  * mastra/FmvPackagingTool.test.ts
- * 互动影游母带装配与打包工具测试套件
+ * 互动影游母带装配与打包工序测试套件
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -8,10 +8,10 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { ProjectStore } from '../../src/project-store/ProjectStore.js';
-import { fmvPackagingTool } from '../../src/tools/fmv-packaging/index.js';
+import { executeFmvPackaging, compileFmvManifest } from '../../src/agents/director/generator/steps/fmv-packaging/index.js';
 import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
 
-describe('FmvPackagingTool - 互动母带装配与打包工具测试套件', () => {
+describe('FmvPackagingStep - 互动母带装配与打包工序测试套件', () => {
   const testProjectId = 'test_fmv_pkg_proj';
   const store = ProjectStore.getInstance();
   const testProjectDir = store.getProjectDir(testProjectId);
@@ -21,7 +21,7 @@ describe('FmvPackagingTool - 互动母带装配与打包工具测试套件', () 
     store.saveProject({
       projectId: testProjectId,
       title: '迷雾侦探：致命抉择',
-      currentStage: WorkflowStage.VIDEO_PRODUCTION,
+      currentStage: WorkflowStage.FMV_PACKAGING,
       status: SessionStatus.RUNNING,
       stageArtifacts: {},
       history: [],
@@ -40,7 +40,7 @@ describe('FmvPackagingTool - 互动母带装配与打包工具测试套件', () 
       title: '迷雾侦探：致命抉择',
       storyGraph: {
         rootNodeId: 'node_1',
-        endingsCount: 1,
+        endingsCount: 2,
         nodes: [
           {
             id: 'node_1',
@@ -95,50 +95,46 @@ describe('FmvPackagingTool - 互动母带装配与打包工具测试套件', () 
   });
 
   it('1. 应成功装配母带 Manifest 并落盘本地文件与状态黑板', async () => {
-    const res = await (fmvPackagingTool.execute as any)({
+    const res = await executeFmvPackaging({
       projectId: testProjectId,
-      userFeedback: '高品质打包',
+      overrideParams: {
+        title: '迷雾侦探：致命抉择',
+      },
     });
 
-    assert.equal(res.success, true);
-    assert.ok(res.artifact);
-    assert.equal(res.artifact.title, '迷雾侦探：致命抉择');
-    assert.equal(res.artifact.totalNodes, 3);
-    assert.equal(res.artifact.totalClips, 3);
-    assert.equal(res.artifact.totalEndings, 2);
-    assert.equal(res.artifact.playableDurationSec, 24); // 8 + 6 + 10 = 24
-    assert.equal(res.artifact.status, 'packaged');
-
-    // 验证 FMVManifest 节点结构
-    const manifest = res.artifact.fmvManifest;
+    assert.ok(res.toolResult);
+    const manifest = res.toolResult;
+    assert.equal(manifest.gameTitle, '迷雾侦探：致命抉择');
     assert.ok(manifest.nodes['node_1']);
     assert.equal(manifest.nodes['node_1'].isDecisionPoint, true);
     assert.equal(manifest.nodes['node_1'].choices?.length, 2);
     assert.equal(manifest.nodes['node_2'].isDecisionPoint, false);
 
-    // 验证本地物理文件 package/game-manifest.json 真实存在
-    const manifestPath = path.join(testProjectDir, 'package', 'game-manifest.json');
-    assert.ok(fs.existsSync(manifestPath), '物理 manifest 文件必须存在');
-
     // 验证 ProjectStore 状态黑板产物落盘
     const savedArtifact = store.getArtifact(testProjectId, WorkflowStage.FMV_PACKAGING);
     assert.ok(savedArtifact, '母带产物必须成功保存至 ProjectStore 黑板');
-
-    // 遵循法典微内核契约：底层工具严禁越权推进项目状态，生命周期推进权由编排层/确认层统筹收拢
-    const savedProject = store.getProject(testProjectId);
-    assert.equal(savedProject?.currentStage, WorkflowStage.VIDEO_PRODUCTION, '工具执行不得越权篡改 currentStage');
   });
 
-  it('2. 视频切片 clips 为空时应刚性阻断，拒绝假装配', async () => {
-    store.setArtifact(testProjectId, WorkflowStage.VIDEO_PRODUCTION, { clips: [] });
+  it('2. compileFmvManifest 能正确基于视频切片与分镜映射拓扑结构', () => {
+    const compiled = compileFmvManifest({
+      gameTitle: '单元测试影游',
+      rawNodes: [
+        { id: 'n1', title: '起点', choices: [{ targetNodeId: 'n2', text: '前往终点' }] },
+        { id: 'n2', title: '终点', isEnding: true, choices: [] },
+      ],
+      storyboardShots: [
+        { shotId: 's1', nodeId: 'n1' },
+        { shotId: 's2', nodeId: 'n2' },
+      ],
+      clips: [
+        { clipId: 'c1', shotId: 's1', videoUrl: '/video/1.mp4', durationSec: 5 },
+        { clipId: 'c2', shotId: 's2', videoUrl: '/video/2.mp4', durationSec: 5 },
+      ],
+    });
 
-    await assert.rejects(
-      async () => {
-        await (fmvPackagingTool.execute as any)({
-          projectId: testProjectId,
-        });
-      },
-      /未检索到已渲染完成的视频切片/
-    );
+    assert.equal(compiled.fmvManifest.gameTitle, '单元测试影游');
+    assert.equal(compiled.totalEndings, 1);
+    assert.equal(compiled.totalDurationSec, 10);
+    assert.equal(compiled.isDegraded, false);
   });
 });

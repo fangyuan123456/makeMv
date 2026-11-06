@@ -9,4 +9,4 @@ export * from './config.js';
 export * from './atomicFile.js';
 export * from './trace.js';
 export * from './projectLock.js';
-export * from './StreamTagParser.js';
+export * from './universal-patch.js';

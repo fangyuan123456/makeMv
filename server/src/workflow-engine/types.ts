@@ -42,6 +42,7 @@ export interface WorkflowRegistration {
   title?: string;                                        // 人在回路提案默认展示标题
   legalStage?: string;                                   // 该工序所属的法定业务阶段 (可选)
   nextStage?: string;                                    // 执行成功后推进的下一业务阶段 (可选)
+  requireConfirmation?: boolean;                         // 是否需要人工确认 (微工作流等设为 false 可全自动直通)
   validateGate?: (ctx: WorkflowHookContext) => { pass: boolean; reason?: string }; // 可选通用质检门禁校验钩子
   onSuccess?: (ctx: WorkflowHookContext) => Promise<void> | void;                  // 可选成功后业务状态机推进钩子
 }
@@ -54,6 +55,7 @@ export interface DispatchWorkflowOptions {
   title?: string;
   reason: string;
   userPrompt?: string;
+  affectedSteps?: string[];
   parameters?: Record<string, any>;
   requireConfirmation?: boolean;
 }

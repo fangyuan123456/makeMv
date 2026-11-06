@@ -12,3 +12,7 @@ export * from './providers/DashScopeMediaProvider.js';
 export * from './providers/MediaProviderFactory.js';
 export * from './providers/ComfyUIMediaProvider.js';
 export * from './workflows/comfyui-converter.js';
+export * from './CharacterRenderer.js';
+export * from './KeyframeRenderer.js';
+export * from './VideoRenderer.js';
+export * from './VoiceRenderer.js';

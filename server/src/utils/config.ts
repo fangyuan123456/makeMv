@@ -121,8 +121,8 @@ export const config = {
           return envVal.split(',').map((s) => s.trim()).filter(Boolean);
         }
       }
-      // 核心法典约束：影视生产 8 大工序推进默认一律全面开启人在回路 (Human-in-the-Loop)
-      // 杜绝后台静默全自动跑卡与大模型多步长程阻塞，除非创作者显式设置 WORKFLOW_REQUIRE_CONFIRMATION="false"
+      // 核心法典约束：影视生产 8 大主工序推进默认全面开启人在回路 (Human-in-the-Loop) 授权
+      // 而 Step 内部的微观子工作流 (Micro Sub-Workflows，如 subwf-*) 属于原子算力闭环，一律全自动执行，绝不触发人工确认
       return true;
     },
   },

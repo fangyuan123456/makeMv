@@ -11,10 +11,12 @@ import { MediaResolver } from '../../src/media/MediaResolver.js';
 import { FFmpegService } from '../../src/media/ffmpeg.js';
 import { MediaProviderFactory } from '../../src/media/providers/MediaProviderFactory.js';
 import { ProjectStore } from '../../src/project-store/ProjectStore.js';
-import { CharacterRenderer } from '../../src/tools/character-portrait/character.renderer.js';
-import { KeyframeRenderer } from '../../src/tools/keyframe-reference/keyframe.renderer.js';
-import { VideoRenderer } from '../../src/tools/video-production/video.renderer.js';
-import { VoiceRenderer } from '../../src/tools/voice-production/voice.renderer.js';
+import {
+  CharacterRenderer,
+  KeyframeRenderer,
+  VideoRenderer,
+  VoiceRenderer,
+} from '../../src/media/index.js';
 import { config } from '../../src/utils/config.js';
 import { SessionStatus, WorkflowStage } from '../../src/types/index.js';
 

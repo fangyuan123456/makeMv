@@ -15,7 +15,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 describe('ComfyUI 角色工作流模板测试', () => {
-  const workflowsDir = path.resolve(__dirname, '../src/tools/character-portrait/workflows');
+  const workflowsDir = path.resolve(__dirname, '../src/media/comfyui/workflows');
 
   const targetWorkflows = [
     'comfyui_character_t2i.json',

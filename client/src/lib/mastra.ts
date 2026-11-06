@@ -34,6 +34,7 @@ export interface StreamChatCallbacks {
   onChunk?: (chunk: string) => void;
   onThought?: (thought: string) => void;
   onProposal?: (proposal: ActionProposal) => void;
+  onDone?: (info: { fullText?: string; finalProposal?: ActionProposal; isExecutionTrigger?: boolean }) => void;
   onComplete?: (fullText: string) => void;
   onError?: (err: any) => void;
 }
@@ -143,21 +144,26 @@ export const mastraStudioApi = {
   },
 
   // 10. 批准执行提案 (人在回路仲裁)
-  async approveProposal(proposalId: string, overrides?: Record<string, any>): Promise<any> {
+  async approveProposal(
+    proposalId: string,
+    projectId: string,
+    overrideParameters?: Record<string, any>
+  ): Promise<any> {
     const res = await fetch(`${MASTRA_SERVER_URL}/api/proposals/${proposalId}/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ overrides }),
+      body: JSON.stringify({ projectId, overrideParameters }),
     });
     if (!res.ok) throw new Error(`批准提案失败: HTTP ${res.status}`);
     return await res.json();
   },
 
   // 11. 驳回提案
-  async rejectProposal(proposalId: string): Promise<any> {
+  async rejectProposal(proposalId: string, projectId: string, reason?: string): Promise<any> {
     const res = await fetch(`${MASTRA_SERVER_URL}/api/proposals/${proposalId}/reject`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId, reason }),
     });
     if (!res.ok) throw new Error(`驳回提案失败: HTTP ${res.status}`);
     return await res.json();
@@ -167,12 +173,18 @@ export const mastraStudioApi = {
   async streamChat(
     projectId: string,
     message: string,
-    callbacks: StreamChatCallbacks
+    callbacks: StreamChatCallbacks,
+    options?: { approvedProposalId?: string; overrideParameters?: Record<string, any> }
   ): Promise<void> {
     const res = await fetch(`${MASTRA_SERVER_URL}/api/chat?stream=true`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-      body: JSON.stringify({ projectId, message }),
+      body: JSON.stringify({
+        projectId,
+        message,
+        approvedProposalId: options?.approvedProposalId,
+        overrideParameters: options?.overrideParameters,
+      }),
     });
 
     if (!res.ok) {
@@ -231,6 +243,11 @@ export const mastraStudioApi = {
                 accumulatedText = data.fullText;
                 callbacks.onChunk?.(accumulatedText);
               }
+              callbacks.onDone?.({
+                fullText: data.fullText,
+                finalProposal: data.finalProposal,
+                isExecutionTrigger: data.isExecutionTrigger,
+              });
             }
           } catch {}
         }

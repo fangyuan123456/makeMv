@@ -6,35 +6,38 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
-import { WorkflowEngine } from '../../src/workflow-engine/index.js';
-import { directorAgent } from '../../src/agents/director/director.agent.js';
-import { ContextAssembler } from '../../src/agents/director/context-assembler.js';
+import { Workflow } from '../../src/workflow-engine/index.js';
+import { registerPipelineWorkflows } from '../../src/agents/director/generator/index.js';
+import { ContextAssembler } from '../../src/project-store/index.js';
 import { ProjectStore, ProposalStore } from '../../src/project-store/index.js';
 import { ProjectLockManager } from '../../src/utils/projectLock.js';
-import { WorkflowStage, SessionStatus, type ProjectState, type ActionProposal } from '../../src/types/index.js';
+import { WorkflowStage, SessionStatus, type ProjectEntity, type ActionProposal } from '../../src/types/index.js';
 
-describe('WorkflowEngine & Mastra Workflow 自动化回归实证套件', () => {
+describe('Workflow & Mastra Workflow 自动化回归实证套件', () => {
   const store = ProjectStore.getInstance();
   const proposalStore = ProposalStore.getInstance();
-  const executor = WorkflowEngine.getInstance();
+  const executor = Workflow.getInstance();
   const lock = ProjectLockManager.getInstance();
 
   const testProjectId = 'test_pipeline_proj_' + Date.now();
   let projectDir: string;
 
   before(() => {
+    registerPipelineWorkflows();
     projectDir = store.getProjectDir(testProjectId);
     if (!fs.existsSync(projectDir)) {
       fs.mkdirSync(projectDir, { recursive: true });
     }
 
-    const initialProject: ProjectState = {
+    const initialProject: ProjectEntity = {
       projectId: testProjectId,
       title: '赛博纪元：暗夜黎明',
       currentStage: WorkflowStage.NARRATIVE_DESIGN,
-      status: SessionStatus.ACTIVE,
+      status: SessionStatus.IDLE,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      stageArtifacts: {},
+      history: [],
       meta: {
         idea: '赛博朋克悬疑互动影游',
         style: '电影质感，写实光影',

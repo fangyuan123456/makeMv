@@ -119,10 +119,6 @@ export class FileProjectStateStore implements IProjectStateStore {
 
   public getProject(projectId: string): ProjectEntity | undefined {
     this.validateProjectId(projectId);
-    if (this.projects.has(projectId)) {
-      return this.projects.get(projectId);
-    }
-
     const dir = this.getProjectDir(projectId);
     const targetFile = path.join(dir, 'project.json');
     if (fs.existsSync(targetFile)) {
@@ -139,7 +135,7 @@ export class FileProjectStateStore implements IProjectStateStore {
         console.error(`[FileProjectStateStore] 读取项目 ${projectId} 失败:`, e);
       }
     }
-    return undefined;
+    return this.projects.get(projectId);
   }
 
   public saveProject(project: ProjectEntity): void {
@@ -266,6 +262,160 @@ export class FileProjectStateStore implements IProjectStateStore {
       hasPrev: Boolean(prev),
       meta: (artifact as any)?.__meta,
     });
+  }
+
+  /**
+   * 🌟 实体就地精准修补 (In-Place Artifact Repair / Patch)
+   * 支持针对已落盘资产进行局部安全修改（如改名、换服装、微调设定），不推翻重跑整部剧情
+   */
+  public repairArtifact(
+    projectId: string,
+    stage: string,
+    repair: { type: 'RENAME_CHARACTER' | 'UPDATE_FIELD'; payload: any }
+  ): { success: boolean; modifiedFields: string[]; summary: string } {
+    this.validateProjectId(projectId);
+    const project = this.getProject(projectId);
+    if (!project) throw new Error(`[FileProjectStateStore] repairArtifact 失败: 未找到项目 [${projectId}]`);
+
+    if (repair.type === 'RENAME_CHARACTER') {
+      const { oldName, newName } = repair.payload || {};
+      if (!oldName || !newName || typeof oldName !== 'string' || typeof newName !== 'string' || oldName.trim() === newName.trim()) {
+        throw new Error('[FileProjectStateStore] RENAME_CHARACTER 必须提供有效且不相同的 oldName 与 newName');
+      }
+
+      const cleanOld = oldName.trim();
+      const cleanNew = newName.trim();
+
+      const bible = project.stageArtifacts?.['narrative_design'];
+      if (!bible) {
+        throw new Error(`[FileProjectStateStore] 未找到故事圣经资产 (narrative_design)，无法执行角色重命名修补`);
+      }
+
+      const modifiedFields: string[] = [];
+
+      // 1. 替换故事圣经角色小传列表中的名字
+      if (Array.isArray(bible.characters)) {
+        let found = false;
+        for (const c of bible.characters) {
+          if (c.name === cleanOld) {
+            c.name = cleanNew;
+            found = true;
+          }
+        }
+        if (found) modifiedFields.push('characters');
+      }
+
+      if (Array.isArray(bible.characterNames)) {
+        bible.characterNames = bible.characterNames.map((n: string) => (n === cleanOld ? cleanNew : n));
+        modifiedFields.push('characterNames');
+      }
+
+      // 2. 级联替换大纲、黄金三幕与剧情节点文本
+      const replaceRegex = new RegExp(cleanOld.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+
+      if (typeof bible.logline === 'string' && bible.logline.includes(cleanOld)) {
+        bible.logline = bible.logline.replace(replaceRegex, cleanNew);
+        modifiedFields.push('logline');
+      }
+
+      if (Array.isArray(bible.goldenSpine)) {
+        for (const act of bible.goldenSpine) {
+          if (act.summary) act.summary = act.summary.replace(replaceRegex, cleanNew);
+          if (act.cliffhanger) act.cliffhanger = act.cliffhanger.replace(replaceRegex, cleanNew);
+        }
+        modifiedFields.push('goldenSpine');
+      }
+
+      if (bible.storyGraph && Array.isArray(bible.storyGraph.nodes)) {
+        for (const node of bible.storyGraph.nodes) {
+          if (node.title) node.title = node.title.replace(replaceRegex, cleanNew);
+          if (node.summary) node.summary = node.summary.replace(replaceRegex, cleanNew);
+          if (Array.isArray(node.characterNames)) {
+            node.characterNames = node.characterNames.map((n: string) => (n === cleanOld ? cleanNew : n));
+          }
+          if (Array.isArray(node.choices)) {
+            for (const ch of node.choices) {
+              if (ch.text) ch.text = ch.text.replace(replaceRegex, cleanNew);
+              if (ch.dramaticTension) ch.dramaticTension = ch.dramaticTension.replace(replaceRegex, cleanNew);
+            }
+          }
+        }
+        modifiedFields.push('storyGraph');
+      }
+
+      // 3. 同步写盘 narrative/story_bible.json 与 markdown
+      const projectDir = this.getProjectDir(projectId);
+      const narrativeDir = path.join(projectDir, 'narrative');
+      if (fs.existsSync(narrativeDir)) {
+        const jsonPath = path.join(narrativeDir, 'story_bible.json');
+        atomicWriteJsonSync(jsonPath, bible);
+      }
+
+      // 4. 若已有定妆照资产，同步更新其中的角色名称
+      const charArtifact = project.stageArtifacts?.['character_design'];
+      if (charArtifact && Array.isArray(charArtifact.characters)) {
+        for (const c of charArtifact.characters) {
+          if (c.name === cleanOld) c.name = cleanNew;
+        }
+        modifiedFields.push('character_design.characters');
+      }
+
+      // 5. 级联刷新所有会话的白板记忆
+      const sessions = this.listSessions(projectId);
+      for (const s of sessions) {
+        if (s.scratchpad) {
+          if (s.scratchpad.charactersSummary) {
+            s.scratchpad.charactersSummary = s.scratchpad.charactersSummary.replace(replaceRegex, cleanNew);
+          }
+          if (s.scratchpad.characterVisualAnchors) {
+            s.scratchpad.characterVisualAnchors = s.scratchpad.characterVisualAnchors.replace(replaceRegex, cleanNew);
+          }
+          this.saveSession(s);
+        }
+      }
+
+      // 6. 级联刷新当前处于 pending 等待执行状态的定妆/后续卡片
+      try {
+        const { ProposalStore } = require('./ProposalStore.js');
+        const proposalStore = ProposalStore.getInstance();
+        const pendingProposals = proposalStore.listProposals(projectId, { status: 'pending' });
+        for (const p of pendingProposals) {
+          let touched = false;
+          if (p.label && p.label.includes(cleanOld)) {
+            p.label = p.label.replace(replaceRegex, cleanNew);
+            touched = true;
+          }
+          if (p.description && p.description.includes(cleanOld)) {
+            p.description = p.description.replace(replaceRegex, cleanNew);
+            touched = true;
+          }
+          if (p.payload?.userPrompt && typeof p.payload.userPrompt === 'string' && p.payload.userPrompt.includes(cleanOld)) {
+            p.payload.userPrompt = p.payload.userPrompt.replace(replaceRegex, cleanNew);
+            touched = true;
+          }
+          if (touched) {
+            p.updatedAt = new Date().toISOString();
+            proposalStore.saveProposal(projectId, p);
+          }
+        }
+        if (pendingProposals.length > 0) {
+          modifiedFields.push('pendingProposals');
+        }
+      } catch (propErr) {
+        console.warn('[FileProjectStateStore] 级联刷新待办提案警告:', propErr);
+      }
+
+      // 7. 保存主工程黑板
+      this.saveProject(project);
+
+      return {
+        success: true,
+        modifiedFields,
+        summary: `已就地精准修补：角色【${cleanOld}】全局更名为【${cleanNew}】，故事大纲与等待执行的定妆卡片已同步刷新完毕！`,
+      };
+    }
+
+    return { success: false, modifiedFields: [], summary: '不支持的修补操作类型' };
   }
 
   public getProjectDir(projectId: string): string {

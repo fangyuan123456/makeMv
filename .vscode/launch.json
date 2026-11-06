@@ -2,35 +2,10 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "🌐 启动客户端 (Edge 浏览器断点调试 - Windows开箱即用)",
-      "type": "msedge",
-      "request": "launch",
-      "url": "http://localhost:3000",
-      "webRoot": "${workspaceFolder}/client",
-      "sourceMaps": true,
-      "preLaunchTask": "启动客户端开发服务器 (Vite)"
-    },
-    {
-      "name": "🌐 启动客户端 (Chrome 浏览器断点调试)",
-      "type": "chrome",
-      "request": "launch",
-      "url": "http://localhost:3000",
-      "webRoot": "${workspaceFolder}/client",
-      "sourceMaps": true,
-      "preLaunchTask": "启动客户端开发服务器 (Vite)"
-    },
-    {
-      "name": "🌐 打开客户端网页断点 (直连 http://localhost:3000)",
-      "type": "msedge",
-      "request": "launch",
-      "url": "http://localhost:3000",
-      "webRoot": "${workspaceFolder}/client",
-      "sourceMaps": true
-    },
-    {
-      "name": "🚀 启动服务端 (TSX 源码断点调试 - 推荐)",
+      "name": "🚀 启动服务端",
       "type": "node",
       "request": "launch",
+      "preLaunchTask": "释放 4111 端口",
       "cwd": "${workspaceFolder}/server",
       "runtimeExecutable": "npx",
       "windows": {
@@ -44,61 +19,26 @@
       "internalConsoleOptions": "neverOpen"
     },
     {
-      "name": "🧪 调试当前测试文件 (Debug Current Test)",
+      "name": "🌐 启动客户端",
       "type": "node",
       "request": "launch",
-      "cwd": "${workspaceFolder}/server",
+      "cwd": "${workspaceFolder}/client",
       "runtimeExecutable": "npx",
       "windows": {
         "runtimeExecutable": "npx.cmd"
       },
-      "runtimeArgs": [
-        "tsx",
-        "--import",
-        "./tests/setup.ts",
-        "--test"
-      ],
-      "args": ["${file}"],
+      "runtimeArgs": ["vite"],
       "sourceMaps": true,
-      "skipFiles": ["<node_internals>/**"],
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"
-    },
-    {
-      "name": "📦 启动服务端 (编译产物 + SourceMap)",
-      "type": "node",
-      "request": "launch",
-      "cwd": "${workspaceFolder}/server",
-      "program": "${workspaceFolder}/server/dist/index.js",
-      "preLaunchTask": "tsc: build (server)",
-      "outFiles": ["${workspaceFolder}/server/dist/**/*.js"],
-      "sourceMaps": true,
-      "skipFiles": ["<node_internals>/**"],
-      "console": "integratedTerminal"
-    },
-    {
-      "name": "🔗 附加到已有进程 (Attach: 9229)",
-      "type": "node",
-      "request": "attach",
-      "port": 9229,
-      "restart": true,
-      "skipFiles": ["<node_internals>/**"]
     }
   ],
   "compounds": [
     {
-      "name": "⚡ 全栈一键联调 (服务端 TSX + 客户端 Edge 浏览器)",
+      "name": "⚡ 全栈一键联调 (服务端 + 客户端)",
       "configurations": [
-        "🚀 启动服务端 (TSX 源码断点调试 - 推荐)",
-        "🌐 启动客户端 (Edge 浏览器断点调试 - Windows开箱即用)"
-      ],
-      "stopAll": true
-    },
-    {
-      "name": "⚡ 全栈一键联调 (服务端 TSX + 客户端 Chrome 浏览器)",
-      "configurations": [
-        "🚀 启动服务端 (TSX 源码断点调试 - 推荐)",
-        "🌐 启动客户端 (Chrome 浏览器断点调试)"
+        "🚀 启动服务端",
+        "🌐 启动客户端"
       ],
       "stopAll": true
     }

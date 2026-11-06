@@ -1,6 +1,6 @@
 /**
  * tests/mastra/VideoSubWorkflowResume.test.ts
- * 动态视频微观子工作流断点恢复 (Resume) 与单镜头靶向回退 (Single-Shot Rollback) 回归实证套件
+ * 动态视频微观子工作流断点恢复 (Resume) 与定向调优 (Modifier) 回归实证套件
  */
 
 import { describe, it, before, after } from 'node:test';
@@ -8,10 +8,11 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { ProjectStore } from '../../src/project-store/index.js';
-import { videoProductionTool, videoProductionSubWorkflow } from '../../src/tools/video-production/index.js';
+import { videoProductionSubWorkflow } from '../../src/agents/director/generator/steps/video-production/index.js';
+import { modifyVideoClip } from '../../src/agents/director/modifier/index.js';
 import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
 
-describe('VideoProductionSubWorkflow 微观子工作流断点恢复与单步回退套件', () => {
+describe('VideoProductionSubWorkflow 微观子工作流断点恢复与定向精修套件', () => {
   const store = ProjectStore.getInstance();
   const testProjectId = 'test_video_subwf_' + Date.now();
   let projectDir: string;
@@ -27,9 +28,11 @@ describe('VideoProductionSubWorkflow 微观子工作流断点恢复与单步回�
       projectId: testProjectId,
       title: '赛博纪元：微观子工作流实证',
       currentStage: WorkflowStage.KEYFRAME_REFERENCE,
-      status: SessionStatus.ACTIVE,
+      status: SessionStatus.RUNNING,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      stageArtifacts: {},
+      history: [],
       meta: {
         idea: '时空回溯与断点恢复',
         style: '电影质感，写实光影',
@@ -66,10 +69,14 @@ describe('VideoProductionSubWorkflow 微观子工作流断点恢复与单步回�
   });
 
   it('1. 全量首次生成：微观子工作流能够成功并发渲染 3 个镜头并落盘', async () => {
-    const res: any = await (videoProductionTool.execute as any)({
-      projectId: testProjectId,
-      isMock: true,
+    const run = await (videoProductionSubWorkflow as any).createRun();
+    const runResult = await run.start({
+      inputData: {
+        projectId: testProjectId,
+        isMock: true,
+      },
     });
+    const res = runResult?.result || runResult;
 
     assert.equal(res.success, true);
     assert.ok(res.data);
@@ -83,57 +90,45 @@ describe('VideoProductionSubWorkflow 微观子工作流断点恢复与单步回�
   });
 
   it('2. 细粒度断点恢复 (Resume & Skip)：无回退诉求时再次执行自动秒级全命中复用，绝不重复生成', async () => {
-    const res: any = await (videoProductionTool.execute as any)({
-      projectId: testProjectId,
-      isMock: true,
+    const run = await (videoProductionSubWorkflow as any).createRun();
+    const runResult = await run.start({
+      inputData: {
+        projectId: testProjectId,
+        isMock: true,
+      },
     });
+    const res = runResult?.result || runResult;
 
     assert.equal(res.success, true);
     assert.ok(res.data);
     assert.equal(res.data.clips.length, 3);
-    // 摘要明确提示断点秒级全命中复用
     assert.match(res.summary, /断点秒级全命中复用/);
   });
 
-  it('3. 单镜头靶向回退 (Single-Shot Rollback)：指定 targetShotId 仅重做指定镜头，其他镜头安全复用', async () => {
-    const res: any = await (videoProductionTool.execute as any)({
-      projectId: testProjectId,
-      targetShotId: 'shot_002',
-      userFeedback: '把兜帽特写速度放慢一倍',
-      isMock: true,
-    });
-
-    assert.equal(res.success, true);
-    assert.ok(res.data);
-    assert.equal(res.data.clips.length, 3);
-    assert.equal(res.data.isRefinement, true);
-    assert.equal(res.data.targetShotId, 'shot_002');
-    assert.match(res.summary, /分镜【shot_002】单镜靶向回退重绘完成/);
-
-    // 验证镜头顺序严格保持：shot_001 -> shot_002 -> shot_003
-    assert.equal(res.data.clips[0].shotId, 'shot_001');
-    assert.equal(res.data.clips[1].shotId, 'shot_002');
-    assert.equal(res.data.clips[2].shotId, 'shot_003');
-  });
-
-  it('4. 批量镜头靶向回退 (Multi-Shot Rollback)：指定 targetShotIds 批量重做 1 和 3，镜头 2 安全复用', async () => {
-    const res: any = await (videoProductionTool.execute as any)({
-      projectId: testProjectId,
-      targetShotIds: ['shot_001', 'shot_003'],
-      isMock: true,
-    });
-
-    assert.equal(res.success, true);
-    assert.ok(res.data);
-    assert.equal(res.data.clips.length, 3);
-    // 断点复用了 1 支 (shot_002)，新渲染了 2 支 (shot_001, shot_003)
-    assert.match(res.summary, /断点复用 1 支，新渲染 2 支/);
-  });
-
-  it('5. Mastra 官方容器直接调度：mastra.getWorkflow 能够直接调度该微观子工作流', async () => {
+  it('3. Mastra 官方容器直接调度：mastra.getWorkflow 能够直接调度该微观子工作流', async () => {
     const { mastra } = await import('../../src/mastra.js');
     const subwf = mastra.getWorkflow('subwf-video-production');
     assert.ok(subwf, 'subwf-video-production 应在 Mastra 实例中成功挂载');
     assert.equal(subwf.id, 'subwf-video-production');
+  });
+
+  it('4. 精修智能体修改器：modifyVideoClip 支持动作姿态时序解构与角色提示词穿透', async () => {
+    const clip = await modifyVideoClip({
+      projectId: testProjectId,
+      kf: { shotId: 'shot_002', imageUrl: 'https://mock.image/shot_2.png' },
+      sbShot: { shotId: 'shot_002', durationSec: 4, cameraMovement: 'zoom_in', subjectMotion: '反手拔刀' },
+      actionRevision: true,
+      userFeedback: '主角迅速反手拔出腰间光刃，在空中挽出刀花定格',
+      characterPrompt: '银色短发赛博义体女侦探，身着暗色防弹大衣',
+      isMock: true,
+    });
+
+    assert.ok(clip);
+    assert.equal(clip.shotId, 'shot_002');
+    assert.equal(clip.renderMode, 'pose_breakdown');
+    assert.equal(clip.characterPrompt, '银色短发赛博义体女侦探，身着暗色防弹大衣');
+    assert.ok(Array.isArray(clip.keyPoses));
+    assert.ok(clip.keyPoses.length >= 2, '动作解构应生成至少 2 个关键动作姿态卡点');
+    assert.ok(clip.keyPoses[0].poseName);
   });
 });

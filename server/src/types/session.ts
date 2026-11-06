@@ -15,6 +15,12 @@ export type ActionProposalStatus = 'pending' | 'running' | 'executed' | 'dismiss
 
 export type ActionType = 'FULL_GENERATION' | 'TARGETED_REVISE' | 'CRITIC_REVIEW' | string;
 
+export interface ProposalProgress {
+  current: number; // 当前已完成切片数 (如 3)
+  total: number;   // 总切片数 (如 12)
+  percent: number; // 0..100 百分比
+}
+
 export interface ActionProposal {
   actionId: string;
   actionType: ActionType;
@@ -24,6 +30,7 @@ export interface ActionProposal {
   label: string;
   description?: string;
   status: ActionProposalStatus; // 生命周期状态机 (pending | running | executed | dismissed | failed)
+  affectedSteps?: string[]; // 受本次行动影响的下游工序标识清单 (SSOT)
   isGateIntercept?: boolean; // 显式指示该提案是否为审查官门禁拦截自愈卡片 (SSOT)
   payload?: Record<string, any>;
   createdAt?: string;
@@ -31,6 +38,7 @@ export interface ActionProposal {
   executedAt?: string;
   failedAt?: string;
   lastMessage?: string; // 运行进度描述 (如 "正在生成镜头分镜...")
+  progress?: ProposalProgress; // 细粒度物理算力推演进度 (SSOT)
   resultSummary?: string;
   error?: string;
 }
@@ -43,6 +51,7 @@ export interface ChatMessage {
   toolCalls?: ToolCallItem[];
   toolCallId?: string;
   actionProposal?: ActionProposal; // 重型任务操作提案 (前端渲染确认高光卡片)
+  isExecutionTrigger?: boolean; // 显式指示该消息是否由创作者批准/开工指令触发 (开工执行看板模式)
   isError?: boolean; // 显式标明是否为执行异常占位消息
   isAborted?: boolean; // 显式标明是否为创作者主动中断消息
   createdAt: string;

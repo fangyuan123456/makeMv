@@ -1,9 +1,11 @@
 /**
  * agents/director/index.ts
- * 总导演智能体自治领域总出口 (Director Agent Domain SSOT)
+ * AI 视听总导演专属自治领地出口 (Director Domain SSOT)
  */
 
 export * from './director.agent.js';
-export * from './context-assembler.js';
-export * from './tools/index.js';
-export * from './workflows/index.js';
+export * from './prompt.js';
+export * from './tools/emit-director-intent.tool.js';
+export * from './memory/index.js';
+export * from './generator/index.js';
+export * from './modifier/index.js';

@@ -21,6 +21,14 @@ import {
 } from './components/studio';
 import { type CinematicParams } from './components/CinematicControls';
 
+const DEFAULT_WELCOME_MESSAGE: ChatMessageItem = {
+  id: 'welcome_1',
+  sender: 'agent',
+  senderName: 'AI 影游总导演',
+  content: '🎬 **你好！我是你的 AI 互动影游总导演**。\n\n请在下方输入您的影视构思（如：*赛博朋克风悬疑短剧，记忆神偷潜入财阀调查脑机意识篡改案*）。我将为您推演四幕起承转合大纲、角色视觉定妆、视听分镜直至动态视频切片与交互影游！',
+  timestamp: '刚刚',
+};
+
 export function App() {
   const [projectId, setProjectId] = useState<string>('');
   const [projectTitle, setProjectTitle] = useState<string>('新建互动影游');
@@ -29,15 +37,7 @@ export function App() {
   const [activeMilestoneId, setActiveMilestoneId] = useState<MilestoneId | 'live_monitor'>('live_monitor');
   const [artifacts, setArtifacts] = useState<Record<string, any>>({});
   const [historyProjects, setHistoryProjects] = useState<HistoryItem[]>([]);
-  const [messages, setMessages] = useState<ChatMessageItem[]>([
-    {
-      id: 'welcome_1',
-      sender: 'agent',
-      senderName: 'AI 影游总导演',
-      content: '🎬 **你好！我是你的 AI 互动影游总导演**。\n\n请在下方输入您的影视构思（如：*赛博朋克风悬疑短剧，记忆神偷潜入财阀调查脑机意识篡改案*）。我将为您推演四幕起承转合大纲、角色视觉定妆、视听分镜直至动态视频切片与交互影游！',
-      timestamp: '刚刚',
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessageItem[]>([DEFAULT_WELCOME_MESSAGE]);
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [leftWidthPercent, setLeftWidthPercent] = useState<number>(50);
   const [isDragging, setIsDragging] = useState<boolean>(false);
@@ -46,6 +46,7 @@ export function App() {
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const pollingTimerRef = useRef<any>(null);
+  const isStreamingRef = useRef<boolean>(false);
 
   // 1. 获取项目详情与工序产物 (基于 mastraStudioApi SSOT)
   const fetchProjectData = useCallback(async (pId: string) => {
@@ -68,7 +69,8 @@ export function App() {
         }
 
         // 🌟 断线恢复：从 project.history 还原消息流 (解除 prev.length <= 1 僵硬死锁)
-        if (Array.isArray(proj.history) && proj.history.length > 0) {
+        // 关键流式守卫：当正处于大模型流式打字期间，严禁使用尚未完整的历史覆盖当前打字机消息！
+        if (!isStreamingRef.current && Array.isArray(proj.history) && proj.history.length > 0) {
           const restoredMessages: ChatMessageItem[] = proj.history.map((h: any, idx: number) => ({
             id: `hist_${idx}_${h.timestamp || Date.now()}`,
             sender: (h.role === 'assistant' ? 'agent' : 'user') as 'agent' | 'user',
@@ -76,6 +78,7 @@ export function App() {
             content: h.content || '',
             thought: h.thought,
             actionProposal: h.proposal,
+            isExecutionTrigger: h.isExecutionTrigger,
             timestamp: h.timestamp ? new Date(h.timestamp).toLocaleTimeString() : '历史',
           }));
           setMessages(restoredMessages);
@@ -110,7 +113,7 @@ export function App() {
 
       if (running) {
         setIsRunning(true);
-      } else {
+      } else if (!isStreamingRef.current) {
         setIsRunning(false);
         // 任务完成：停止轮询并刷新项目产物
         if (pollingTimerRef.current) {
@@ -151,8 +154,23 @@ export function App() {
     } catch {}
   }, []);
 
-  // 3. 初始加载全部历史项目并与 URL 双向同步
-  const loadProjects = useCallback(async () => {
+  // 重置为空白新项目状态 (SSOT)
+  const resetToNewProjectState = useCallback(() => {
+    setProjectId('');
+    setProjectTitle('新建互动影游');
+    setProjectStatus('idle');
+    setCurrentStage('narrative_design');
+    setActiveMilestoneId('live_monitor');
+    setArtifacts({});
+    setMessages([DEFAULT_WELCOME_MESSAGE]);
+    if (pollingTimerRef.current) {
+      clearInterval(pollingTimerRef.current);
+      pollingTimerRef.current = null;
+    }
+  }, []);
+
+  // 3. 仅静默刷新历史项目列表 (绝不干扰当前 messages 对话流)
+  const refreshHistoryProjectsOnly = useCallback(async () => {
     try {
       const projects = await mastraStudioApi.getProjects();
       const list = (projects || []).map((p: any) => ({
@@ -162,6 +180,15 @@ export function App() {
         status: p.status || 'idle',
       }));
       setHistoryProjects(list);
+    } catch (err) {
+      console.warn('[App] 刷新历史项目列表异常:', err);
+    }
+  }, []);
+
+  // 4. 初始加载全部历史项目并与 URL 双向同步
+  const loadProjects = useCallback(async () => {
+    try {
+      await refreshHistoryProjectsOnly();
 
       const urlParams = new URLSearchParams(window.location.search);
       const urlProjectId = urlParams.get('projectId');
@@ -173,18 +200,16 @@ export function App() {
         }
         fetchProjectData(urlProjectId);
         startPolling(urlProjectId);
-      } else if (list.length > 0 && !projectId) {
-        // 无参数时加载首个项目并写入地址栏
-        const firstId = list[0].id;
-        setProjectId(firstId);
-        syncProjectIdToUrl(firstId, true);
-        fetchProjectData(firstId);
-        startPolling(firstId);
+      } else {
+        // 地址栏无 projectId：处于新建空白项目状态，坚决不自动绑定历史老项目
+        if (projectId) {
+          resetToNewProjectState();
+        }
       }
     } catch (err) {
       console.warn('[App] 加载项目列表异常:', err);
     }
-  }, [projectId, fetchProjectData, startPolling, syncProjectIdToUrl]);
+  }, [projectId, fetchProjectData, startPolling, resetToNewProjectState]);
 
   useEffect(() => {
     loadProjects();
@@ -201,13 +226,16 @@ export function App() {
         setProjectId(pId);
         fetchProjectData(pId);
         startPolling(pId);
+      } else if (!pId && projectId) {
+        // 浏览器后退到无 projectId 的根路径
+        resetToNewProjectState();
       }
     };
     window.addEventListener('popstate', handlePopState);
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [projectId, fetchProjectData, startPolling]);
+  }, [projectId, fetchProjectData, startPolling, resetToNewProjectState]);
 
   // 4. 切换项目
   const handleSelectSession = (id: string) => {
@@ -253,7 +281,7 @@ export function App() {
     try {
       await mastraStudioApi.deleteProject(id);
       if (projectId === id) {
-        setProjectId('');
+        resetToNewProjectState();
         syncProjectIdToUrl('', true);
       }
       loadProjects();
@@ -261,8 +289,11 @@ export function App() {
   };
 
   // 7. 发送对话 (统一基于 mastraStudioApi.streamChat)
-  const handleSendMessage = async (text: string) => {
-    if (!text.trim() || isRunning) return;
+  const handleSendMessage = async (
+    text: string,
+    options?: { approvedProposalId?: string; overrideParameters?: Record<string, any> }
+  ) => {
+    if (!text.trim() || isRunning || projectStatus === 'running') return;
 
     let activeProjectId = projectId;
 
@@ -274,6 +305,9 @@ export function App() {
     };
     setMessages((prev) => [...prev, userMsg]);
 
+    // 纯契约驱动 (SSOT)：仅依据显式传入的提案批准标识，杜绝任何自然语言正则猜测
+    const isExecutionTrigger = Boolean(options?.approvedProposalId);
+
     const assistantMsgId = `msg_a_${Date.now()}`;
     const assistantPlaceholder: ChatMessageItem = {
       id: assistantMsgId,
@@ -281,52 +315,67 @@ export function App() {
       senderName: 'AI 影游总导演',
       content: '',
       thought: '',
+      isExecutionTrigger,
       timestamp: new Date().toLocaleTimeString(),
     };
     setMessages((prev) => [...prev, assistantPlaceholder]);
     setIsRunning(true);
+    isStreamingRef.current = true;
 
     try {
-      await mastraStudioApi.streamChat(projectId, text, {
-        onMeta: ({ projectId: metaPid }) => {
-          if (metaPid) {
-            activeProjectId = metaPid;
-            if (metaPid !== projectId) {
-              setProjectId(metaPid);
-              syncProjectIdToUrl(metaPid, true);
-              loadProjects();
+      await mastraStudioApi.streamChat(
+        projectId,
+        text,
+        {
+          onMeta: ({ projectId: metaPid }) => {
+            if (metaPid) {
+              activeProjectId = metaPid;
+              if (metaPid !== projectId) {
+                setProjectId(metaPid);
+                syncProjectIdToUrl(metaPid, true);
+                // 关键修复：仅静默刷新左侧历史项目列表，绝不重置当前正在流式打字的 messages！
+                refreshHistoryProjectsOnly();
+              }
             }
-          }
+          },
+          onChunk: (accumulated) => {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantMsgId ? { ...m, content: accumulated } : m))
+            );
+          },
+          onThought: (thoughtText) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantMsgId
+                  ? { ...m, thought: (m.thought || '') + thoughtText }
+                  : m
+              )
+            );
+          },
+          onProposal: (proposal) => {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantMsgId ? { ...m, actionProposal: proposal } : m))
+            );
+          },
+          onDone: ({ isExecutionTrigger }) => {
+            if (isExecutionTrigger !== undefined) {
+              setMessages((prev) =>
+                prev.map((m) => (m.id === assistantMsgId ? { ...m, isExecutionTrigger } : m))
+              );
+            }
+          },
+          onError: (err) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantMsgId
+                  ? { ...m, content: (m.content ? m.content + '\n\n' : '') + `⚠️ 对话服务异常: ${err.message || '生成中断'}` }
+                  : m
+              )
+            );
+          },
         },
-        onChunk: (accumulated) => {
-          setMessages((prev) =>
-            prev.map((m) => (m.id === assistantMsgId ? { ...m, content: accumulated } : m))
-          );
-        },
-        onThought: (thoughtText) => {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantMsgId
-                ? { ...m, thought: (m.thought || '') + thoughtText }
-                : m
-            )
-          );
-        },
-        onProposal: (proposal) => {
-          setMessages((prev) =>
-            prev.map((m) => (m.id === assistantMsgId ? { ...m, actionProposal: proposal } : m))
-          );
-        },
-        onError: (err) => {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantMsgId
-                ? { ...m, content: (m.content ? m.content + '\n\n' : '') + `⚠️ 对话服务异常: ${err.message || '生成中断'}` }
-                : m
-            )
-          );
-        },
-      });
+        options
+      );
     } catch (err: any) {
       setMessages((prev) =>
         prev.map((m) =>
@@ -336,16 +385,20 @@ export function App() {
         )
       );
     } finally {
-      setIsRunning(false);
+      isStreamingRef.current = false;
       fetchProjectData(activeProjectId);
+      // 🌟 核心：无论创作者是点击按钮还是打字确认，对话结束后立即启动轮询，监听后台任务执行与进度落盘！
+      if (activeProjectId) {
+        startPolling(activeProjectId);
+      }
     }
   };
 
-  // 8. 批准并执行提案 (人在回路仲裁)
+  // 8. 批准并执行提案 (人在回路仲裁：点击卡片发送确认消息走对话形式)
   const handleExecuteProposal = async (proposal: ActionProposal, overrides?: Record<string, any>) => {
     if (!projectId || !proposal.actionId) return;
 
-    // 立即乐观更新卡片为 running
+    // 立即乐观更新当前卡片状态为 running，展示开工指示
     setMessages((prev) =>
       prev.map((m) => {
         if (m.actionProposal?.actionId === proposal.actionId) {
@@ -354,31 +407,32 @@ export function App() {
             actionProposal: {
               ...m.actionProposal,
               status: 'running',
-              lastMessage: '⚡ 正在调度 Mastra 影视工作流，即将开始渲染...',
+              lastMessage: '⚡ 已授权开工，正在调度 Mastra 影视工作流...',
             },
           };
         }
         return m;
       })
     );
-    setIsRunning(true);
 
-    try {
-      await mastraStudioApi.approveProposal(proposal.actionId, overrides);
-      // 启动轮询监听执行进度
-      startPolling(projectId);
-    } catch (err: any) {
-      alert(`启动任务异常: ${err.message}`);
-      setIsRunning(false);
-      fetchProjectData(projectId);
-    }
+    // 启动轮询监听物理执行进度
+    startPolling(projectId);
+
+    // 构造走对话形式的用户确认发言
+    const confirmMessage = `批准执行工序【${proposal.label}】`;
+
+    // 触发标准流式对话，大模型接戏打字回应，服务端同步启动工作流
+    await handleSendMessage(confirmMessage, {
+      approvedProposalId: proposal.actionId,
+      overrideParameters: overrides,
+    });
   };
 
   // 9. 忽略提案
   const handleDismissProposal = async (actionId: string) => {
     if (!projectId || !actionId) return;
     try {
-      await mastraStudioApi.rejectProposal(actionId);
+      await mastraStudioApi.rejectProposal(actionId, projectId);
       setMessages((prev) =>
         prev.map((m) =>
           m.actionProposal?.actionId === actionId
@@ -497,6 +551,7 @@ export function App() {
             onExecuteProposal={handleExecuteProposal}
             onDismissProposal={handleDismissProposal}
             isRunning={isRunning}
+            projectStatus={projectStatus}
             currentStage={currentStage}
             cinematicOverrides={cinematicOverrides}
             onChangeCinematicOverride={(actionId, params) =>

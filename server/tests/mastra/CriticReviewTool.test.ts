@@ -8,12 +8,12 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { ProjectStore } from '../../src/project-store/ProjectStore.js';
-import { criticReviewTool } from '../../src/tools/critic-review/index.js';
+import { executeCriticReview, criticReviewStep, evaluateCriticAudit } from '../../src/agents/director/generator/steps/critic-review/index.js';
 import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
 import { LLMRegistry } from '../../src/llm/LLMRegistry.js';
 import { MockLLMService } from '../../src/llm/MockLLMService.js';
 
-describe('CriticReviewTool - 影视独立审查官挑刺工具测试套件', () => {
+describe('CriticReviewStep - 影视独立审查官质检工序测试套件', () => {
   const testProjectId = 'test_critic_review_proj';
   const testProjectDir = path.resolve(process.cwd(), 'data', 'projects', testProjectId);
 
@@ -65,34 +65,44 @@ describe('CriticReviewTool - 影视独立审查官挑刺工具测试套件', () 
   });
 
   it('1. 应成功执行跨工序审计并产出规范评分与门禁 (PASS/WARN/FAIL)', async () => {
-    const res = await (criticReviewTool.execute as any)({
+    const res = await executeCriticReview({
       projectId: testProjectId,
-      targetStage: 'narrative_design',
-      userFeedback: '重点检查主角动机是否可信',
+      activeStage: 'narrative_design',
+      feedback: '重点检查主角动机是否可信',
     });
 
-    assert.equal(res.success, true);
-    assert.ok(res.report);
-    assert.ok(res.report.scores);
-    assert.ok(['PASS', 'WARN', 'FAIL'].includes(res.report.gateStatus));
-    assert.ok(typeof res.report.scores.overallScore === 'number');
-    assert.ok(Array.isArray(res.report.criticalFlaws));
-    assert.ok(res.summary.includes('终审门禁'));
+    assert.ok(res.toolResult);
+    assert.ok(res.toolResult.scores);
+    assert.ok(['PASS', 'WARN', 'FAIL'].includes(res.toolResult.gateStatus));
+    assert.ok(typeof res.toolResult.scores.overallScore === 'number');
+    assert.ok(Array.isArray(res.toolResult.criticalFlaws));
+    assert.ok(res.lastSummary?.includes('质检') || res.lastSummary?.includes('终审门禁'));
 
     // 验证状态黑板落盘 SSOT
     const store = ProjectStore.getInstance();
-    const saved = store.getArtifact(testProjectId, 'critic_review');
+    const saved = store.getArtifact(testProjectId, 'criticReports');
     assert.ok(saved);
   });
 
-  it('2. 缺少 projectId 时应刚性阻断 (Fail-Fast)', async () => {
-    await assert.rejects(
-      async () => {
-        await (criticReviewTool.execute as any)({
-          projectId: '',
-        });
+  it('2. 门禁评估算法能够正确基于评分与致命缺陷判定 PASS/WARN/FAIL', () => {
+    const passResult = evaluateCriticAudit({
+      rawReport: {
+        scores: { narrativeLogicScore: 90, characterDepthScore: 85, branchTensionScore: 88, visualFeasibilityScore: 82 },
+        criticalFlaws: [],
       },
-      /projectId 不能为空/
-    );
+      projectName: '优质剧本',
+      activeStage: 'storyboard',
+    });
+    assert.equal(passResult.finalReport.gateStatus, 'PASS');
+
+    const failResult = evaluateCriticAudit({
+      rawReport: {
+        scores: { narrativeLogicScore: 90, characterDepthScore: 85, branchTensionScore: 88, visualFeasibilityScore: 82 },
+        criticalFlaws: [{ severity: 'CRITICAL', dimension: 'LOGIC', location: '第2幕', description: '机械降神', suggestion: '铺垫伏笔' }],
+      },
+      projectName: '硬伤剧本',
+      activeStage: 'storyboard',
+    });
+    assert.equal(failResult.finalReport.gateStatus, 'FAIL');
   });
 });

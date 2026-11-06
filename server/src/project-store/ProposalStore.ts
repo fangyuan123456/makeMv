@@ -11,7 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { config } from '../utils/config.js';
 import { atomicWriteJsonSync } from '../utils/index.js';
-import type { ActionProposal, ActionProposalStatus } from '../types/index.js';
+import type { ActionProposal, ActionProposalStatus, ProposalProgress } from '../types/index.js';
 
 export class ProposalStore {
   private static instance?: ProposalStore;
@@ -149,6 +149,7 @@ export class ProposalStore {
    */
   public getProposal(projectId: string, actionId: string): ActionProposal | undefined {
     this.validateProjectId(projectId);
+    this.cache.delete(projectId);
     const map = this.loadProposals(projectId);
     return map.get(actionId);
   }
@@ -161,6 +162,8 @@ export class ProposalStore {
     filter?: { status?: ActionProposalStatus; stage?: string }
   ): ActionProposal[] {
     this.validateProjectId(projectId);
+    // 强制穿透读取最新磁盘持久化数据
+    this.cache.delete(projectId);
     const map = this.loadProposals(projectId);
     let list = Array.from(map.values());
     if (filter?.status) {
@@ -184,6 +187,7 @@ export class ProposalStore {
       executedAt?: string;
       failedAt?: string;
       lastMessage?: string;
+      progress?: ProposalProgress;
       resultSummary?: string;
       description?: string;
       error?: string;
@@ -199,6 +203,7 @@ export class ProposalStore {
     if (extra?.executedAt) existing.executedAt = extra.executedAt;
     if (extra?.failedAt) existing.failedAt = extra.failedAt;
     if (extra?.lastMessage) existing.lastMessage = extra.lastMessage;
+    if (extra?.progress) existing.progress = extra.progress;
     if (extra?.resultSummary) existing.resultSummary = extra.resultSummary;
     if (extra?.description) existing.description = extra.description;
     if (extra?.error) existing.error = extra.error;

@@ -56,20 +56,25 @@
 
 ---
 
-## 2. 现代对话中枢与 Mastra 声明式微内核架构哲学（Mastra Core + Agents + Workflows）
+## 2. 现代对话中枢与 Mastra 声明式微内核架构哲学（Mastra Core + Director Domain + Dual-Track Engine）
 
-### 2.1 对话中枢与微内核设计（Chat-Centric & Mastra Microkernel）
+### 2.1 AI 视听总导演与双轨正交解耦设计（Director-Centric & Dual-Track Decoupling）
 - **官方微内核核心驱动**：系统全面基于 **Mastra 官方微内核（`@mastra/core`）** 与 **Vercel AI SDK** 驱动，彻底告别零散拼接模式；
-- **纯天然流式对话与人在回路（Chat + Human-in-the-Loop）**：创作者通过自然语言与 AI 导演副手（`directorAgent`）交互，由导演智能体结合工程上下文调用高阶调度工具（`proposeStageActionTool`）生成强类型待审核提案（`ActionProposal`），经创作者在 UI 卡片确认授权后，由通用工作流调度引擎（`WorkflowEngine`）AOP 恢复执行；
-- **全流程动态状态机工作流（pipelineWorkflow）**：通过 Mastra 原生 `Workflow` 状态机编排各工序（Step 与 Suspend/Resume），实现可靠的断点续传与人在回路仲裁；
-- **视听专精声明式工具包（Mastra Tools）**：
-  - 各工序实体（`storyBibleTool`, `characterPortraitTool`, `sceneScriptTool`, `storyboardTool`, `keyframeReferenceTool`, `videoProductionTool`, `criticReviewTool`, `fmvPackagingTool` 等）统一继承自 Mastra 原生 `createTool`；
-  - 工具对外暴露严密 Zod Schema 校验的强类型入参与产物（纯数据契约进出），统一在 Mastra 实例中总装注册，实现高度正交与即插即用。
+- **AI 视听总导演唯一认知中枢（`DirectorAgent`）**：面向创作者的自然语言统一门户，负责剧本推演、审美指导与意图发射，采用**单跳直出秒级流式打字（首字 <0.5s）**，彻底消除代理嵌套与“两连跳”延迟反模式；
+- **生成（Generator）与精修（Modifier）完全解耦双轨体系**：
+  - **正向生成轨（`generator/`）**：总导演统筹管辖的 0 到 1 影视工序批量生产流水线（8 大工序顺向推演步骤 `steps/` 与状态机）；
+  - **局部精修轨（`modifier/`）**：总导演统筹管辖的已有资产局部外科手术室（6 大工序定向手术函数族 `modifiers/` 与目标实体反查器 `entity-resolver.ts`，彻底杜绝跨阶段修改错配）；
+- **认知推演与物理算力工具正交解耦（Pure Tools）**：
+  - 大模型专属主导逻辑思维与视听拆解，底层原子工具（`tools/`）彻底纯净化为真实硬件/媒体物理算力（`image-generate`、`image-inpaint`、`video-generate`、`voice-generate`、`ffmpeg-render` 等），坚决消灭“大模型调用大模型”的虚假伪工具套娃；
+- **全流程动态状态机工作流（filmProductionPipelineWorkflow）**：通过 Mastra 原生 `Workflow` 状态机编排 8 大工序原子 Step（Step 与 Suspend/Resume），实现可靠的断点续传与人在回路仲裁。
 
 ### 2.2 自主行动提案与人在回路（Action Proposals & Human-in-the-Loop）
-- **大模型自主提案协议**：`DirectorAgent` 在流式推理中结合全局上下文感知（`ContextAssembler`）自主调用 `proposeStageActionTool` 生成待审核提案，精准抛出阶段推进、定妆生成、分镜拆解或提示词微调建议；
-- **打字机流式分离与安全拦截**：`StreamTagParser` 实时拦截并分离思考流（`<think>...</think>`），杜绝思考草稿混入自然语言聊天；
-- **生成待确认行动卡片**：解析后的提案转化为生命周期为 `pending` 的 `ActionProposal` 实体，渲染为 UI 交互卡片，由创作者点击确认或授权触发；
+- **大模型自主提案协议（Intent Protocol）**：总导演在流式回复中根据上下文与创作者指令，在末尾附带强类型协议标签（`<intent action="next|modify|rollback|audit" />`）；
+- **打字机流式分离与安全拦截**：`StreamTagParser` 实时拦截并分离思考流（`<think>...</think>`）与意图标签，杜绝思考草稿与协议标签混入自然语言聊天；
+- **生成待确认行动卡片**：解析后的意图信号通过 `resolveIntentToProposal` 并结合 `entity-resolver` 智能反查，转化为生命周期为 `pending` 的 `ActionProposal` 实体，渲染为 UI 交互卡片，由创作者点击确认或授权触发；
+- **双轨独立落地执行**：在工作流执行器（`createPipelineExecutor`）中：
+  - 推进类提案（`PROCEED_STAGE`）调用 `generator/steps/` 执行该工序从 0 到 1 的批量生产；
+  - 修改类提案（`TARGETED_REVISE`）调用 `modifier/modifiers/` 执行该工序的外科手术微调，绝不全量重跑流水线。
 - **杜绝黑盒失控**：坚决禁止大模型在后台静默私自调用高昂算力工具，确保**“模型负责提议，人类负责裁决，技能负责落地”**。
 
 ### 2.3 全局统一状态黑板（ProjectStore SSOT）
@@ -130,7 +135,7 @@ makeMv/
 │       ├── hooks/              # 流式对话与人在回路审核 Hook
 │       ├── lib/                # mastra.ts 客户端总线与网络工具
 │       └── types/              # 视图层与客户端契约
-└── server/                     # 服务端：Mastra 微内核 + 影视生成引擎
+└── server/                     # 服务端：Mastra 微内核 + 影视工业生成引擎
     ├── tests/                  # 单元测试与轻量冒烟测试矩阵 (独立物理隔离)
     └── src/
         ├── index.ts            # 极简服务启动入口 (Bootstrap & Graceful Shutdown)
@@ -141,31 +146,30 @@ makeMv/
         │   └── routes/         # 业务路由分发 (chat, projects, proposals)
         ├── mastra.ts           # 【Mastra 官方微内核容器总装出口 (Canonical Mastra SSOT)】
         ├── workflow-engine/    # 【通用工作流调度引擎 (Run, Resume, AOP 确认拦截切面)】
-        ├── agents/             # 【多智能体系统：按角色建立专属自治领地】
-        │   └── director/       # 【总导演智能体专属自治目录】
-        │       ├── director.agent.ts     # 导演智能体定义 (Mastra Agent)
-        │       ├── context-assembler.ts  # 导演专用视听全景感知
-        │       ├── tools/      # 【总导演专属的高阶调度与状态感知元工具】
-        │       │   ├── propose-stage-action.tool.ts
-        │       │   └── inspect-project-state.tool.ts
-        │       └── workflows/  # 【总导演专属管辖的影视工序流水线状态机】
-        │           ├── steps/  # 8 大工序原子 Step 微内核 (私有调用 tools/)
-        │           └── pipeline.workflow.ts
-        ├── tools/              # 【影视流水线工序原子生产工具族 (供 Workflow Steps 私有调用)】
-        │   ├── story-bible/
-        │   ├── character-portrait/
-        │   ├── scene-script/
-        │   ├── storyboard/
-        │   ├── keyframe-reference/
-        │   ├── video-production/
-        │   ├── voice-production/
-        │   ├── critic-review/
-        │   └── fmv-packaging/
-        ├── project-store/      # 全局状态黑板层 (ProjectStore SSOT, FileProjectStateStore, ProposalStore)
-        ├── media/              # 视听与多媒体渲染 (ComfyUI / DashScope / FFmpeg)
+        ├── agents/             # 【智能体系统专属自治领地】
+        │   └── director/       # 【AI 视听总导演专属自治领地】
+        │       ├── director.agent.ts   # 导演交互中枢 (单智能体，单跳流式秒出，统一发射 <intent>)
+        │       ├── prompt.ts           # 导演提示词 (8大工序SSOT、审美品味与 <intent> 规范)
+        │       ├── index.ts            # 导演自治领地对外总装出口
+        │       ├── generator/          # 🚀【生成轨：0 到 1 顺向批量生产流水线】
+        │       │   ├── generator.workflow.ts  # Mastra 原生 8 大影视顺向流水线状态机
+        │       │   ├── register.ts            # 业务工序与门禁动态注册器 (IoC 绑定到 workflow-engine)
+        │       │   ├── constants.ts           # 8 大法定工序标识符与流转映射
+        │       │   └── steps/                 # 8 大工序生产步骤 (顺向推演，调用 tools/)
+        │       └── modifier/           # 🎯【精修轨：已有资产局部外科手术室】
+        │           ├── modifiers/             # 6 大工序定向外科手术函数族 (调用 tools/)
+        │           └── entity-resolver.ts     # 目标实体反查阶段工序工具 (如根据角色名锁定 character-portrait)
+        ├── tools/              # 【纯物理算力/硬件媒体原子工具族 (Pure Tools，无伪大模型套娃)】
+        │   ├── image-generate/ # 真实文生图算力工具
+        │   ├── image-inpaint/  # 真实局部重绘算力工具
+        │   ├── video-generate/ # 真实文生视频/图生视频算力工具
+        │   ├── voice-generate/ # 真实语音合成算力工具
+        │   └── ffmpeg-render/  # 真实音画合成与视频剪辑工具
+        ├── project-store/      # 全局状态黑板层 (ProjectStore SSOT, ContextAssembler, ProposalStore)
+        ├── media/              # 视听基础设施与多媒体渲染 (ComfyUI / DashScope / FFmpeg / Renderers)
         ├── llm/                # 统一大模型集成服务 (LLMRegistry, RealLLMService, MockLLMService)
         ├── types/              # 全局业务强类型契约
-        └── utils/              # 基础原子安全工具 (JsonSanitizer, atomicFile, lock, trace)
+        └── utils/              # 基础原子安全工具 (StreamTagParser, JsonSanitizer, atomicFile, lock)
 ```
 
 ### 5.2 严格交付验收标准

@@ -8,3 +8,4 @@ export * from './FileProjectStateStore.js';
 export * from './MemoryProjectStateStore.js';
 export * from './ProjectStore.js';
 export * from './ProposalStore.js';
+export * from './context-assembler.js';

@@ -6,6 +6,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { ProjectStore, ProposalStore } from '../../project-store/index.js';
 import { WorkflowStage, SessionStatus } from '../../types/index.js';
+import { CharacterRenderer } from '../../media/index.js';
 import { readJsonBody, sendJson, sendError } from '../helpers.js';
 
 export async function handleProjectRoutes(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
@@ -127,6 +128,94 @@ export async function handleProjectRoutes(req: IncomingMessage, res: ServerRespo
 
     sendJson(res, 200, { success: true, project: projectWithHistory });
     return true;
+  }
+
+  // 6. 单角色定妆渲染/重绘接口 (手动定妆，严格区分垫图修改与纯文本全新生成)
+  // POST /api/projects/:projectId/characters/:characterName/render
+  const charRenderMatch = pathname.match(/^\/api\/projects\/([^\/]+)\/characters\/([^\/]+)\/render$/);
+  if (charRenderMatch && req.method === 'POST') {
+    const projectId = decodeURIComponent(charRenderMatch[1]);
+    const characterName = decodeURIComponent(charRenderMatch[2]);
+    const body = await readJsonBody(req);
+
+    const project = projectStore.getProject(projectId);
+    if (!project) {
+      sendError(res, 404, '目标项目不存在');
+      return true;
+    }
+
+    const artifact = projectStore.getArtifact<any>(projectId, WorkflowStage.CHARACTER_DESIGN);
+    if (!artifact || !Array.isArray(artifact.characters)) {
+      sendError(res, 400, '当前项目尚未初始化角色定妆资产');
+      return true;
+    }
+
+    const charIndex = artifact.characters.findIndex((c: any) => c.name === characterName);
+    if (charIndex === -1) {
+      sendError(res, 404, `未在角色资产表中找到名为 [${characterName}] 的角色`);
+      return true;
+    }
+
+    const targetChar = artifact.characters[charIndex];
+    const visualPrompt = body.visualPrompt || targetChar.visualPrompt || `${characterName}，电影级高精度人物定妆照`;
+    const useReference = body.useReference !== undefined ? Boolean(body.useReference) : (targetChar.useReference !== false);
+    const referenceImageUrl = body.referenceImageUrl || targetChar.referenceImageUrl || targetChar.imageUrl;
+
+    // 区分修改逻辑 (ref2i) 与全新生成逻辑 (t2i)
+    const effectiveRefUrl = useReference ? referenceImageUrl : undefined;
+    const mode = effectiveRefUrl ? 'character_ref2i' : 'character_t2i';
+
+    try {
+      const renderRes = await CharacterRenderer.renderCharacterPortrait(
+        projectId,
+        characterName,
+        visualPrompt,
+        {
+          referenceImageUrl: effectiveRefUrl,
+          mode,
+          isMock: body.isMock,
+        }
+      );
+
+      // 历史记录版本压栈
+      const history = Array.isArray(targetChar.history) ? [...targetChar.history] : [];
+      if (targetChar.imageUrl && !history.some((h: any) => h.imageUrl === targetChar.imageUrl)) {
+        history.push({
+          id: `rec_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          imageUrl: targetChar.imageUrl,
+          visualPrompt: targetChar.visualPrompt || visualPrompt,
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      // 更新角色对象
+      const updatedChar = {
+        ...targetChar,
+        visualPrompt,
+        imageUrl: renderRes.url,
+        referenceImageUrl: effectiveRefUrl || targetChar.imageUrl || renderRes.url,
+        useReference,
+        isNew: false,
+        history,
+        selected: true,
+        isDegraded: renderRes.isDegraded,
+      };
+
+      artifact.characters[charIndex] = updatedChar;
+      artifact.updatedAt = new Date().toISOString();
+      projectStore.setArtifact(projectId, WorkflowStage.CHARACTER_DESIGN, artifact);
+
+      sendJson(res, 200, {
+        success: true,
+        character: updatedChar,
+        mode,
+        summary: `角色【${characterName}】定妆渲染完成 (${mode === 'character_ref2i' ? '垫图修改模式' : '全新生图模式'})`,
+      });
+      return true;
+    } catch (err: any) {
+      sendError(res, 500, `角色定妆渲染失败: ${err.message || '未知错误'}`);
+      return true;
+    }
   }
 
   return false;

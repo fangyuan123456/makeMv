@@ -3,6 +3,26 @@
  * 异步并发控制基础设施 (SSOT)
  */
 
+import { getCurrentTaskContext } from '../workflow-engine/WorkflowContextStorage.js';
+import { ProposalStore } from '../project-store/ProposalStore.js';
+
+/**
+ * 底座级任务进度自动广播辅助函数 (Zero-Touch Infrastructure)
+ */
+function broadcastTaskProgress(completed: number, total: number): void {
+  try {
+    const taskCtx = getCurrentTaskContext();
+    if (taskCtx && total > 0) {
+      const percent = Math.min(95, Math.max(5, Math.round((completed / total) * 90) + 5));
+      ProposalStore.getInstance().updateProposalStatus(taskCtx.projectId, taskCtx.proposalId, 'running', {
+        progress: { current: completed, total, percent },
+      });
+    }
+  } catch (err) {
+    // 基础设施静默容错，杜绝进度广播影响物理计算主链路
+  }
+}
+
 /**
  * 异步并发池：对数组元素执行受限并发的异步任务。
  * 严格保持返回结果数组与原始输入项的顺序一一对应。
@@ -29,6 +49,9 @@ export async function asyncPool<T, R>(
   let completedCount = 0;
   let hasError = false;
 
+  // 底座自动广播并发初始进度
+  broadcastTaskProgress(0, total);
+
   async function worker(): Promise<void> {
     while (currentIndex < total && !hasError) {
       if (abortSignal?.aborted) {
@@ -43,6 +66,9 @@ export async function asyncPool<T, R>(
         const result = await taskFn(item, index);
         results[index] = result;
         completedCount++;
+
+        // 底座自动广播单步完成进度
+        broadcastTaskProgress(completedCount, total);
 
         if (onProgress) {
           onProgress(completedCount, total, result);
@@ -87,6 +113,9 @@ export async function asyncPoolSettled<T, R>(
   let currentIndex = 0;
   let completedCount = 0;
 
+  // 底座自动广播并发初始进度
+  broadcastTaskProgress(0, total);
+
   async function worker(): Promise<void> {
     while (currentIndex < total) {
       if (abortSignal?.aborted) {
@@ -100,10 +129,18 @@ export async function asyncPoolSettled<T, R>(
         const result = await taskFn(item, index);
         results[index] = { status: 'fulfilled', value: result, index };
         completedCount++;
+
+        // 底座自动广播单步完成进度
+        broadcastTaskProgress(completedCount, total);
+
         if (onProgress) onProgress(completedCount, total, result, undefined);
       } catch (err) {
         results[index] = { status: 'rejected', reason: err, index };
         completedCount++;
+
+        // 底座自动广播单步完成进度
+        broadcastTaskProgress(completedCount, total);
+
         if (onProgress) onProgress(completedCount, total, undefined, err);
       }
     }

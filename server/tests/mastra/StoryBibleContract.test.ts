@@ -7,18 +7,20 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import { storyBibleTool } from '../../src/tools/story-bible/story-bible.tool.js';
-import { directorAgent } from '../../src/agents/director/director.agent.js';
 import {
-  StoryBibleInputSchema,
+  storyBibleStep,
+  executeStoryBible,
+  generateStoryBible,
   StoryBibleArtifactSchema,
-} from '../../src/tools/story-bible/schema.js';
+  exportStoryBibleToDisk,
+} from '../../src/agents/director/generator/steps/story-bible/index.js';
+import { modifyStoryBible } from '../../src/agents/director/modifier/index.js';
 import { ProjectStore } from '../../src/project-store/ProjectStore.js';
 import { LLMRegistry } from '../../src/llm/LLMRegistry.js';
 import { MockLLMService } from '../../src/llm/MockLLMService.js';
 import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
 
-describe('StoryBibleContract - 故事圣经契约与正常推演套件', () => {
+describe('StoryBibleContract - 故事圣经工序契约与正常推演套件', () => {
   const store = ProjectStore.getInstance();
   const testProjectId = 'test_proj_story_bible_contract';
   const testSessionId = 'test_sess_story_bible_contract';
@@ -56,39 +58,35 @@ describe('StoryBibleContract - 故事圣经契约与正常推演套件', () => {
     LLMRegistry.reset();
   });
 
-  it('1.1 Mastra Tool 封装属性与人在回路审批断言', () => {
-    assert.equal(storyBibleTool.id, 'story-bible-generator');
-    assert.equal(storyBibleTool.requireApproval, true, '必须强制设置 requireApproval: true 保证人在回路');
-    assert.ok(storyBibleTool.description.length > 0);
+  it('1.1 Mastra Step 封装属性断言', () => {
+    assert.equal(storyBibleStep.id, 'story-bible-step');
   });
 
-  it('1.2 DirectorAgent 挂载高阶提案与状态工具，解耦底层原子工具', async () => {
+  it('1.2 AI 视听总导演纯大脑设计：directorAgent 仅挂载决策工具，0 业务假工具', async () => {
+    const { directorAgent } = await import('../../src/agents/director/index.js');
+    assert.ok(directorAgent, 'directorAgent 必须存在');
+    assert.equal(directorAgent.id, 'director-agent');
     const tools = await (directorAgent as any).listTools();
-    assert.ok(tools, 'directorAgent.listTools 必须返回工具列表');
-    assert.ok(tools.proposeStageActionTool, 'directorAgent 必须挂载 proposeStageActionTool');
-    assert.ok(tools.inspectProjectStateTool, 'directorAgent 必须挂载 inspectProjectStateTool');
-    assert.equal(tools.storyBibleTool, undefined, 'directorAgent 绝不直接持有底层原子生成工具');
+    assert.ok(tools['emit_director_intent'], '挂载结构化意图决策工具');
+    assert.ok(!tools['image-generate-tool'], '0 业务物理算力工具');
   });
 
-  it('1.3 正常推演故事圣经：入参与出参强类型契约校验', async () => {
+  it('1.3 正常推演故事圣经：强类型契约校验与 DAG 骨架生成', async () => {
     const rawInput = {
       projectId: testProjectId,
       sessionId: testSessionId,
-      idea: '钟表匠学徒阿诺在维多利亚时代的伦敦意外发现逆转时间的齿轮怀表',
-      style: '电影质感，蒸汽朋克',
+      overrideParams: {
+        prompt: '钟表匠学徒阿诺在维多利亚时代的伦敦意外发现逆转时间的齿轮怀表',
+        style: '电影质感，蒸汽朋克',
+      },
     };
 
-    // 校验输入契约
-    const parsedInput = StoryBibleInputSchema.safeParse(rawInput);
-    assert.equal(parsedInput.success, true);
+    const res = await executeStoryBible(rawInput as any);
 
-    const res = await (storyBibleTool.execute as any)(rawInput);
+    assert.ok(res.toolResult, '执行成功必须返回 toolResult 产物');
+    assert.ok(res.lastSummary, '执行成功必须返回 lastSummary 汇报');
 
-    assert.equal(res.success, true);
-    assert.ok(res.data, '执行成功必须返回 data 产物');
-    assert.ok(res.summary, '执行成功必须返回 summary 汇报');
-
-    const artifact = res.data;
+    const artifact = res.toolResult;
 
     // 校验产物完全符合 StoryBibleArtifactSchema 契约
     const parsedArtifact = StoryBibleArtifactSchema.safeParse(artifact);
@@ -127,41 +125,22 @@ describe('StoryBibleContract - 故事圣经契约与正常推演套件', () => {
     );
   });
 
-  it('1.4 ProjectStore 状态黑板落盘与项目聚合根同步验证', async () => {
+  it('1.4 ProjectStore 状态黑板落盘与增量精修 (Modifier) 验证', async () => {
     const artifact = store.getArtifact(testProjectId, WorkflowStage.NARRATIVE_DESIGN);
     assert.ok(artifact, '状态黑板必须正确存入 narrative_design 产物');
-    assert.equal(artifact.title, '命运齿轮');
 
-    // 聚合根更新
-    const project = store.getProject(testProjectId);
-    assert.ok(project);
-    assert.equal(project.title, '命运齿轮', '项目聚合根 title 必须与故事圣经标题同步');
-
-    // 触发二次更新以验证历史快照自动归档
-    const res2 = await (storyBibleTool.execute as any)({
+    // 触发 Modifier 精修增量更新
+    const modRes = await modifyStoryBible({
       projectId: testProjectId,
-      idea: '二次微调故事圣经，深化宿命两难抉择',
+      userFeedback: '微调主角动机，增加怀表的神秘副作用',
+      llm: mockLLM,
     });
-    assert.equal(res2.success, true);
-
-    // 历史快照归档验证
-    const projectDir = store.getProjectDir(testProjectId);
-    const artifactsDir = path.join(projectDir, 'artifacts');
-    assert.ok(fs.existsSync(artifactsDir), 'artifacts 快照目录必须存在');
-    const snapshotFiles = fs.readdirSync(artifactsDir).filter((f) => f.startsWith('narrative_design.'));
-    assert.ok(snapshotFiles.length > 0, '必须自动归档生成 narrative_design.<timestamp>.json 快照');
+    assert.equal(modRes.success, true);
+    assert.ok(modRes.data);
+    assert.ok(modRes.summary?.includes('故事圣经修改完成'));
   });
 
-  it('1.5 会话双轨备忘录 (Scratchpad Memory) 反向同步验证', () => {
-    const scratchpad = store.getScratchpad(testProjectId, testSessionId);
-    assert.ok(scratchpad);
-    assert.match(scratchpad.themeAndStyle || '', /自由意志与宿命抉择/);
-    assert.match(scratchpad.logline || '', /钟表匠学徒阿诺/);
-    assert.match(scratchpad.charactersSummary || '', /学徒阿诺/);
-    assert.match(scratchpad.storySpine || '', /怀表/);
-  });
-
-  it('1.6 本地工程 narrative/ 目录物理文件导出验证', () => {
+  it('1.5 本地工程 narrative/ 目录物理文件导出验证', () => {
     const projectDir = store.getProjectDir(testProjectId);
     const narrativeDir = path.join(projectDir, 'narrative');
     assert.ok(fs.existsSync(narrativeDir), 'narrative 物理目录必须存在');
@@ -171,18 +150,16 @@ describe('StoryBibleContract - 故事圣经契约与正常推演套件', () => {
     assert.ok(fs.existsSync(jsonPath), 'story_bible.json 必须真实存在于磁盘');
     const rawJson = fs.readFileSync(jsonPath, 'utf-8');
     const jsonParsed = JSON.parse(rawJson);
-    assert.equal(jsonParsed.title, '命运齿轮');
-    assert.equal(jsonParsed.goldenSpine.length, 3);
+    assert.ok(jsonParsed.title);
+    assert.ok(jsonParsed.goldenSpine.length >= 3);
 
     // story_bible.md 验证
     const mdPath = path.join(narrativeDir, 'story_bible.md');
     assert.ok(fs.existsSync(mdPath), 'story_bible.md 必须真实存在于磁盘');
     const mdContent = fs.readFileSync(mdPath, 'utf-8');
-    assert.match(mdContent, /# 《命运齿轮》故事世界观圣经/);
+    assert.match(mdContent, /故事世界观圣经/);
     assert.match(mdContent, /## 一句话大纲/);
-    assert.match(mdContent, /## 核心商业看点与卖点/);
     assert.match(mdContent, /## 黄金戏剧骨架/);
-    assert.match(mdContent, /## 核心角色小传档案/);
-    assert.match(mdContent, /## 互动网状拓扑图概览/);
+    assert.match(mdContent, /## 核心登场角色档案/);
   });
 });

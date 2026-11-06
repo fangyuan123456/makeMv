@@ -9,11 +9,11 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'http';
-import { WorkflowEngine } from '../../workflow-engine/index.js';
+import { Workflow } from '../../workflow-engine/index.js';
 import { readJsonBody, sendJson, sendError } from '../helpers.js';
 
 export async function handleProposalRoutes(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
-  const engine = WorkflowEngine.getInstance();
+  const engine = Workflow.getInstance();
 
   // 1. 人在回路批准提案: POST /api/proposals/:proposalId/approve (SSOT)
   const approveMatch = pathname.match(/^\/api\/proposals\/([^\/]+)\/approve$/);
@@ -32,7 +32,7 @@ export async function handleProposalRoutes(req: IncomingMessage, res: ServerResp
       const startResult = await engine.startProposal({
         projectId,
         proposalId,
-        overrideParameters: body.overrideParameters,
+        overrideParameters: body.overrideParameters || body.overrides,
       });
 
       sendJson(res, 200, {

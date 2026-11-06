@@ -142,6 +142,117 @@ export class MockLLMService implements LLMService {
       } as T;
     }
 
+    if (stage === 'story_graph_and_pivots') {
+      const pivotsData = {
+        macroPivotPoints: [
+          {
+            id: 'pivot_1',
+            act: 1,
+            decisionMoment: '追击潜入师傅工坊的黑衣人，还是留下止血抢救师傅？',
+            choices: [
+              {
+                choiceId: 'choice_1',
+                text: '立刻启动怀表追击凶手',
+                dramaticImpact: '提前截获凶手遗落的发条密钥，但师傅伤重陷入深度昏迷',
+                targetAct: 2,
+              },
+              {
+                choiceId: 'choice_2',
+                text: '放弃追击，优先止血抢救',
+                dramaticImpact: '师傅临终前道出钟楼最高权限密码，但凶手从容销毁了现场关键物证',
+                targetAct: 2,
+              },
+            ],
+          },
+        ],
+        microPivotPoints: [
+          {
+            id: 'micro_1',
+            sceneName: '钟表工坊操作台',
+            interactiveMechanic: '齿轮啮合校准 (QTE)',
+            feedback: '指针咔哒归位，发出清脆发条嗡鸣',
+          },
+        ],
+      };
+
+      const storyGraphData = {
+        rootNodeId: 'node_1',
+        endingsCount: 2,
+        estimatedBranches: 3,
+        nodes: [
+          {
+            id: 'node_1',
+            act: 1,
+            title: '钟表工坊黎明',
+            summary: '工坊内满地发条碎片，阿诺惊觉师傅倒在血泊中，神秘怀表闪烁微光。',
+            location: '帝国下城区钟表工坊',
+            characterNames: ['学徒阿诺', '工匠师傅托马斯'],
+            isEnding: false,
+            choices: [
+              {
+                targetNodeId: 'node_2',
+                text: '逆转时间追击黑衣刺客',
+                dramaticTension: '秒针倒走，空间开始玻璃样碎裂',
+              },
+              {
+                targetNodeId: 'node_3',
+                text: '止血抢救托马斯师傅',
+                dramaticTension: '生死竞速，每秒钟都是师傅微弱的脉搏',
+              },
+            ],
+          },
+          {
+            id: 'node_2',
+            act: 2,
+            title: '雾夜小巷追踪',
+            summary: '阿诺在雨夜石板路上堵住刺客，揭开面罩发现竟是同门挚友雷恩。',
+            location: '下城区发条回廊',
+            characterNames: ['学徒阿诺', '雷恩'],
+            isEnding: false,
+            choices: [
+              {
+                targetNodeId: 'node_4',
+                text: '拔刀与挚友对决，夺回核心齿轮',
+                dramaticTension: '同门手足相残，火花四溅',
+              },
+            ],
+          },
+          {
+            id: 'node_3',
+            act: 2,
+            title: '师傅的临终遗言',
+            summary: '托马斯师傅握住阿诺的手，将帝国钟楼的暗门钥匙塞入阿诺掌心后闭上双眼。',
+            location: '钟表工坊内室',
+            characterNames: ['学徒阿诺', '工匠师傅托马斯'],
+            isEnding: false,
+            choices: [
+              {
+                targetNodeId: 'node_4',
+                text: '登上钟楼暗门正面迎敌',
+                dramaticTension: '背负师傅血仇与帝国命运登顶',
+              },
+            ],
+          },
+          {
+            id: 'node_4',
+            act: 3,
+            title: '破晓钟声 (正义终局)',
+            summary: '阿诺将怀表插入中央轴心，逆转了灾难发条，阳光重新洒满机械帝都。',
+            location: '中央钟楼千米天台',
+            characterNames: ['学徒阿诺', '大主教埃德温'],
+            isEnding: true,
+            endingType: 'good',
+            choices: [],
+          },
+        ],
+      };
+
+      return {
+        storyGraph: storyGraphData,
+        pivotPoints: pivotsData,
+      } as T;
+    }
+
     if (stage === 'pivot_points') {
       return {
         macroPivotPoints: [
@@ -316,6 +427,18 @@ export class MockLLMService implements LLMService {
           targetStage: 'narrative_design',
           payload: { idea: '探索记忆碎片' },
         },
+      } as T;
+    }
+
+    if (stage?.endsWith('_string_patch') || stage === 'universal_string_patch') {
+      return {
+        patches: [
+          {
+            search: '钟表匠学徒阿诺',
+            replace: '钟表匠学徒阿诺 (身怀时间异能)',
+          },
+        ],
+        summary: '微调主角阿诺设定',
       } as T;
     }
 

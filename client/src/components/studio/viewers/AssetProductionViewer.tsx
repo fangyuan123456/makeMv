@@ -74,6 +74,39 @@ export default function AssetProductionViewer({
     }
   };
 
+  const [renderingCharName, setRenderingCharName] = useState<string | null>(null);
+  const [useRefMap, setUseRefMap] = useState<Record<string, boolean>>({});
+  const [editingPrompt, setEditingPrompt] = useState<Record<string, string>>({});
+
+  const handleRenderCharacter = async (char: any) => {
+    try {
+      setRenderingCharName(char.name);
+      const promptToUse = editingPrompt[char.name] !== undefined ? editingPrompt[char.name] : (char.visualPrompt || char.appearance || '');
+      const useReference = useRefMap[char.name] !== undefined ? useRefMap[char.name] : (char.useReference !== false);
+      const referenceImageUrl = char.referenceImageUrl || (Array.isArray(char.history) && char.history.length > 0 ? char.history[char.history.length - 1]?.imageUrl : undefined);
+
+      const res = await fetch(`${MASTRA_SERVER_URL}/api/projects/${sessionId}/characters/${encodeURIComponent(char.name)}/render`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visualPrompt: promptToUse,
+          useReference,
+          referenceImageUrl,
+        }),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || `HTTP ${res.status}`);
+      }
+      onRefreshArtifacts?.();
+    } catch (err: any) {
+      alert(`定妆渲染异常: ${err.message || '未知错误'}`);
+    } finally {
+      setRenderingCharName(null);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-slate-950 text-slate-200 overflow-hidden">
       <input
