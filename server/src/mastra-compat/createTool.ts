@@ -41,12 +41,23 @@ export function cleanSchemaToStringFields(schema: any): z.ZodObject<any> {
     const field = shape[key];
     const desc = field?.description || `${key} 参数`;
     
+    // 判断该字段在原 Schema 中是否为可选字段 (optional / nullable / nullish)
+    const isOpt =
+      Boolean(field?.isOptional?.()) ||
+      Boolean(field?.isNullable?.()) ||
+      field?._def?.typeName === 'ZodOptional' ||
+      field?._def?.typeName === 'ZodNullable' ||
+      field?._def?.typeName === 'ZodDefault';
+
     // 若字段本身就是合法的字符串枚举 (ZodEnum)，完整保留以刚性约束模型行为且完全兼容网关
     if (field instanceof z.ZodEnum || field?._def?.typeName === 'ZodEnum') {
-      cleanedShape[key] = field;
+      cleanedShape[key] = isOpt ? (field as any).optional() : field;
+    } else if (isOpt) {
+      // 可选字段必须保留 optional，严禁添加 default 导致网关误判定为必填 (required)
+      cleanedShape[key] = z.string().optional().describe(desc);
     } else {
-      // 复杂或嵌套字段降维为平铺字符串
-      cleanedShape[key] = z.string().default('').describe(desc);
+      // 真正必填字段降维为平铺必填字符串
+      cleanedShape[key] = z.string().describe(desc);
     }
   }
 

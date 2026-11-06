@@ -250,9 +250,10 @@ async function runSseStreamPipeline(params: SsePipelineParams): Promise<void> {
   let fullThought = '';
 
   try {
-    // 3. 启动 Mastra Agent 原生全事件流通道 (fullStream SSOT)
+    // 3. 启动 Mastra Agent 原生全事件流通道 (fullStream SSOT, 强制 toolChoice: 'required' 必出决策工具调用)
     const streamResult = await agent.stream(agentDialogueInput as any, {
       abortSignal: abortController.signal,
+      toolChoice: 'required',
     });
 
     for await (const chunk of streamResult.fullStream) {
@@ -277,6 +278,7 @@ async function runSseStreamPipeline(params: SsePipelineParams): Promise<void> {
 
     // 4. 提取本次对话触发的原生 Tool Call 意图信号 (SSOT 纯粹源头提取，零兼容兜底)
     const detectedIntent = await extractDirectorIntent(streamResult);
+    console.log(`[chat] 项目 [${projectId}] 流式结束，意图决策提取结果:`, detectedIntent);
 
     let newProposal: ActionProposal | undefined;
     if (detectedIntent) {
@@ -470,8 +472,10 @@ export async function handleChatRoute(
       return true;
     }
 
-    // 8. 分流：非流式同步直出通道 (Mastra 原生响应直出)
-    const response = await agent.generate(agentDialogueInput as any);
+    // 8. 分流：非流式同步直出通道 (Mastra 原生响应直出, 强制 toolChoice: 'required')
+    const response = await agent.generate(agentDialogueInput as any, {
+      toolChoice: 'required',
+    });
 
     const finalReply = response.text || '';
     const finalThought = (response as any).reasoning || undefined;

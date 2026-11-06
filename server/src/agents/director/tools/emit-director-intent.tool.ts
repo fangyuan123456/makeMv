@@ -23,21 +23,22 @@ export interface AgentIntentSignal {
 export const DirectorIntentSchema = z.object({
   action: z
     .enum(['next', 'modify', 'approve', 'audit', 'rollback'])
+    .default('next')
     .describe(
       '意图决策枚举：next(推演达成共识，提议进入下一阶段工序) | modify(已有资产局部外科手术微调) | approve(纯粹开工授权，启动当前待审工序) | audit(独立审查官质检多维评估) | rollback(时空回退推翻重做)'
     ),
   skill: z
     .string()
-    .default('')
-    .describe('法定工序标识符（仅在 modify 或 rollback 时填写，例如 character-portrait, story-bible, video-production 等，默认空字符串）'),
+    .optional()
+    .describe('法定工序标识符（仅在 modify 或 rollback 时填写，例如 character-portrait, story-bible, video-production 等）'),
   target: z
     .string()
-    .default('')
-    .describe('微调目标实体名称或ID（仅在 modify 时填写，例如主角姓名、特定角色名、分镜编号 shot_1 等，默认空字符串）'),
+    .optional()
+    .describe('微调目标实体名称或ID（仅在 modify 时填写，例如主角姓名、特定角色名、分镜编号 shot_1 等）'),
   content: z
     .string()
-    .default('')
-    .describe('微调具体诉求或回退理由（仅在 modify 或 rollback 时填写，例如“主角年龄改为18岁”、“换成赛博朋克霓虹光影”，默认空字符串）'),
+    .optional()
+    .describe('微调具体诉求或回退理由（仅在 modify 或 rollback 时填写，例如“主角年龄改为18岁”、“换成赛博朋克霓虹光影”）'),
 });
 
 export type DirectorIntentInput = z.infer<typeof DirectorIntentSchema>;
@@ -78,12 +79,16 @@ export async function extractDirectorIntent(
   if (!Array.isArray(toolCalls)) return undefined;
 
   // 倒序优先匹配最新且具有有效载荷的工具调用 (过滤被切片废弃的无效调用)
-  const targetCall = [...toolCalls]
-    .reverse()
-    .find((chunk) => chunk?.payload?.toolName === EMIT_DIRECTOR_INTENT_TOOL_ID && chunk?.payload?.args);
-  if (!targetCall?.payload?.args) return undefined;
+  const targetCall = [...toolCalls].reverse().find((chunk) => {
+    const name = chunk?.toolName || chunk?.payload?.toolName;
+    const args = chunk?.args || chunk?.payload?.args;
+    return name === EMIT_DIRECTOR_INTENT_TOOL_ID && args;
+  });
 
-  const parsed = resolveToolArgs<DirectorIntentInput>(targetCall.payload.args, DirectorIntentSchema);
+  if (!targetCall) return undefined;
+  const rawArgs = targetCall.args || targetCall.payload?.args;
+
+  const parsed = resolveToolArgs<DirectorIntentInput>(rawArgs, DirectorIntentSchema);
   if (!parsed) return undefined;
 
   return {

@@ -329,13 +329,26 @@ export default function ChatPanel({
               ? activeProposal
               : proposal;
 
+          const isExecutedProposal = liveProposal?.status === 'executed';
           const isFailedProposal = isApproveMessage && liveProposal?.status === 'failed';
+
+          // 核心退场判定：若后续已经出现了系统完成通知，或已就绪下一工序提案，前序开工看板必须立即退场
+          const hasSubsequentDone = messages.slice(idx + 1).some(
+            (laterMsg) =>
+              laterMsg.content?.includes('【系统工序通知】已成功执行并落盘') ||
+              (laterMsg.actionProposal && laterMsg.actionProposal.status === 'pending')
+          );
+
           const isRunningProposal =
-            isApproveMessage && (isGenerating || liveProposal?.status === 'running') && idx === lastApproveIdx;
+            isApproveMessage &&
+            !isExecutedProposal &&
+            !isFailedProposal &&
+            !hasSubsequentDone &&
+            (liveProposal?.status === 'running' || (isGenerating && idx === lastApproveIdx));
           const isStageExecution = isRunningProposal;
 
-          // 成功执行后的开工卡片退场，避免冗余占屏
-          if (isApproveMessage && !isFailedProposal && !isRunningProposal) {
+          // 成功执行后或已被后续完成通知承接的开工卡片退场，避免冗余占屏
+          if (isApproveMessage && (isExecutedProposal || hasSubsequentDone || (!isFailedProposal && !isRunningProposal))) {
             return null;
           }
 
