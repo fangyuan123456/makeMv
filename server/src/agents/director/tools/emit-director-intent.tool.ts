@@ -23,9 +23,8 @@ export interface AgentIntentSignal {
 export const DirectorIntentSchema = z.object({
   action: z
     .enum(['next', 'modify', 'approve', 'audit', 'rollback'])
-    .default('next')
     .describe(
-      '意图决策枚举：next(推演达成共识，提议进入下一阶段工序) | modify(已有资产局部外科手术微调) | approve(纯粹开工授权，启动当前待审工序) | audit(独立审查官质检多维评估) | rollback(时空回退推翻重做)。任何消息（包括闲聊寒暄）都必须映射为工程决策动作，默认 next'
+      '意图决策枚举（必填，无默认值，必须显式选择）：next(推演达成共识，提议进入下一阶段工序) | modify(已有资产局部外科手术微调) | approve(纯粹开工授权，启动当前待审工序) | audit(独立审查官质检多维评估) | rollback(时空回退推翻重做)。任何消息（包括闲聊寒暄、咨询）都必须映射为工程决策动作——诉求模糊或难以判断时一律选 next，严禁省略本工具调用退化为纯聊天'
     ),
   skill: z
     .string()
@@ -97,6 +96,18 @@ export async function extractDirectorIntent(
 
   const parsed = resolveToolArgs<DirectorIntentInput>(rawArgs, DirectorIntentSchema);
   if (!parsed) return undefined;
+
+  if (!parsed.action) {
+    // 工程层兜底：schema 无默认值，模型漏填 action 时显式回退 next（全消息皆决策，防退化为闲聊）。
+    // 与 zod default 的区别：这里有日志留痕、可观测，且 next 产物是 proposed 待审卡（人在回路，安全）。
+    console.warn(`[DirectorIntent] 意图工具调用缺少 action，工程层兜底为 next`);
+    return {
+      action: 'next',
+      skill: parsed.skill || undefined,
+      target: parsed.target || undefined,
+      content: parsed.content || undefined,
+    };
+  }
 
   return {
     action: parsed.action,
