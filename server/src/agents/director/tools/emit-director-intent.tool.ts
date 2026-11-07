@@ -25,7 +25,7 @@ export const DirectorIntentSchema = z.object({
     .enum(['next', 'modify', 'approve', 'audit', 'rollback'])
     .default('next')
     .describe(
-      '意图决策枚举：next(推演达成共识，提议进入下一阶段工序) | modify(已有资产局部外科手术微调) | approve(纯粹开工授权，启动当前待审工序) | audit(独立审查官质检多维评估) | rollback(时空回退推翻重做)'
+      '意图决策枚举：next(推演达成共识，提议进入下一阶段工序) | modify(已有资产局部外科手术微调) | approve(纯粹开工授权，启动当前待审工序) | audit(独立审查官质检多维评估) | rollback(时空回退推翻重做)。任何消息（包括闲聊寒暄）都必须映射为工程决策动作，默认 next'
     ),
   skill: z
     .string()

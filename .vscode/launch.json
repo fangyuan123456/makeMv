@@ -7,11 +7,7 @@
       "request": "launch",
       "preLaunchTask": "释放 4111 端口",
       "cwd": "${workspaceFolder}/server",
-      "runtimeExecutable": "npx",
-      "windows": {
-        "runtimeExecutable": "npx.cmd"
-      },
-      "runtimeArgs": ["tsx"],
+      "runtimeArgs": ["--import", "tsx"],
       "args": ["src/index.ts"],
       "sourceMaps": true,
       "skipFiles": ["<node_internals>/**"],
@@ -23,11 +19,8 @@
       "type": "node",
       "request": "launch",
       "cwd": "${workspaceFolder}/client",
-      "runtimeExecutable": "npx",
-      "windows": {
-        "runtimeExecutable": "npx.cmd"
-      },
-      "runtimeArgs": ["vite"],
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/vite.cmd",
+      "args": [],
       "sourceMaps": true,
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"

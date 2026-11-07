@@ -4,9 +4,9 @@
     {
       "label": "释放 4111 端口",
       "type": "shell",
-      "command": "npx --yes kill-port 4111",
+      "command": "Get-NetTCPConnection -LocalPort 4111 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }",
       "windows": {
-        "command": "npx.cmd --yes kill-port 4111"
+        "command": "powershell -NoProfile -Command \"Get-NetTCPConnection -LocalPort 4111 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }\""
       },
       "presentation": {
         "reveal": "silent"
@@ -19,7 +19,16 @@
       "isBackground": true,
       "problemMatcher": {
         "owner": "vite",
-        "pattern": [{ "regexp": "^$" }],
+        "source": "vite",
+        "applyTo": "allDocuments",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^(?!x)x$",
+          "file": 1,
+          "line": 1,
+          "column": 1,
+          "message": 1
+        },
         "background": {
           "activeOnStart": true,
           "beginsPattern": ".*VITE.*",

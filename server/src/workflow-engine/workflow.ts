@@ -192,6 +192,19 @@ export class WorkflowItem<TInput = any, TOutput = any> {
   public async execute(args: { inputData: TInput }): Promise<TOutput> {
     const run = await this.nativeWorkflow.createRun();
     const runResult = await run.start({ inputData: args.inputData });
+
+    // 🌟 失败显式上抛：Mastra run.start 步骤失败时不抛异常，只返回 {status:'failed', error}。
+    //    若不检查，失败会被静默吞掉，底座拿不到 lastSummary/toolResult，误标提案"执行成功"，
+    //    客户端将永远等待永不落盘的工序产物 (右侧工坊面板无限加载)。
+    if (runResult?.status === 'failed') {
+      const err = runResult?.error;
+      const msg =
+        err?.message ||
+        (typeof err === 'string' ? err : JSON.stringify(err)?.slice(0, 500)) ||
+        '子工作流步骤执行失败 (未提供错误详情)';
+      throw new Error(`[WorkflowItem:${this.id}] ${msg}`);
+    }
+
     const output = runResult?.result !== undefined ? runResult.result : runResult;
     return output as TOutput;
   }

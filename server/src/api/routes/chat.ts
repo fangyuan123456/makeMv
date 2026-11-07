@@ -20,6 +20,13 @@ import { STAGE_TRANSITION_MAP, SKILL_OF_STAGE, STAGE_OF_SKILL } from '../../agen
 import { readJsonBody, sendJson, sendError } from '../helpers.js';
 
 /* ══════════════════════════════════════════════════════════════════════════════
+ * 模块 0：上游空响应重试包装
+ * 背景：硅基流动偶发返回 200 + 空 choices，Mastra 内部抛 InvalidResponseDataError
+ *       ("Response did not contain any choices")。该错误不属于 AI SDK 的
+ *       APICallError，maxRetries 不会重试，只能在路由层自行重试。
+ * ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════════════════════
  * 模块 A：意图向行动提案解析器 (Intent ➔ ActionProposal SSOT)
  * 职责：纯业务领域逻辑。接收大模型 Tool Call 意图信号，结合项目黑板状态与门禁，
  *       生成生命周期为 pending 或 running 的合法强类型提案。
@@ -250,11 +257,19 @@ async function runSseStreamPipeline(params: SsePipelineParams): Promise<void> {
   let fullThought = '';
 
   try {
-    // 3. 启动 Mastra Agent 原生全事件流通道 (fullStream SSOT, 强制 toolChoice: 'required' 必出决策工具调用)
+    // 3. 启动 Mastra Agent 单阶段原生流式通道 (fullStream SSOT)
+    //    prepareStep 按步控制 toolChoice：仅第 0 步强制 'required' 100% 出意图工具调用，
+    //    后续步骤回归 'auto' 让模型正常输出正文。
+    //    注意：严禁全局 'required' —— 会被应用到大循环每一步，模型被迫连续调工具直到
+    //    maxSteps 耗尽、正文为空 (59bf2ea 回归)。
+    //    (prepareStep 机制已经本地 mock 取证 + 真实环境 3/3 验证可用，2026-11-07)
+    const tStream = Date.now();
     const streamResult = await agent.stream(agentDialogueInput as any, {
       abortSignal: abortController.signal,
-      toolChoice: 'required',
-    });
+      prepareStep: ({ stepNumber }: any) =>
+        stepNumber === 0 ? { toolChoice: 'required' as const } : { toolChoice: 'auto' as const },
+    } as any);
+    console.log(`[chat] 正文流建立耗时 ${((Date.now() - tStream) / 1000).toFixed(1)}s`);
 
     for await (const chunk of streamResult.fullStream) {
       if (chunk.type === 'reasoning-delta' && chunk.payload?.text) {
@@ -276,7 +291,7 @@ async function runSseStreamPipeline(params: SsePipelineParams): Promise<void> {
       }
     }
 
-    // 4. 提取本次对话触发的原生 Tool Call 意图信号 (SSOT 纯粹源头提取，零兼容兜底)
+    // 4. 提取本次对话触发的原生 Tool Call 意图信号 (SSOT 纯粹源头提取，来自同一流)
     const detectedIntent = await extractDirectorIntent(streamResult);
     console.log(`[chat] 项目 [${projectId}] 流式结束，意图决策提取结果:`, detectedIntent);
 
@@ -472,10 +487,11 @@ export async function handleChatRoute(
       return true;
     }
 
-    // 8. 分流：非流式同步直出通道 (Mastra 原生响应直出, 强制 toolChoice: 'required')
-    const response = await agent.generate(agentDialogueInput as any, {
-      toolChoice: 'required',
-    });
+    // 8. 分流：非流式同步直出通道 (与流式同款 prepareStep 策略：仅首步 required，其余步 auto)
+    const response: any = await agent.generate(agentDialogueInput as any, {
+      prepareStep: ({ stepNumber }: any) =>
+        stepNumber === 0 ? { toolChoice: 'required' as const } : { toolChoice: 'auto' as const },
+    } as any);
 
     const finalReply = response.text || '';
     const finalThought = (response as any).reasoning || undefined;

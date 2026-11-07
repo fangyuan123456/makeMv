@@ -11,7 +11,6 @@
 
 import { createTool as mastraCreateTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { RealLLMService } from '../llm/RealLLMService.js';
 import { JsonSanitizer } from '../utils/JsonSanitizer.js';
 
 export interface WrappedToolConfig<TInput = any, TOutput = any> {
@@ -100,17 +99,11 @@ export function createTool<TInput = any, TOutput = any>(config: WrappedToolConfi
     return mastraCreateTool(config as any);
   }
 
-  // 1. 将原 Schema 规范编译并追加到 Tool description 中，强化语义约束
-  let schemaOutline = '';
-  try {
-    schemaOutline = RealLLMService.formatSchemaForPrompt(inputSchema);
-  } catch {
-    schemaOutline = '';
-  }
-
-  const enhancedDescription = schemaOutline
-    ? `${description.trim()}\n\n【参数字段必须严格遵从以下模式】：\n\`\`\`json\n${schemaOutline}\n\`\`\``
-    : description;
+  // 1. 参数结构信息不再以 ```json 模板形式追加到 description！
+  //    实测 (2026-11-07 A/B x5)：描述中含 JSON 模板会让 DeepSeek-V3 在正文中
+  //    模仿输出 JSON 文本而非发起原生 tool call (0/5 vs 移除后 4/5)。
+  //    参数结构已由清洗后的平铺 inputSchema 通过 API 原生 parameters 传达，无需赘述。
+  const enhancedDescription = description.trim();
 
   // 2. 在重写的位置将复杂 Schema 清洗转换为纯字符串 Schema (对外暴露给底座模型)
   const cleanedStringSchema = cleanSchemaToStringFields(inputSchema);
