@@ -24,8 +24,15 @@ import {
   keyframeReferenceSubWorkflow,
   videoProductionSubWorkflow,
 } from './agents/director/generator/steps/index.js';
+import { modifierWorkflow } from './agents/director/modifier/index.js';
 
-export const mastra = new Mastra({
+// 挂载说明：workflows 只用于拓扑自省（Studio / GET /api/workflows），不是执行入口。
+// 业务执行的唯一入口是 Workflow.dispatch(key)，它带门禁、阶段推进与下游清理。
+// 因此这里挂全部三条轨（主线 / 工序子流 / 修改流）是安全的，也是必要的可观测性。
+
+// 显式标注类型：Mastra 构造器推断类型会引用 @mastra/core 内部 chunk 路径，
+// 在 declaration: true 下部分 TS 版本会报 ts(2742)「推断类型不可命名」，标注后根除。
+export const mastra: Mastra = new Mastra({
   agents: {
     'director-agent': directorAgent,
   },
@@ -37,6 +44,7 @@ export const mastra = new Mastra({
     'subwf-storyboard': (storyboardSubWorkflow as any).nativeWorkflow || storyboardSubWorkflow,
     'subwf-keyframe-reference': (keyframeReferenceSubWorkflow as any).nativeWorkflow || keyframeReferenceSubWorkflow,
     'subwf-video-production': (videoProductionSubWorkflow as any).nativeWorkflow || videoProductionSubWorkflow,
+    'subwf-modify': (modifierWorkflow as any).nativeWorkflow || modifierWorkflow,
   },
 });
 
@@ -50,4 +58,5 @@ export {
   keyframeReferenceSubWorkflow,
   videoProductionSubWorkflow,
 } from './agents/director/generator/steps/index.js';
+export { modifierWorkflow } from './agents/director/modifier/index.js';
 export * from './tools/index.js';

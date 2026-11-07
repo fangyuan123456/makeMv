@@ -9,9 +9,8 @@
  */
 
 import { Workflow, type WorkflowHookContext } from '../../../workflow-engine/index.js';
-import { ProjectStore } from '../../../project-store/ProjectStore.js';
-import { LLMRegistry } from '../../../llm/LLMRegistry.js';
-import { WorkflowStage, SessionStatus, STAGE_SEQUENCE, type ActionProposal } from '../../../types/index.js';
+import { ProjectStore } from '../../../project-store/index.js';
+import { WorkflowStage, SessionStatus, STAGE_SEQUENCE } from '../../../types/index.js';
 import {
   STEP_MANIFESTS,
   getStepManifest,
@@ -20,14 +19,8 @@ import {
   SKILL_OF_STAGE,
   SKILL_TITLES,
 } from './constants.js';
-import {
-  storyBibleSubWorkflow,
-  characterPortraitSubWorkflow,
-  sceneScriptSubWorkflow,
-  storyboardSubWorkflow,
-  keyframeReferenceSubWorkflow,
-  videoProductionSubWorkflow,
-} from './steps/index.js';
+import { modifierWorkflow } from '../modifier/modifier.workflow.js';
+import { getModifierSpec } from '../modifier/manifest.js';
 
 export {
   STEP_MANIFESTS,
@@ -148,10 +141,27 @@ function createPipelineSuccessHandler(skillKey: string) {
         projectStore.saveProject(project);
         console.log(`[WorkflowEngine] 项目 [${ctx.projectId}] 成功执行时空回退至工序阶段: ${skillStage}，已级联清理所有下游过时资产`);
       } else if (isTargetedRevise) {
-        // 【定向微调因果链路自愈】：上游微调成功后，级联清理所有下游过时资产与审查门禁，状态机对齐
-        if (skillStage && targetOrder >= 0) {
+        // 【定向微调因果链路自愈】：按「本次真实改动的阶段集合」清理下游过时资产与审查门禁
+        //
+        // 文本轨一次可能同步改掉故事圣经 + 剧本 + 分镜，若仍按单一 skillStage 推下游，
+        // 会把刚刚同步好的产物当成过期资产删掉。因此以修改轨上报的 changedStages 为准，
+        // 取其最大阶段序作为清理起点；未上报时回落旧的单工序口径。
+        const reportedStages: string[] = Array.isArray(ctx.result?.changedStages)
+          ? ctx.result.changedStages
+          : [];
+        const changedOrders = (reportedStages.length
+          ? reportedStages
+          : skillStage
+            ? [skillStage as string]
+            : []
+        )
+          .map((s) => STAGE_SEQUENCE.indexOf(s as WorkflowStage))
+          .filter((i) => i >= 0);
+
+        if (changedOrders.length > 0) {
+          const latestOrder = Math.max(...changedOrders);
           let cleanedDownstreamCount = 0;
-          for (let i = targetOrder + 1; i < STAGE_SEQUENCE.length; i++) {
+          for (let i = latestOrder + 1; i < STAGE_SEQUENCE.length; i++) {
             const downstreamStage = STAGE_SEQUENCE[i];
             if (project.stageArtifacts) {
               if (project.stageArtifacts[downstreamStage]) {
@@ -167,13 +177,17 @@ function createPipelineSuccessHandler(skillKey: string) {
             delete project.stageArtifacts['criticReports'];
           }
 
-          if (targetOrder < currentOrder) {
-            project.currentStage = skillStage;
+          // 阶段回退到「本次改动的最后一份产物」所在阶段：它才是当前最新的有效起点
+          if (latestOrder < currentOrder) {
+            project.currentStage = STAGE_SEQUENCE[latestOrder];
           }
 
           project.updatedAt = new Date().toISOString();
           projectStore.saveProject(project);
-          console.log(`[WorkflowEngine] 项目 [${ctx.projectId}] 定向微调工序 [${skillKey}] 完成 (清理下游过时资产: ${cleanedDownstreamCount})`);
+          console.log(
+            `[WorkflowEngine] 项目 [${ctx.projectId}] 定向微调工序 [${skillKey}] 完成 ` +
+              `(改动阶段: ${STAGE_SEQUENCE[latestOrder]}，清理下游过时资产: ${cleanedDownstreamCount})`
+          );
         }
       } else {
         if (!skillStage || skillStage === project.currentStage) {
@@ -196,10 +210,13 @@ function createPipelineSuccessHandler(skillKey: string) {
       let nextSkillToPropose: string | undefined;
       if (!isRollback && project.currentStage && project.currentStage !== WorkflowStage.COMPLETED) {
         if (isTargetedRevise) {
-          // 定向微调落盘后，当前阶段依然存在待推演工序时自动就绪
+          // 定向微调落盘后，当前阶段的主责工序即被重做的那个工序，已是最新。
+          // 下一工序必须指向「后续阶段」的主责技能；若仍取 SKILL_OF_STAGE[currentStage]，
+          // 会把刚改完的工序自己再推一遍，形成「改稿完成 → 又让你改稿」的循环提案。
           const currentStageSkill = SKILL_OF_STAGE[project.currentStage];
-          if (currentStageSkill) {
-            nextSkillToPropose = currentStageSkill;
+          const nextStage = currentStageSkill ? STAGE_TRANSITION_MAP[currentStageSkill] : undefined;
+          if (nextStage && nextStage !== WorkflowStage.COMPLETED) {
+            nextSkillToPropose = SKILL_OF_STAGE[nextStage];
           }
         } else {
           // 顺向推进落盘后，就绪新阶段的合法工序
@@ -211,40 +228,40 @@ function createPipelineSuccessHandler(skillKey: string) {
       }
 
       const title = SKILL_TITLES[skillKey] || skillKey;
-      let nextProposal: ActionProposal | undefined;
 
+      // 就绪下一工序：dispatch 直接产出一个 proposed 任务（未开始 / 待确认），
+      // 对话消息只需引用 taskId，不再在消息里塞提案快照。
       if (nextSkillToPropose) {
         const nextTitle = SKILL_TITLES[nextSkillToPropose] || nextSkillToPropose;
         try {
-          const engine = Workflow.getInstance();
-          const dispatchRes = await engine.dispatch({
+          const dispatchRes = await Workflow.getInstance().dispatch({
             projectId: ctx.projectId,
             sessionId: ctx.sessionId,
             workflowKey: nextSkillToPropose,
             actionType: 'PROCEED_STAGE',
             title: `启动下一工序：${nextTitle}`,
             reason: `工序【${title}】已成功落盘，提议启动下一工序【${nextTitle}】`,
-            requireConfirmation: true, // 100% 保持 pending，人在回路，等待创作者点击或打字授权
+            requireConfirmation: true, // 100% 保持 proposed，人在回路，等待创作者点击或打字授权
           });
-          nextProposal = dispatchRes.proposal;
+
+          /*
+           * 衔接文案：派发只让任务出现在任务仓库，创作者在聊天流里看不到任何解释。
+           * 追加到【刚完成任务的最后一条消息】正文里——气泡原地生长
+           * （启动文案 → 追加完成+下一工序引导），绝不为它单开新气泡。
+           * 无条件追加：下一工序提醒由系统全权负责（提示词已禁止模型输出此类流程话术），
+           * 不做内容去重——模型谈创作时顺带提到工序名属正常，不能因此吞掉系统提醒。
+           */
+          if (dispatchRes.task && ctx.sessionId) {
+            projectStore.appendToLastTaskMessage(
+              ctx.projectId,
+              ctx.sessionId,
+              ctx.taskId,
+              `【${title}】已完成 ✅ 已为你准备下一工序【${nextTitle}】，请在输入框旁确认后授权启动。`
+            );
+          }
         } catch (err: any) {
-          console.warn(`[WorkflowEngine] 自动就绪下一工序提案非致命提示:`, err.message);
+          console.warn(`[WorkflowEngine] 自动就绪下一工序任务非致命提示:`, err.message);
         }
-      }
-
-      // 向当前会话写入系统工序执行落盘通知，保障多轮对话因果闭环，并挂载就绪提案卡片
-      if (ctx.sessionId) {
-        const actionText = isRollback ? '时空回退重做' : isTargetedRevise ? '定向微调' : '推演完成';
-        const guideText = nextProposal
-          ? `\n\n🎯 已为您就绪下一工序【${nextProposal.label}】。您可以直接点击下方卡片或右下角按钮启动，也可以在对话中提出调整。`
-          : '。相关视听资产已入库，创作者可随时继续对话推进或提出调整。';
-
-        projectStore.appendMessage(ctx.projectId, ctx.sessionId, {
-          role: 'assistant',
-          content: `🎬【系统工序通知】已成功执行并落盘【${title}】（${actionText}）${guideText}`,
-          timestamp: new Date().toISOString(),
-          proposal: nextProposal,
-        } as any);
       }
     }
   };
@@ -260,41 +277,14 @@ function createPipelineExecutor(skillKey: string, standardStep: any) {
       inputData.payload?.actionType === 'TARGETED_REVISE';
 
     if (isTargetedRevise) {
-      const userFeedback =
-        inputData.payload?.userFeedback ||
-        inputData.payload?.userPrompt ||
-        inputData.feedback ||
-        inputData.payload?.reason ||
-        '';
-      const projectId = inputData.projectId;
-      const llm = LLMRegistry.get();
-      const target =
-        inputData.payload?.target ||
-        inputData.target ||
-        inputData.payload?.targetCharacterNames?.[0] ||
-        inputData.payload?.targetShotId;
-      const affectedSteps = inputData.payload?.affectedSteps || inputData.affectedSteps;
-      const isMock = inputData.payload?.isMock ?? false;
-
-      // 单一工序定向增量外科手术微调 (通过 StepManifest.modifier 统一委托，0 冗余 if-else 分支)
-      const manifest = getStepManifest(skillKey);
-      if (manifest?.modifier) {
-        const modRes = await manifest.modifier({
-          projectId,
-          userFeedback,
-          llm,
-          target,
-          payload: inputData.payload,
-        });
-        if (!modRes.success) {
-          throw new Error(modRes.error || `${manifest.title} 增量修改失败`);
-        }
-        return {
-          ...inputData,
-          toolResult: modRes.data,
-          lastSummary: modRes.summary || `${manifest.title} 已完成靶向修改并保存`,
-        };
+      // 修改轨只有一条路线：唯一那条微调 workflow（按媒介命中 text / image / video 之一，
+      // 命中分支内部走 读取底稿 → 推演变更 → 执行落地 → 聚合落盘）。
+      // 工序差异由 spec 承载，不存在「回落单体实现」的第二条路径。
+      if (!getModifierSpec(skillKey)) {
+        throw new Error(`工序 [${skillKey}] 未声明微调规格，不支持定向修改`);
       }
+      console.log(`[ModifierPipeline] 工序 [${skillKey}] 走微调工作流（按媒介命中对应分支）`);
+      return await modifierWorkflow.execute({ inputData });
     }
 
     // 默认顺向标准 Step 执行
@@ -304,7 +294,16 @@ function createPipelineExecutor(skillKey: string, standardStep: any) {
 }
 
 /**
- * 向微内核通用工作流引擎注册全量 8 大工序原子 Step
+ * 向微内核通用工作流引擎注册全量 8 大法定工序
+ *
+ * 注意这里注册的是「工序」而非「流水线」：8 个工序各自可被单独按 key 唤起（单工序重跑、
+ * 定向微调），同时它们也是 film-production-pipeline 的节点（同一批 step 对象双处引用）。
+ *
+ * 门禁与阶段推进**不在这里配置**：
+ * - 门禁 → createPipelineGateValidator(key) 内部查 STAGE_OF_SKILL
+ * - 阶段推进/下游清理 → createPipelineSuccessHandler(key) 内部查 STAGE_TRANSITION_MAP
+ * 注册项上的 legalStage / nextStage 字段引擎从不读取，传了只会造成「配置生效」的错觉，
+ * 且 critic-review 的默认阶段是叙事设计（切面审计），一旦未来引擎改为读该字段会误拦。
  */
 export function registerPipelineWorkflows(): void {
   const engine = Workflow.getInstance();
@@ -315,51 +314,14 @@ export function registerPipelineWorkflows(): void {
       key,
       execute: createPipelineExecutor(key, step),
       title: SKILL_TITLES[key] || `执行工序: ${key}`,
-      legalStage: STAGE_OF_SKILL[key],
-      nextStage: STAGE_TRANSITION_MAP[key],
-      requireConfirmation: manifest?.requireConfirmation,
+      // 显式兜底 false：目录里 8 条均为 false，若未来出现缺 manifest 的工序，行为可预期
+      requireConfirmation: manifest?.requireConfirmation ?? false,
       validateGate: createPipelineGateValidator(key),
       onSuccess: createPipelineSuccessHandler(key),
     });
   }
 
-  // 🌟 源头声明式注册微观子工作流 (Micro Sub-Workflows)，显式标记 requireConfirmation: false (全自动直通)
-  engine.registerWorkflow({
-    key: 'subwf-story-bible',
-    execute: storyBibleSubWorkflow as any,
-    title: '叙事架构微观子工作流',
-    requireConfirmation: false,
-  });
-  engine.registerWorkflow({
-    key: 'subwf-character-portrait',
-    execute: characterPortraitSubWorkflow as any,
-    title: '角色定妆微观子工作流',
-    requireConfirmation: false,
-  });
-  engine.registerWorkflow({
-    key: 'subwf-scene-script',
-    execute: sceneScriptSubWorkflow as any,
-    title: '分场剧本微观子工作流',
-    requireConfirmation: false,
-  });
-  engine.registerWorkflow({
-    key: 'subwf-storyboard',
-    execute: storyboardSubWorkflow as any,
-    title: '视听分镜微观子工作流',
-    requireConfirmation: false,
-  });
-  engine.registerWorkflow({
-    key: 'subwf-keyframe-reference',
-    execute: keyframeReferenceSubWorkflow as any,
-    title: '关键帧参考图微观子工作流',
-    requireConfirmation: false,
-  });
-  engine.registerWorkflow({
-    key: 'subwf-video-production',
-    execute: videoProductionSubWorkflow as any,
-    title: '动态视频切片微观子工作流',
-    requireConfirmation: false,
-  });
+  // 微观子工作流（subwf-*）不在此注册：它们由各工序内部直接持有对象执行
+  // （见 generator/manifest.ts 的 step 装配）。单独注册只会多出一个绕过门禁与
+  // 状态机推进的合法入口，属于隐患而非能力。
 }
-
-

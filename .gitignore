@@ -53,3 +53,9 @@ server_backup_v1/
 .agents/teamwork/swe_*/
 .agents/teamwork/teamwork_*/
 .agents/teamwork/victory_auditor*/
+
+# Next.js build output
+client/.next/
+
+# Temporary screenshots
+shot*.png

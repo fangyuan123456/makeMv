@@ -131,4 +131,5 @@ export interface JobContext {
 }
 
 export * from './session.js';
+export * from './task.js';
 

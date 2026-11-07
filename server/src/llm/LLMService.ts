@@ -12,6 +12,8 @@ export interface LLMStreamToolCall {
 export interface LLMOptions {
   temperature?: number;
   maxTokens?: number;
+  /** 单次调用超时毫秒数（缺省用 config.llm.timeoutMs，当前 300000） */
+  timeoutMs?: number;
   thinking?: boolean;
   thinkingBudget?: number;
   stage?: string;

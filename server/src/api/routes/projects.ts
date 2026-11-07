@@ -4,14 +4,14 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'http';
-import { ProjectStore, ProposalStore } from '../../project-store/index.js';
+import { ProjectStore, TaskStore } from '../../project-store/index.js';
 import { WorkflowStage, SessionStatus } from '../../types/index.js';
 import { CharacterRenderer } from '../../media/index.js';
 import { readJsonBody, sendJson, sendError } from '../helpers.js';
 
 export async function handleProjectRoutes(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
   const projectStore = ProjectStore.getInstance();
-  const proposalStore = ProposalStore.getInstance();
+  const taskStore = TaskStore.getInstance();
 
   // 1. 项目列表: GET /api/projects
   if (pathname === '/api/projects' && req.method === 'GET') {
@@ -81,7 +81,7 @@ export async function handleProjectRoutes(req: IncomingMessage, res: ServerRespo
     });
 
     const criticReport = projectStore.getArtifact<any>(projectId, `critic_review_${project.currentStage}`) || projectStore.getArtifact<any>(projectId, 'critic_review');
-    const pendingProposals = proposalStore.listProposals(projectId, { status: 'pending' });
+    const pendingTasks = taskStore.listTasks(projectId, { status: 'proposed' });
 
     sendJson(res, 200, {
       success: true,
@@ -90,17 +90,22 @@ export async function handleProjectRoutes(req: IncomingMessage, res: ServerRespo
       currentStage: project.currentStage,
       nodes,
       criticGate: criticReport?.gateStatus || 'NONE',
-      pendingProposalsCount: pendingProposals.length,
+      pendingTasksCount: pendingTasks.length,
     });
     return true;
   }
 
-  // 4. 查询项目提案列表: GET /api/projects/:projectId/proposals
-  if (pathname.startsWith('/api/projects/') && pathname.endsWith('/proposals') && req.method === 'GET') {
-    const parts = pathname.split('/');
-    const projectId = parts[3];
-    const proposals = proposalStore.listProposals(projectId);
-    sendJson(res, 200, { success: true, proposals });
+  // 4. 单份工序产物: GET /api/projects/:projectId/artifacts/:stage（任务产物链接的落地端点）
+  const artifactMatch = pathname.match(/^\/api\/projects\/([^\/]+)\/artifacts\/([^\/]+)$/);
+  if (artifactMatch && req.method === 'GET') {
+    const projectId = decodeURIComponent(artifactMatch[1]);
+    const stage = decodeURIComponent(artifactMatch[2]);
+    const artifact = projectStore.getArtifact(projectId, stage);
+    if (!artifact) {
+      sendError(res, 404, '产物不存在');
+      return true;
+    }
+    sendJson(res, 200, { success: true, projectId, stage, artifact });
     return true;
   }
 

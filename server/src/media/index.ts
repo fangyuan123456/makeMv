@@ -16,3 +16,4 @@ export * from './CharacterRenderer.js';
 export * from './KeyframeRenderer.js';
 export * from './VideoRenderer.js';
 export * from './VoiceRenderer.js';
+export * from './motion-engine.js';

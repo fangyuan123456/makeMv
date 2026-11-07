@@ -151,6 +151,35 @@ export class MemoryProjectStateStore implements IProjectStateStore {
     }
   }
 
+  public appendToLastTaskMessage(
+    projectId: string,
+    sessionId: string,
+    taskId: string,
+    addition: string
+  ): { appended: boolean } {
+    this.validateProjectId(projectId);
+    const msgs = this.getMessages(projectId, sessionId);
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].taskId === taskId && msgs[i].role === 'assistant') {
+        msgs[i] = {
+          ...msgs[i],
+          content: `${msgs[i].content}${msgs[i].content.trim() ? '\n\n' : ''}${addition}`,
+        };
+        this.saveMessages(projectId, sessionId, msgs);
+        return { appended: true };
+      }
+    }
+    this.appendMessage(projectId, sessionId, {
+      id: `msg_s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      role: 'assistant',
+      content: addition,
+      taskId,
+      createdAt: new Date().toISOString(),
+      timestamp: new Date().toISOString(),
+    });
+    return { appended: false };
+  }
+
   public getScratchpad(projectId: string, sessionId: string): ScratchpadMemory {
     this.validateProjectId(projectId);
     const s = this.getSession(projectId, sessionId);

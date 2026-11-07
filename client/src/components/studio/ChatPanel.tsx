@@ -9,11 +9,13 @@ import {
   ChevronDown,
   Brain,
   Play,
-  XCircle,
   AlertTriangle,
   RotateCw,
+  FileText,
+  XCircle,
+  Clock,
 } from 'lucide-react';
-import { ChatMessageItem, ActionProposal } from './studio.types';
+import { ChatMessageItem, TaskItem, TaskArtifact, MILESTONES } from './studio.types';
 import CriticAuditCard from './CriticAuditCard';
 import { type CinematicParams } from '../CinematicControls';
 
@@ -25,6 +27,12 @@ const QUICK_INSPIRATIONS = [
   '硬科幻惊悚，废弃科考舰遭遇深空异变与失控AI',
   '都市奇幻，平民职员觉醒五分钟时空回溯逆袭商战',
 ];
+
+/** 工序键位 → 中文短名（产物链接与进度描述展示用） */
+function stageLabel(stage: string): string {
+  const hit = MILESTONES.find((m) => m.stages.includes(stage));
+  return hit?.shortName || stage;
+}
 
 /* ══════════════════════════════════════════════════════════════════════════════
  * 1. 子组件：深度思考折叠条 (DeepSeek 风格，极简通透细线排版)
@@ -74,96 +82,188 @@ function DirectorThoughtBlock({ thought, isLive }: { thought: string; isLive?: b
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
- * 2. 子组件：影视工序推演进度看板 (加粗科技感进度条)
+ * 2. 子组件：气泡内任务面板（未开始 / 执行中 / 已结束 四态共用一套渲染）
+ *
+ * 口径：任务才是状态载体。气泡正文只负责「导演说了什么」，任务面板按 taskId
+ * 从任务仓库实时投影：未开始给审批按钮、执行中给进度条、结束给成果与产物链接、
+ * 失败给原因与重试。同一任务只在其最后一条关联气泡上渲染，避免一任务多卡。
  * ══════════════════════════════════════════════════════════════════════════════ */
 
-interface StageProgressCardProps {
-  proposal?: ActionProposal;
+/** 统一耗时计时器：未结束时按秒轮询；已结束时取固定差值 */
+function useElapsedSeconds(startedAt?: string, endedAt?: string) {
+  const [sec, setSec] = useState(0);
+  useEffect(() => {
+    const start = startedAt ? new Date(startedAt).getTime() : Date.now();
+    const end = endedAt ? new Date(endedAt).getTime() : NaN;
+    const isEnded = Number.isFinite(end);
+    const compute = () => setSec(Math.max(0, Math.round(((isEnded ? end : Date.now()) - start) / 1000)));
+    compute();
+    if (isEnded) return;
+    const timer = setInterval(compute, 500);
+    return () => clearInterval(timer);
+  }, [startedAt, endedAt]);
+  return sec;
 }
 
-function StageProgressCard({ proposal }: StageProgressCardProps) {
-  const progress = proposal?.progress;
-  const percent = Math.min(100, Math.max(5, progress?.percent ?? 10));
-  const stepLabel =
-    progress && progress.total > 1 && progress.total <= 20 && progress.current > 0
-      ? `第 ${progress.current}/${progress.total} 步 · ${percent}%`
-      : `${percent}%`;
+interface InlineTaskPanelProps {
+  task: TaskItem;
+  onApprove: (taskId: string) => void;
+  onRetry: (taskId: string) => void;
+  onOpenArtifact?: (stage: string) => void;
+}
 
-  return (
-    <div className="w-full max-w-xl my-1 p-4 rounded-2xl bg-gradient-to-br from-slate-900/90 via-indigo-950/40 to-slate-900/90 border border-indigo-900/60 shadow-xl shadow-indigo-950/20 backdrop-blur-sm relative overflow-hidden group">
-      <div className="absolute -right-8 -top-8 w-28 h-28 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none group-hover:bg-indigo-500/20 transition-all duration-700" />
-      <div className="flex items-start gap-3.5 relative z-10">
-        <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border bg-indigo-950/80 border-indigo-500/50 text-indigo-400 shadow-md shadow-indigo-500/20 animate-pulse">
-          <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
+function InlineTaskPanel({ task, onApprove, onRetry, onOpenArtifact }: InlineTaskPanelProps) {
+  const elapsed = useElapsedSeconds(task.startedAt, task.finishedAt);
+
+  /* 未开始（待确认）：审批按钮 */
+  if (task.status === 'proposed') {
+    return (
+      <div className="mt-2.5 pt-2.5 border-t border-slate-700/60 whitespace-normal">
+        <div className="flex items-center gap-1.5 mb-1">
+          <Clock className="w-3.5 h-3.5 text-indigo-300 shrink-0" />
+          <span className="text-[11px] font-bold text-indigo-200 truncate">未开始：{task.title}</span>
+          <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-mono bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 shrink-0">
+            PENDING
+          </span>
         </div>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <span className="text-xs font-bold text-slate-100 tracking-wide truncate">
-              {`【${proposal?.label || '核心影视工序'}】正在全自动推演中`}
-            </span>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 animate-pulse shrink-0">
-              RUNNING
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between gap-3 mb-1.5">
-            <p className="text-[11px] text-slate-400 leading-relaxed font-mono truncate flex-1 min-w-0">
-              {proposal?.lastMessage || '正在调度 Mastra 影视微内核流水线，资产将直接在右侧视窗实时就绪...'}
-            </p>
-            <span className="text-[11px] font-mono text-indigo-300 font-semibold shrink-0">
-              {stepLabel}
-            </span>
-          </div>
-
-          <div className="w-full h-2.5 bg-slate-950/80 rounded-full border border-slate-800/80 overflow-hidden p-0.5 shadow-inner">
-            <div
-              className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-400 rounded-full transition-all duration-500 ease-out shadow-[0_0_8px_rgba(99,102,241,0.5)]"
-              style={{ width: `${percent}%` }}
-            />
-          </div>
-        </div>
+        {task.description && (
+          <p className="text-[11px] text-slate-400 leading-relaxed line-clamp-2 mb-2">{task.description}</p>
+        )}
+        <button
+          type="button"
+          onClick={() => onApprove(task.taskId)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-md shadow-indigo-600/25 transition-all active:scale-95 cursor-pointer"
+        >
+          <Play className="w-3.5 h-3.5 fill-current" />
+          <span>批准并启动</span>
+        </button>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-/* ══════════════════════════════════════════════════════════════════════════════
- * 3. 子组件：工序推演失败警示看板 (错误原因显性化 + 一键重新推演)
- * ══════════════════════════════════════════════════════════════════════════════ */
-
-interface StageFailureCardProps {
-  proposal?: ActionProposal;
-  onRetry: () => void;
-}
-
-function StageFailureCard({ proposal, onRetry }: StageFailureCardProps) {
-  return (
-    <div className="w-full max-w-xl my-1 p-4 rounded-2xl bg-gradient-to-br from-slate-900/90 via-red-950/30 to-slate-900/90 border border-red-500/40 shadow-xl shadow-red-950/20 backdrop-blur-sm relative overflow-hidden group">
-      <div className="flex items-start gap-3.5 relative z-10">
-        <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border bg-red-950/80 border-red-500/50 text-red-400 shadow-md shadow-red-500/20">
-          <AlertTriangle className="w-5 h-5 text-red-400" />
+  /*
+   * 已批准、引擎还没接上：这是「点了同意到首帧产出」之间的空窗。
+   * 必须与 proposed 分开——按钮已失效不能再渲染，进度条也不该动，
+   * 否则用户会以为卡死或者重复点击启动。
+   */
+  if (task.status === 'queued') {
+    return (
+      <div className="mt-2.5 pt-2.5 border-t border-slate-700/60 whitespace-normal">
+        <div className="flex items-center gap-1.5 mb-1">
+          <Clock className="w-3.5 h-3.5 text-indigo-300/70 shrink-0" />
+          <span className="text-[11px] font-bold text-indigo-200/90 truncate">已批准，等待执行：{task.title}</span>
+          <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-mono bg-slate-700/40 text-slate-300 border border-slate-600/50 shrink-0">
+            QUEUED
+          </span>
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2 mb-1.5">
-            <span className="text-xs font-bold text-slate-100 tracking-wide truncate">
-              {`【${proposal?.label || '影视工序'}】推演遇到异常`}
-            </span>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-red-500/20 text-red-400 border border-red-500/30 shrink-0">
-              FAILED
-            </span>
+        <p className="text-[10px] text-slate-500 font-mono leading-relaxed">
+          已排入执行队列，引擎接管后即开始推进…
+        </p>
+      </div>
+    );
+  }
+
+  /* 执行中：进度条 */
+  if (task.status === 'running') {
+    const progress = task.progress;
+    const percent = Math.min(100, Math.max(4, progress?.percent ?? 8));
+    const stepLabel =
+      progress && progress.total > 1 && progress.total <= 20 && progress.current > 0
+        ? `第 ${progress.current}/${progress.total} 步 · ${percent}%`
+        : `${percent}%`;
+
+    return (
+      <div className="mt-2.5 pt-2.5 border-t border-slate-700/60 whitespace-normal">
+        <div className="flex items-center gap-2 mb-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400 shrink-0" />
+          <span className="text-[11px] font-bold text-indigo-200 truncate">执行中：{task.title}</span>
+          <span className="ml-auto text-[10px] font-mono text-indigo-300/90 shrink-0">
+            {stepLabel} · {elapsed}s
+          </span>
+        </div>
+        <div className="w-full h-1.5 bg-slate-950/80 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-400 rounded-full transition-all duration-500 ease-out shadow-[0_0_8px_rgba(99,102,241,0.5)]"
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+        <p className="mt-1.5 text-[10px] text-slate-500 font-mono leading-relaxed truncate">
+          {progress?.note || '正在准备执行，产物将直接在右侧视窗实时就绪...'}
+        </p>
+      </div>
+    );
+  }
+
+  /* 已结束：成功成果 + 产物链接 */
+  if (task.status === 'succeeded') {
+    const artifacts: TaskArtifact[] = task.artifacts || [];
+    return (
+      <div className="mt-2.5 pt-2.5 border-t border-slate-700/60 whitespace-normal">
+        <div className="flex items-center gap-1.5">
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+          <span className="text-[11px] font-bold text-emerald-300 truncate">已完成：{task.title}</span>
+          {elapsed > 0 && (
+            <span className="ml-auto text-[10px] font-mono text-slate-500 shrink-0">{elapsed}s</span>
+          )}
+        </div>
+
+        {task.resultSummary && (
+          <p className="mt-1 text-[11px] text-slate-400 leading-relaxed line-clamp-3">{task.resultSummary}</p>
+        )}
+
+        {artifacts.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] text-slate-500 font-mono">产物</span>
+            {artifacts.map((a) => (
+              <button
+                key={`${a.stage}-${a.createdAt || ''}`}
+                type="button"
+                onClick={() => onOpenArtifact?.(a.stage)}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] bg-slate-950/60 hover:bg-indigo-950/70 text-slate-300 hover:text-indigo-200 border border-slate-800 hover:border-indigo-700/60 transition-all cursor-pointer"
+                title={a.summary || a.url || a.stage}
+              >
+                <FileText className="w-3 h-3" />
+                <span>{stageLabel(a.stage)}</span>
+              </button>
+            ))}
           </div>
-          <p className="text-[11px] text-red-300/80 leading-relaxed font-mono mb-3 line-clamp-2">
-            {proposal?.error || proposal?.lastMessage || '工序推演未成功完成，建议点击重试或调整对话诉求'}
-          </p>
-          <button
-            onClick={onRetry}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-600 hover:bg-red-500 text-white transition-all shadow-sm active:scale-95 cursor-pointer"
-          >
-            <RotateCw className="w-3.5 h-3.5" />
-            <span>重新推演本工序</span>
-          </button>
+        )}
+      </div>
+    );
+  }
+
+  /* 失败：原因 + 重试 */
+  if (task.status === 'failed') {
+    return (
+      <div className="mt-2.5 pt-2.5 border-t border-red-900/50 whitespace-normal">
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+          <span className="text-[11px] font-bold text-red-300 truncate">执行失败：{task.title}</span>
+          <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-mono bg-red-500/15 text-red-400 border border-red-500/30 shrink-0">
+            FAILED
+          </span>
         </div>
+        <p className="text-[11px] text-red-300/80 leading-relaxed font-mono mb-2 line-clamp-2">
+          {task.error || task.progress?.note || '任务未成功完成，建议重试或调整对话诉求'}
+        </p>
+        <button
+          type="button"
+          onClick={() => onRetry(task.taskId)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-red-600 hover:bg-red-500 text-white transition-all shadow-sm active:scale-95 cursor-pointer"
+        >
+          <RotateCw className="w-3.5 h-3.5" />
+          <span>重新推演本任务</span>
+        </button>
+      </div>
+    );
+  }
+
+  /* 已取消 */
+  return (
+    <div className="mt-2.5 pt-2.5 border-t border-slate-700/60 whitespace-normal">
+      <div className="flex items-center gap-1.5">
+        <XCircle className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+        <span className="text-[11px] text-slate-400 truncate">已取消：{task.title}</span>
       </div>
     </div>
   );
@@ -178,8 +278,8 @@ interface ChatInputBarProps {
   setInputText: (val: string) => void;
   onSubmit: (e: React.FormEvent) => void;
   isGenerating: boolean;
-  pendingProposal?: ActionProposal;
-  onExecuteProposal: (proposal: ActionProposal) => void;
+  pendingTask?: TaskItem;
+  onApproveTask: (taskId: string) => void;
 }
 
 function ChatInputBar({
@@ -187,8 +287,8 @@ function ChatInputBar({
   setInputText,
   onSubmit,
   isGenerating,
-  pendingProposal,
-  onExecuteProposal,
+  pendingTask,
+  onApproveTask,
 }: ChatInputBarProps) {
   return (
     <div className="p-4 border-t border-slate-800 bg-slate-900 shrink-0">
@@ -198,24 +298,22 @@ function ChatInputBar({
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           placeholder={
-            isGenerating
-              ? 'AI 导演正在制作推演中，请稍候...'
-              : '输入对话指令、靶向改写要求或新的影视创意...'
+            isGenerating ? 'AI 导演正在制作推演中，请稍候...' : '输入对话指令、靶向改写要求或新的影视创意...'
           }
           disabled={isGenerating}
           className="flex-1 px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 outline-none focus:border-indigo-500 transition-colors shadow-inner disabled:opacity-50 disabled:cursor-not-allowed"
         />
 
-        {/* 人在回路待审按钮 (仅在 pending 待确认时展示，一旦确认开工立即消失) */}
-        {pendingProposal && (
+        {/* 未开始任务（待确认）：一键批准启动 */}
+        {pendingTask && (
           <button
             type="button"
-            onClick={() => onExecuteProposal(pendingProposal)}
+            onClick={() => onApproveTask(pendingTask.taskId)}
             disabled={isGenerating}
             className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 animate-pulse active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Play className="w-3.5 h-3.5 fill-current" />
-            <span>{pendingProposal.label || '批准并启动'}</span>
+            <span className="max-w-[220px] truncate">{pendingTask.title || '批准并启动'}</span>
           </button>
         )}
 
@@ -232,33 +330,41 @@ function ChatInputBar({
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
- * 5. 主座舱容器：ChatPanel (精简高内聚主界面)
+ * 5. 主座舱容器：ChatPanel（纯投影视图，自身不维护任何任务状态）
  * ══════════════════════════════════════════════════════════════════════════════ */
 
 interface ChatPanelProps {
   messages: ChatMessageItem[];
-  sessionId: string | null;
+  /** 任务仓库快照：唯一状态来源，气泡按 message.taskId 从这里取 */
+  tasks: Record<string, TaskItem>;
   artifacts: Record<string, any>;
   onSendMessage: (text: string) => void;
-  onExecuteProposal: (proposal: ActionProposal, overrides?: Record<string, any>) => void;
-  onDismissProposal: (actionId: string) => void;
+  onApproveTask: (taskId: string, overrides?: Record<string, any>) => void;
+  onRetryTask: (taskId: string) => void;
+  onOpenArtifact?: (stage: string) => void;
   onTriggerCriticReview?: () => void;
   onCriticDialog?: (message: string) => Promise<any>;
   isRunning: boolean;
+  /** SSE 流式打字中：只驱动末尾光标；任务执行中（isRunning）不算，否则正文输出完后光标常驻 */
+  isStreaming?: boolean;
   projectStatus?: string;
   currentStage?: string;
   cinematicOverrides: Record<string, CinematicParams>;
-  onChangeCinematicOverride: (actionId: string, params: CinematicParams) => void;
+  onChangeCinematicOverride: (taskId: string, params: CinematicParams) => void;
 }
 
 export default function ChatPanel({
   messages,
+  tasks,
   artifacts,
   onSendMessage,
-  onExecuteProposal,
+  onApproveTask,
+  onRetryTask,
+  onOpenArtifact,
   onTriggerCriticReview,
   onCriticDialog,
   isRunning,
+  isStreaming = false,
   projectStatus = 'idle',
   cinematicOverrides,
 }: ChatPanelProps) {
@@ -267,28 +373,22 @@ export default function ChatPanel({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const isAtBottomRef = useRef<boolean>(true);
 
-  // 1. 全局工程生命周期状态 (SSOT)
-  const isGenerating = projectStatus === 'running' || isRunning;
+  // 1. 全局工程生命周期（任务仓库里的 running 也计入，避免刷新后按钮可点）
+  const taskList = Object.values(tasks);
+  const runningTask = taskList.find((t) => t.status === 'running');
+  const pendingTask = taskList
+    .filter((t) => t.status === 'proposed')
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
+    .pop();
+  const isGenerating = projectStatus === 'running' || isRunning || Boolean(runningTask);
 
-  // 2. 找到最后一条由开工触发的消息索引
-  let lastApproveIdx = -1;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (msg.sender !== 'user' && msg.isExecutionTrigger) {
-      lastApproveIdx = i;
-      break;
-    }
-  }
+  // 2. 同一任务可能被多条气泡引用（意图轮 + 审批轮），任务面板只挂在最后一条上
+  const lastRefIdx = new Map<string, number>();
+  messages.forEach((m, i) => {
+    if (m.taskId) lastRefIdx.set(m.taskId, i);
+  });
 
-  // 3. 提取最新活跃提案
-  const activeProposal = [...messages]
-    .reverse()
-    .map((m) => m.actionProposal)
-    .find((p) => p && (p.status === 'pending' || p.status === 'running'));
-
-  const pendingProposal = activeProposal?.status === 'pending' ? activeProposal : undefined;
-
-  // 4. 智能吸底滚动控制
+  // 3. 智能吸底滚动控制
   const handleScroll = () => {
     const el = scrollContainerRef.current;
     if (!el) return;
@@ -304,7 +404,7 @@ export default function ChatPanel({
 
   useEffect(() => {
     if (isAtBottomRef.current) scrollToBottom();
-  }, [messages]);
+  }, [messages, tasks]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -321,41 +421,21 @@ export default function ChatPanel({
       <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-5 space-y-4">
         {messages.map((m, idx) => {
           const isUser = m.sender === 'user';
-          const isApproveMessage = Boolean(!isUser && m.isExecutionTrigger);
+          const task = m.taskId ? tasks[m.taskId] : undefined;
+          const isTaskOwner = Boolean(m.taskId) && lastRefIdx.get(m.taskId!) === idx;
+          const isLastMessage = idx === messages.length - 1;
 
-          const proposal = m.actionProposal;
-          const liveProposal =
-            proposal && activeProposal && activeProposal.actionId === proposal.actionId
-              ? activeProposal
-              : proposal;
+          // 气泡正文：有正文用正文；仅挂任务而正文缺省时补一句承接文案
+          const bubbleText = isUser
+            ? m.content
+            : m.content?.trim()
+              ? m.content.trimStart()
+              : task
+                ? `已为您生成任务【${task.title}】。${task.status === 'proposed' ? '请在下方确认后授权执行。' : ''}`
+                : '';
 
-          const isExecutedProposal = liveProposal?.status === 'executed';
-          const isFailedProposal = isApproveMessage && liveProposal?.status === 'failed';
-
-          // 核心退场判定：若后续已经出现了系统完成通知，或已就绪下一工序提案，前序开工看板必须立即退场
-          const hasSubsequentDone = messages.slice(idx + 1).some(
-            (laterMsg) =>
-              laterMsg.content?.includes('【系统工序通知】已成功执行并落盘') ||
-              (laterMsg.actionProposal && laterMsg.actionProposal.status === 'pending')
-          );
-
-          const isRunningProposal =
-            isApproveMessage &&
-            !isExecutedProposal &&
-            !isFailedProposal &&
-            !hasSubsequentDone &&
-            (liveProposal?.status === 'running' || (isGenerating && idx === lastApproveIdx));
-          const isStageExecution = isRunningProposal;
-
-          // 成功执行后或已被后续完成通知承接的开工卡片退场，避免冗余占屏
-          if (isApproveMessage && (isExecutedProposal || hasSubsequentDone || (!isFailedProposal && !isRunningProposal))) {
-            return null;
-          }
-
-          const isCriticFail =
-            liveProposal?.status === 'executed' &&
-            (liveProposal?.skill === 'critic-review' || liveProposal?.isGateIntercept) &&
-            (liveProposal?.resultSummary?.includes('FAIL') || liveProposal?.lastMessage?.includes('FAIL'));
+          const showBubble = Boolean(bubbleText) || (!isUser && isTaskOwner && Boolean(task));
+          const isThinking = !isUser && isLastMessage && !m.content && !task && isGenerating;
 
           return (
             <div key={m.id} className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-full`}>
@@ -378,8 +458,8 @@ export default function ChatPanel({
                 )}
               </div>
 
-              {/* 思考中态（尚未吐出正文且未执行时） */}
-              {!isUser && !isStageExecution && idx === messages.length - 1 && !m.content && (!m.actionProposal || isRunning) && (
+              {/* 思考中态（尚未吐出正文且无任务时） */}
+              {isThinking && (
                 <div className="w-full max-w-2xl mb-2">
                   {m.thought ? (
                     <DirectorThoughtBlock thought={m.thought} isLive={isRunning} />
@@ -392,35 +472,34 @@ export default function ChatPanel({
                 </div>
               )}
 
-              {/* 核心卡片分支：失败看板 / 执行进度看板 / 正常气泡 */}
-              {!isUser && isFailedProposal ? (
-                <StageFailureCard
-                  proposal={liveProposal}
-                  onRetry={() => liveProposal && onExecuteProposal(liveProposal)}
-                />
-              ) : !isUser && isStageExecution ? (
-                <StageProgressCard proposal={liveProposal || activeProposal} />
-              ) : (
-                (m.content || (m.actionProposal && !isRunning)) && (
-                  <div
-                    className={`p-3.5 rounded-2xl text-xs leading-relaxed max-w-2xl whitespace-pre-wrap shadow-md ${
-                      isUser ? 'bg-indigo-600 text-white' : 'bg-slate-900 border border-slate-800 text-slate-200'
-                    }`}
-                  >
-                    {m.content
-                      ? m.content.trimStart()
-                      : `收到微调指示！已为您生成工序调整方案：${m.actionProposal?.description || m.actionProposal?.label}。请点击下方按钮（或回复“同意”）授权执行。`}
-                    {!isUser && isRunning && idx === messages.length - 1 && (
-                      <span className="inline-block w-1.5 h-3.5 ml-1 bg-indigo-400 animate-pulse align-middle" />
-                    )}
-                  </div>
-                )
+              {/* 单气泡：导演回复 + 任务面板（未开始 / 进度 / 成果 / 失败同处一泡） */}
+              {showBubble && (
+                <div
+                  className={`p-3.5 rounded-2xl text-xs leading-relaxed max-w-2xl whitespace-pre-wrap shadow-md ${
+                    isUser ? 'bg-indigo-600 text-white' : 'bg-slate-900 border border-slate-800 text-slate-200'
+                  }`}
+                >
+                  {bubbleText}
+                  {!isUser && isLastMessage && isStreaming && (
+                    <span className="inline-block w-1.5 h-3.5 ml-1 bg-indigo-400 animate-pulse align-middle" />
+                  )}
+
+                  {/* 待审（proposed）卡不进气泡：已常驻底部审批区；执行中/成果/失败仍同泡展示 */}
+                  {!isUser && isTaskOwner && task && task.status !== 'proposed' && (
+                    <InlineTaskPanel
+                      task={task}
+                      onApprove={(taskId) => onApproveTask(taskId, cinematicOverrides[taskId])}
+                      onRetry={onRetryTask}
+                      onOpenArtifact={onOpenArtifact}
+                    />
+                  )}
+                </div>
               )}
 
               {/* 当已产生正文且有思考草稿时，放在正文后面 */}
-              {!isUser && !isStageExecution && m.thought && m.content && (
+              {!isUser && m.thought && m.content && (
                 <div className="w-full max-w-2xl mt-1.5">
-                  <DirectorThoughtBlock thought={m.thought} isLive={isRunning && idx === messages.length - 1} />
+                  <DirectorThoughtBlock thought={m.thought} isLive={isRunning && isLastMessage} />
                 </div>
               )}
 
@@ -442,23 +521,6 @@ export default function ChatPanel({
                       <span>{insp}</span>
                     </button>
                   ))}
-                </div>
-              )}
-
-              {/* 已完成提案状态极简徽章 */}
-              {!isStageExecution && proposal && proposal.status === 'executed' && (
-                <div className="mt-1.5 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900/60 border border-slate-800 text-[11px] text-slate-400">
-                  {isCriticFail ? (
-                    <>
-                      <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                      <span className="text-rose-300">已执行 (门禁 FAIL): {proposal.label}</span>
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>已完成工序: {proposal.label}</span>
-                    </>
-                  )}
                 </div>
               )}
             </div>
@@ -485,8 +547,8 @@ export default function ChatPanel({
         setInputText={setInputText}
         onSubmit={handleSubmit}
         isGenerating={isGenerating}
-        pendingProposal={pendingProposal}
-        onExecuteProposal={(p) => onExecuteProposal(p, cinematicOverrides[p.actionId])}
+        pendingTask={pendingTask}
+        onApproveTask={(taskId) => onApproveTask(taskId, cinematicOverrides[taskId])}
       />
     </div>
   );

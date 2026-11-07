@@ -1,14 +1,16 @@
 /**
  * workflow-engine/types.ts
  * 通用工作流微内核强类型契约与生命周期钩子规范 (Universal Workflow SSOT)
+ *
+ * 任务（Task）是唯一的状态载体：引擎只创建/推进 Task，不向消息写任何状态快照。
  */
 
-import type { ActionProposal } from '../types/index.js';
+import type { Task } from '../types/index.js';
 
 export interface WorkflowHookContext {
   projectId: string;
   sessionId?: string;
-  proposalId: string;
+  taskId: string;
   actionType?: string;
   payload: any;
   result?: any;
@@ -39,7 +41,7 @@ export type StageHandler =
 export interface WorkflowRegistration {
   key: string;                                          // 工序唯一标识 (如 'story-bible', 'bgm-synthesis')
   execute: StageHandler;                                // 原生工序执行器 (支持 Mastra Step 或直接异步函数)
-  title?: string;                                        // 人在回路提案默认展示标题
+  title?: string;                                        // 任务默认展示标题
   legalStage?: string;                                   // 该工序所属的法定业务阶段 (可选)
   nextStage?: string;                                    // 执行成功后推进的下一业务阶段 (可选)
   requireConfirmation?: boolean;                         // 是否需要人工确认 (微工作流等设为 false 可全自动直通)
@@ -62,27 +64,27 @@ export interface DispatchWorkflowOptions {
 
 export interface DispatchWorkflowResult {
   success: boolean;
-  proposalId: string;
-  proposal: ActionProposal;
+  taskId: string;
+  task: Task;
   summary: string;
   isReused?: boolean;
   autoStarted?: boolean;
 }
 
-export interface ExecuteProposalOptions {
+export interface ExecuteTaskOptions {
   projectId: string;
-  proposalId: string;
+  taskId: string;
   overrideParameters?: Record<string, any>;
 }
 
-export interface ExecuteProposalResult {
+export interface ExecuteTaskResult {
   success: boolean;
-  proposal: ActionProposal;
+  task: Task;
   result?: any;
   error?: string;
 }
 
-export interface StartProposalResult {
+export interface StartTaskResult {
   accepted: boolean;
-  proposal: ActionProposal;
+  task: Task;
 }

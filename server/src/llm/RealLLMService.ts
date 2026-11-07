@@ -33,8 +33,9 @@ export class RealLLMService implements LLMService {
     return true;
   }
 
-  private getEffectiveSignal(customSignal?: AbortSignal, timeoutMs = 180000): AbortSignal {
-    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  private getEffectiveSignal(customSignal?: AbortSignal, timeoutMs?: number): AbortSignal {
+    const effectiveTimeout = timeoutMs ?? config.llm.timeoutMs;
+    const timeoutSignal = AbortSignal.timeout(effectiveTimeout);
     if (!customSignal) {
       return timeoutSignal;
     }
@@ -46,12 +47,13 @@ export class RealLLMService implements LLMService {
   }
 
   public async generateText(prompt: string, systemPrompt?: string, options?: LLMOptions): Promise<string> {
-    const effectiveSignal = this.getEffectiveSignal(options?.abortSignal);
+    const effectiveSignal = this.getEffectiveSignal(options?.abortSignal, options?.timeoutMs);
     const { text } = await aiGenerateText({
       model: this.modelInstance,
       system: systemPrompt,
       prompt,
       temperature: options?.temperature,
+      maxTokens: options?.maxTokens,
       abortSignal: effectiveSignal,
     });
     return text;
@@ -66,15 +68,37 @@ export class RealLLMService implements LLMService {
     const schemaOutline = RealLLMService.formatSchemaForPrompt(schema);
     const jsonPrompt = `${prompt}\n\n【强制输出规范 (JSON Schema)】：\n请严格输出一个合法的纯 JSON 字符串对象（以 { 开头，以 } 结尾），所有字段名与数据结构必须 100% 精确遵从以下模式定义，严禁自行创造同义词或遗漏关键结构：\n\`\`\`json\n${schemaOutline}\n\`\`\`\n请直接输出纯 JSON 对象（严禁任何自然语言开场白）：`;
 
-    const textResponse = await this.generateText(jsonPrompt, systemPrompt, options);
+    // LLM 文本输出本质是随机的：偶发的围栏异常 / 截断 / 引号未转义会让单次解析失败。
+    // 解析失败时重采样重试一次（提升温度打破失败模式），两次都失败才把错误上抛。
+    let lastError: Error = new Error('未执行生成');
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const textResponse = await this.generateText(
+        jsonPrompt,
+        systemPrompt,
+        attempt === 1
+          ? options
+          : { ...options, temperature: Math.max(options?.temperature ?? 0.2, 0.5) }
+      );
 
-    const parsedObj = JsonSanitizer.extractJsonFromText<any>(textResponse);
-    if (!parsedObj) {
-      throw new Error(`[RealLLMService] 无法从大模型文本输出中解析出合法的 JSON 结构`);
+      try {
+        const parsedObj = JsonSanitizer.extractJsonFromText<any>(textResponse);
+        if (!parsedObj) throw new Error('提取结果为空');
+        return JsonSanitizer.sanitizeAndNormalize<T>(parsedObj, schema);
+      } catch (err: any) {
+        lastError = err;
+        console.warn(
+          `[RealLLMService] generateObject 第 ${attempt}/2 次输出无法解析为 JSON` +
+            `(stage=${options?.stage || 'unknown'}, 响应 ${textResponse.length} 字符): ${err.message}` +
+            `${attempt < 2 ? ' → 重采样重试…' : ' → 放弃'}`
+        );
+        if (attempt === 2) {
+          console.error(
+            `[RealLLMService] 两次解析均失败，响应头部 1500 字符:\n${textResponse.substring(0, 1500)}`
+          );
+        }
+      }
     }
-
-    const normalized = JsonSanitizer.sanitizeAndNormalize<T>(parsedObj, schema);
-    return normalized;
+    throw lastError;
   }
 
   public static formatSchemaForPrompt(schema: any): string {
@@ -188,7 +212,7 @@ export class RealLLMService implements LLMService {
     onChunk?: (chunk: string) => void,
     options?: LLMOptions
   ): Promise<string> {
-    const effectiveSignal = this.getEffectiveSignal(options?.abortSignal);
+    const effectiveSignal = this.getEffectiveSignal(options?.abortSignal, options?.timeoutMs);
     const result = aiStreamText({
       model: this.modelInstance,
       system: systemPrompt,
@@ -214,7 +238,7 @@ export class RealLLMService implements LLMService {
     onChunk?: (chunk: { type: 'reply' | 'thought'; text: string }) => void,
     options?: LLMOptions
   ): Promise<T> {
-    const effectiveSignal = this.getEffectiveSignal(options?.abortSignal);
+    const effectiveSignal = this.getEffectiveSignal(options?.abortSignal, options?.timeoutMs);
     const { partialObjectStream, object } = aiStreamObject({
       model: this.modelInstance,
       schema,

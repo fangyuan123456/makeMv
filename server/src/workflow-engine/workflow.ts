@@ -12,17 +12,18 @@
 import { randomUUID } from 'crypto';
 import { createWorkflow as mastraCreateWorkflow } from '@mastra/core/workflows';
 import { ProjectStore } from '../project-store/ProjectStore.js';
-import { ProposalStore } from '../project-store/ProposalStore.js';
+import { TaskStore } from '../project-store/TaskStore.js';
 import { ProjectLockManager } from '../utils/projectLock.js';
-import { SessionStatus, type ActionProposal } from '../types/index.js';
+import { SessionStatus, type Task, type TaskArtifact } from '../types/index.js';
+import { deriveTaskIntent } from '../types/task.js';
 import { workflowTaskStorage, getCurrentTaskContext } from './WorkflowContextStorage.js';
 import type {
   WorkflowRegistration,
   DispatchWorkflowOptions,
   DispatchWorkflowResult,
-  ExecuteProposalOptions,
-  ExecuteProposalResult,
-  StartProposalResult,
+  ExecuteTaskOptions,
+  ExecuteTaskResult,
+  StartTaskResult,
 } from './types.js';
 
 export interface WorkflowStepItem<TStep = any> {
@@ -32,12 +33,21 @@ export interface WorkflowStepItem<TStep = any> {
   weight?: number;
   /** 步骤中文说明 (可选，实时展示在前端进度条上方) */
   name?: string;
+  /**
+   * 运行时跳过判定 (可选)：返回 true 时该步骤完全不执行、不上报进度，原样透传输入。
+   *
+   * 用于「多条互斥分支串在同一条 workflow 上」的场景：一次请求只命中其中一条，
+   * 其余分支保持静默。静默是关键——若照常广播「XX 执行中…」，进度文案会在
+   * 互斥分支之间来回跳，用户看到的是自己没请求的工序在跑。
+   */
+  skipIf?: (inputData: any) => boolean;
 }
 
 export interface NormalizedStepItem {
   rawStep: any;
   weight?: number;
   name?: string;
+  skipIf?: (inputData: any) => boolean;
   index: number;
 }
 
@@ -53,6 +63,15 @@ export interface CreateWorkflowOptions<TInput = any, TOutput = any> {
   legalStage?: string;
   /** 🌟 核心步骤数组 (一次性传入，静态统筹步骤总数与进度归一化) */
   steps: Array<WorkflowStepItem | any>;
+  /**
+   * 运行时权重解析器 (可选)。
+   *
+   * 静态 weight 无法表达「同一组步骤在不同数据形态下耗时结构完全不同」的情况：
+   * 文本修改 60% 花在推演、视频修改 80% 花在渲染，共用一套权重必然失真。
+   * 该回调按本次输入返回与 steps 等长的权重数组；返回 undefined 或长度不符时，
+   * 自动回落静态权重（再回落按步数均分）。
+   */
+  weightResolver?: (inputData: any) => number[] | undefined;
 }
 
 /**
@@ -118,12 +137,24 @@ export class WorkflowItem<TInput = any, TOutput = any> {
       const rawStep = isConfig ? item.step : item;
       const weight = isConfig ? item.weight : undefined;
       const name = isConfig ? item.name : undefined;
-      return { rawStep, weight, name, index };
+      const skipIf = isConfig && typeof item.skipIf === 'function' ? item.skipIf : undefined;
+      return { rawStep, weight, name, skipIf, index };
     });
   }
 
+  /**
+   * 按权重数组计算「第 upto 个步骤完成时」的全局百分比。
+   * 统一映射到 10~95 区间：起步不显示 0%，留 5% 给最终落盘确认。
+   */
+  private static percentAt(weights: number[], upto: number): number {
+    const total = weights.reduce((acc, cur) => acc + cur, 0);
+    if (total <= 0) return 10;
+    const accumulated = weights.slice(0, upto).reduce((acc, cur) => acc + cur, 0);
+    return Math.min(95, Math.max(10, Math.round((accumulated / total) * 95)));
+  }
+
   private buildNativeMastraWorkflow(options: CreateWorkflowOptions<TInput, TOutput>): any {
-    const { id, description, inputSchema, outputSchema } = options;
+    const { id, description, inputSchema, outputSchema, weightResolver } = options;
     const totalDeclaredWeight = this.steps.reduce((acc, cur) => acc + (cur.weight || 0), 0);
 
     let wfBuilder = mastraCreateWorkflow({
@@ -136,9 +167,15 @@ export class WorkflowItem<TInput = any, TOutput = any> {
     let accumulatedWeight = 0;
 
     for (let i = 0; i < this.totalSteps; i++) {
-      const { rawStep, weight, name, index } = this.steps[i];
+      const { rawStep, weight, name, skipIf, index } = this.steps[i];
 
       // 计算当前步骤完成时在全局推进中所占的真实比例
+      // prevPercent：本步开始前已完成的进度（用于「执行中」即时上报）
+      const prevPercent =
+        totalDeclaredWeight > 0 && weight !== undefined
+          ? Math.min(95, Math.max(10, Math.round((accumulatedWeight / totalDeclaredWeight) * 95)))
+          : Math.min(95, Math.max(10, Math.round((index / this.totalSteps) * 95)));
+
       let targetPercent: number;
       if (totalDeclaredWeight > 0 && weight !== undefined) {
         accumulatedWeight += weight;
@@ -150,24 +187,84 @@ export class WorkflowItem<TInput = any, TOutput = any> {
 
       const stepLabel = name || (rawStep?.id ? `步骤 [${rawStep.id}]` : `第 ${index + 1}/${this.totalSteps} 阶段`);
 
-      // 编织切面：包装 execute 方法
-      const originalExecute = typeof rawStep === 'function' ? rawStep : rawStep.execute.bind(rawStep);
-      const wrappedExecute = async (ctx: any) => {
-        // 1. 原汁原味执行业务逻辑，业务函数内部 100% 零污染
-        const result = await originalExecute(ctx);
-
-        // 2. 步骤执行完成后，底座无侵入获取上下文并上报真实进度
+      // 进度广播（业务代码零侵入）：仅在有任务上下文时生效，进度只写 Task
+      const broadcastProgress = (
+        percent: number,
+        currentStep: number,
+        totalSteps: number,
+        message: string
+      ) => {
         try {
           const taskCtx = getCurrentTaskContext();
-          if (taskCtx) {
-            ProposalStore.getInstance().updateProposalStatus(taskCtx.projectId, taskCtx.proposalId, 'running', {
-              progress: { current: index + 1, total: this.totalSteps, percent: targetPercent },
-              lastMessage: `${stepLabel} 推演完成 (${targetPercent}%)`,
-            });
-          }
+          if (!taskCtx) return;
+          TaskStore.getInstance().patchTask(taskCtx.projectId, taskCtx.taskId, {
+            status: 'running',
+            progress: { current: currentStep, total: totalSteps, percent, note: message },
+          });
         } catch {
           // 容错防崩，保证主干执行不受统计影响
         }
+      };
+
+      // 编织切面：包装 execute 方法
+      const originalExecute = typeof rawStep === 'function' ? rawStep : rawStep.execute.bind(rawStep);
+      const wrappedExecute = async (ctx: any) => {
+        const runtimeInput = ctx?.inputData;
+
+        // 0. 互斥分支静默透传：本步不属于本次请求 → 不执行、不上报，原样把输入交给下一步
+        if (skipIf) {
+          let shouldSkip = false;
+          try {
+            shouldSkip = Boolean(skipIf(runtimeInput));
+          } catch {
+            shouldSkip = false; // 判定本身异常时按「不跳过」处理，避免误吞真实工序
+          }
+          if (shouldSkip) return runtimeInput;
+        }
+
+        // 1. 解析本次运行的真实权重（未配置或形状不符时回落静态声明）
+        //    effectiveTotal/effectiveCurrent：互斥分支场景下，分母只算真正会执行的那条，
+        //    否则改文本会显示「第 1/3 步」、改视频会显示「第 3/3 步」，用户看到的步数并不存在。
+        let startPercent = prevPercent;
+        let endPercent = targetPercent;
+        let effectiveTotal = this.totalSteps;
+        let effectiveCurrent = index + 1;
+        if (weightResolver) {
+          try {
+            const runtimeWeights = weightResolver(runtimeInput);
+            if (
+              runtimeWeights &&
+              runtimeWeights.length === this.totalSteps &&
+              runtimeWeights.some((w) => w > 0)
+            ) {
+              startPercent = WorkflowItem.percentAt(runtimeWeights, index);
+              endPercent = WorkflowItem.percentAt(runtimeWeights, index + 1);
+
+              const activeCount = runtimeWeights.filter((w) => w > 0).length;
+              effectiveTotal = activeCount || this.totalSteps;
+              effectiveCurrent = runtimeWeights.slice(0, index).filter((w) => w > 0).length + 1;
+            }
+          } catch {
+            // 权重解析失败不影响主干，沿用静态权重
+          }
+        }
+
+        // 2. 执行前：让客户端立刻看到「当前正在做什么」
+        broadcastProgress(startPercent, effectiveCurrent, effectiveTotal, `${stepLabel} 执行中…`);
+
+        // 3. 注入子阶段上报通道：step 内部可按真实阶段推进进度，
+        //    精度高于按步骤均分（spec 自己知道哪一段是重 IO）。
+        //    进度只允许单调前进，且不越过本步的收尾百分比。
+        const report = (percent: number, message: string) => {
+          const clamped = Math.min(endPercent, Math.max(startPercent, Math.round(percent)));
+          broadcastProgress(clamped, effectiveCurrent, effectiveTotal, message);
+        };
+
+        // 4. 原汁原味执行业务逻辑，业务函数内部 100% 零污染
+        const result = await originalExecute({ ...ctx, report });
+
+        // 5. 步骤执行完成后，底座无侵入上报真实进度
+        broadcastProgress(endPercent, effectiveCurrent, effectiveTotal, `${stepLabel} 推演完成 (${endPercent}%)`);
 
         return result;
       };
@@ -216,7 +313,7 @@ export class WorkflowItem<TInput = any, TOutput = any> {
 export class Workflow {
   private static instance?: Workflow;
   private registrations = new Map<string, WorkflowRegistration>();
-  private activeTasks = new Map<string, Promise<ExecuteProposalResult>>();
+  private activeTasks = new Map<string, Promise<ExecuteTaskResult>>();
 
   public static getInstance(): Workflow {
     if (!Workflow.instance) {
@@ -290,7 +387,10 @@ export class Workflow {
   }
 
   /**
-   * 统一业务派发入口：生成提案并处理人在回路拦截或自动启动
+   * 统一业务派发入口：创建任务（Task）并处理人在回路拦截或自动启动
+   *
+   * 任务在这里诞生：意图识别 → 任务（proposed 待确认 / 直接 queued）。此后的状态与产物
+   * 只写在 Task 上，对话消息仅保存 taskId。
    */
   public async dispatch(options: DispatchWorkflowOptions): Promise<DispatchWorkflowResult> {
     const {
@@ -307,7 +407,7 @@ export class Workflow {
     } = options;
 
     const projectStore = ProjectStore.getInstance();
-    const proposalStore = ProposalStore.getInstance();
+    const taskStore = TaskStore.getInstance();
 
     const project = projectStore.getProject(projectId);
     if (!project) {
@@ -318,96 +418,130 @@ export class Workflow {
     const finalTitle = title || reg?.title || `执行工序: ${workflowKey}`;
     const needsApproval = this.isConfirmationRequired(workflowKey, requireConfirmation, actionType);
 
-    // 🌟 提案幂等：同 session 下相同 skill 且处于 pending 态的提案，连发时直接复用，不产生冗余孤儿卡片
+    // 任务幂等：同 session 下相同 skill 且仍待确认的任务，连发时直接复用，不产生冗余孤儿任务
     if (sessionId) {
-      const existingPending = proposalStore
-        .listProposals(projectId, { status: 'pending' })
-        .find((p) => p.sessionId === sessionId && p.skill === workflowKey);
-      if (existingPending) {
+      const existingProposed = taskStore
+        .listTasks(projectId, { status: 'proposed' })
+        .find((t) => t.sessionId === sessionId && t.skill === workflowKey);
+      /*
+       * 意图一致性校验：actionType 不同说明这是新意图（如 PROCEED_STAGE 待审时来了 TARGETED_REVISE）。
+       * 若照旧复用，新指令会被灌进旧任务壳：actionType 仍是 PROCEED_STAGE → 微调轨失效走全量重推；
+       * 且免审批意图也会被旧 proposed 卡拦截（autoStarted:false）而根本不启动。必须放行去创建新任务。
+       */
+      const sameIntent =
+        !existingProposed || (existingProposed.actionType || 'PROCEED_STAGE') === actionType;
+      if (existingProposed && sameIntent) {
         if (userPrompt || parameters) {
-          existingPending.payload = {
-            ...(existingPending.payload || {}),
+          const merged = {
+            ...(existingProposed.payload || {}),
             ...(parameters || {}),
             ...(userPrompt ? { userPrompt } : {}),
             ...(reason ? { reason } : {}),
           };
-          proposalStore.saveProposal(projectId, existingPending);
+          const updated = taskStore.patchTask(projectId, existingProposed.taskId, { payload: merged });
+          return {
+            success: true,
+            taskId: existingProposed.taskId,
+            task: updated || existingProposed,
+            summary: `复用已有待确认任务: ${finalTitle}`,
+            isReused: true,
+            autoStarted: false,
+          };
         }
         return {
           success: true,
-          proposalId: existingPending.actionId,
-          proposal: existingPending,
-          summary: `复用已有待确认提案: ${finalTitle}`,
+          taskId: existingProposed.taskId,
+          task: existingProposed,
+          summary: `复用已有待确认任务: ${finalTitle}`,
           isReused: true,
           autoStarted: false,
         };
       }
     }
 
-    const proposal: ActionProposal = {
-      actionId: `act_${randomUUID().replace(/-/g, '').slice(0, 8)}`,
+    const task: Task = {
+      taskId: `task_${randomUUID().replace(/-/g, '').slice(0, 10)}`,
       projectId,
       sessionId,
+      intent: deriveTaskIntent(actionType, workflowKey),
       skill: workflowKey,
       actionType,
-      label: finalTitle,
+      title: finalTitle,
       description: reason || userPrompt || finalTitle,
-      status: 'pending',
-      affectedSteps: affectedSteps || [workflowKey],
+      status: needsApproval ? 'proposed' : 'queued',
+      stages: affectedSteps || [workflowKey],
+      approval: { required: needsApproval },
       payload: { ...(parameters || {}), userPrompt, reason },
+      artifacts: [],
       createdAt: new Date().toISOString(),
     };
 
-    proposalStore.saveProposal(projectId, proposal);
+    taskStore.saveTask(projectId, task);
 
     if (needsApproval) {
       return {
         success: true,
-        proposalId: proposal.actionId,
-        proposal,
-        summary: `已创建待确认提案: ${finalTitle}`,
+        taskId: task.taskId,
+        task,
+        summary: `已创建待确认任务: ${finalTitle}`,
         autoStarted: false,
       };
     }
 
-    // 默认全自动直通执行
-    const startRes = await this.startProposal({ projectId, proposalId: proposal.actionId });
-    return {
-      success: true,
-      proposalId: proposal.actionId,
-      proposal: startRes.proposal,
-      summary: `已启动工序: ${finalTitle}`,
-      autoStarted: true,
-    };
+    // 默认全自动直通执行。免审批任务 dispatch 即 queued；
+    // startTask 的前置校验（门禁拦截 / 缺注册 / 非可执行状态）在置 running 之前抛错，
+    // 若不兜底，任务会永久卡在 queued，客户端对 queued 持续轮询形成死循环。
+    try {
+      const startRes = await this.startTask({ projectId, taskId: task.taskId });
+      return {
+        success: true,
+        taskId: task.taskId,
+        task: startRes.task,
+        summary: `已启动工序: ${finalTitle}`,
+        autoStarted: true,
+      };
+    } catch (err: any) {
+      taskStore.setStatus(projectId, task.taskId, 'failed', {
+        error: `自动启动失败: ${err?.message || '未知异常'}`,
+      });
+      const failedTask = taskStore.getTask(projectId, task.taskId) || task;
+      return {
+        success: false,
+        taskId: task.taskId,
+        task: failedTask,
+        summary: `工序启动失败: ${err?.message || '未知异常'}`,
+        autoStarted: false,
+      };
+    }
   }
 
   /**
-   * 启动并执行提案 (人在回路批准点击或自动直通)
+   * 启动并执行任务 (人在回路批准点击或自动直通)
    */
-  public async startProposal(options: ExecuteProposalOptions): Promise<StartProposalResult> {
-    const { projectId, proposalId, overrideParameters } = options;
+  public async startTask(options: ExecuteTaskOptions): Promise<StartTaskResult> {
+    const { projectId, taskId, overrideParameters } = options;
     const lock = ProjectLockManager.getInstance();
 
     return lock.withLock(projectId, async () => {
       const projectStore = ProjectStore.getInstance();
-      const proposalStore = ProposalStore.getInstance();
+      const taskStore = TaskStore.getInstance();
 
-      const proposal = proposalStore.getProposal(projectId, proposalId);
-      if (!proposal) {
-        throw new Error(`[Workflow] 未找到提案: ${proposalId}`);
+      const task = taskStore.getTask(projectId, taskId);
+      if (!task) {
+        throw new Error(`[Workflow] 未找到任务: ${taskId}`);
       }
 
-      if (proposal.status === 'running' || this.activeTasks.has(proposalId)) {
-        return { accepted: true, proposal };
+      if (task.status === 'running' || this.activeTasks.has(taskId)) {
+        return { accepted: true, task };
       }
 
-      if (proposal.status !== 'pending') {
-        throw new Error(`[Workflow] 提案处于非可执行状态 [${proposal.status}]，禁止执行！`);
+      if (task.status !== 'proposed' && task.status !== 'queued') {
+        throw new Error(`[Workflow] 任务处于非可执行状态 [${task.status}]，禁止执行！`);
       }
 
-      const workflowKey = proposal.skill;
+      const workflowKey = task.skill;
       if (!workflowKey) {
-        throw new Error(`[Workflow] 提案 [${proposalId}] 缺少合法的 workflowKey/skill 标识`);
+        throw new Error(`[Workflow] 任务 [${taskId}] 缺少合法的 workflowKey/skill 标识`);
       }
 
       const reg = this.registrations.get(workflowKey);
@@ -419,20 +553,22 @@ export class Workflow {
       if (reg.validateGate) {
         const gateResult = reg.validateGate({
           projectId,
-          sessionId: proposal.sessionId,
-          proposalId,
-          actionType: proposal.actionType,
-          payload: { ...(proposal.payload || {}), ...overrideParameters },
+          sessionId: task.sessionId,
+          taskId,
+          actionType: task.actionType,
+          payload: { ...(task.payload || {}), ...overrideParameters },
         });
         if (!gateResult.pass) {
           throw new Error(`[Workflow] 门禁拦截: ${gateResult.reason || '工序未通过前置门禁质检'}`);
         }
       }
 
-      // 将状态更新为 running，初始化初始进度 10% (规范单一事实进度契约)
-      const runningProposal = proposalStore.updateProposalStatus(projectId, proposalId, 'running', {
+      // 批准即记账，状态推进到 running 并初始化 10%（单一事实进度契约）
+      const runningTask = taskStore.patchTask(projectId, taskId, {
+        status: 'running',
         startedAt: new Date().toISOString(),
-        progress: { current: 0, total: 1, percent: 10 },
+        approval: { required: task.approval?.required ?? true, approvedAt: new Date().toISOString() },
+        progress: { current: 0, total: 1, percent: 10, note: '任务已启动，正在准备执行' },
       });
 
       const project = projectStore.getProject(projectId);
@@ -442,17 +578,31 @@ export class Workflow {
         projectStore.saveProject(project);
       }
 
-      // 异步后台触发执行，绝不阻塞当前 HTTP 请求
-      const taskPromise = this.runProposalTask(projectId, proposalId, reg, overrideParameters);
-      this.activeTasks.set(proposalId, taskPromise);
+      // 异步后台触发执行，绝不阻塞当前 HTTP 请求。
+      // runTask 顶部的前置校验在 try 之外，直接 throw 会变成未捕获 rejection，
+      // 任务卡死在 running 永不结算 → 客户端死轮询。这里兜底拉回 failed。
+      const taskPromise = this.runTask(projectId, taskId, reg, overrideParameters).catch(
+        (err: any): ExecuteTaskResult => {
+          console.error(`[Workflow] 任务 [${taskId}] 后台执行未捕获异常:`, err);
+          const latest = taskStore.getTask(projectId, taskId);
+          if (latest && latest.status === 'running') {
+            const failedTask = taskStore.setStatus(projectId, taskId, 'failed', {
+              error: err?.message || '后台执行异常',
+            });
+            if (failedTask) return { success: false, task: failedTask, error: err?.message };
+          }
+          return { success: false, task: latest || task, error: err?.message };
+        }
+      );
+      this.activeTasks.set(taskId, taskPromise);
 
       taskPromise.finally(() => {
-        this.activeTasks.delete(proposalId);
+        this.activeTasks.delete(taskId);
       });
 
       return {
         accepted: true,
-        proposal: runningProposal || proposal,
+        task: runningTask || task,
       };
     });
   }
@@ -460,37 +610,38 @@ export class Workflow {
   /**
    * 后台异步执行具体的工序任务 (100% 真实 Step 驱动，彻底消灭虚假心跳)
    */
-  private async runProposalTask(
+  private async runTask(
     projectId: string,
-    proposalId: string,
+    taskId: string,
     registration?: WorkflowRegistration,
     overrideParameters?: Record<string, any>
-  ): Promise<ExecuteProposalResult> {
+  ): Promise<ExecuteTaskResult> {
     const projectStore = ProjectStore.getInstance();
-    const proposalStore = ProposalStore.getInstance();
+    const taskStore = TaskStore.getInstance();
 
-    const proposal = proposalStore.getProposal(projectId, proposalId);
-    if (!proposal) {
-      throw new Error(`[Workflow] 后台任务异常: 提案 [${proposalId}] 不存在`);
+    const task = taskStore.getTask(projectId, taskId);
+    if (!task) {
+      throw new Error(`[Workflow] 后台任务异常: 任务 [${taskId}] 不存在`);
     }
 
-    // 终态核验防御：若提案已处于终态 (dismissed / executed / failed)，绝对不能覆盖执行
-    if (proposal.status !== 'pending' && proposal.status !== 'running') {
+    // 终态核验防御：任务已取消/结束则绝不覆盖执行
+    if (task.status !== 'proposed' && task.status !== 'queued' && task.status !== 'running') {
       return {
         success: false,
-        proposal,
-        error: `提案处于终态 [${proposal.status}]，禁止执行！`,
+        task,
+        error: `任务处于终态 [${task.status}]，禁止执行！`,
       };
     }
 
-    const targetReg = registration || (proposal.skill ? this.registrations.get(proposal.skill) : undefined);
+    const targetReg = registration || (task.skill ? this.registrations.get(task.skill) : undefined);
     if (!targetReg) {
-      throw new Error(`[Workflow] 未找到提案 [${proposalId}] 对应的工序注册`);
+      throw new Error(`[Workflow] 未找到任务 [${taskId}] 对应的工序注册`);
     }
 
     const project = projectStore.getProject(projectId);
-    const cleanPayload = { ...(proposal.payload || {}) };
+    const cleanPayload = { ...(task.payload || {}) };
     const startTime = Date.now();
+    const beforeStageKeys = new Set(Object.keys(project?.stageArtifacts || {}));
 
     try {
       console.log(`[Workflow] 后台开始执行工序: key=${targetReg.key}, project=${projectId}`);
@@ -499,15 +650,24 @@ export class Workflow {
         cleanPayload.feedback ||
         cleanPayload.userFeedback ||
         cleanPayload.reason ||
-        proposal.description;
+        task.description;
 
       const inputData = {
         projectId,
-        sessionId: proposal.sessionId,
+        sessionId: task.sessionId,
+        // 双轨执行体分流依据：actionType 是任务顶层字段，若不在此显式透传，
+        // 执行体看到的只有 payload，会把 TARGETED_REVISE 误判为标准全量推演（微调轨失效）
+        actionType: task.actionType,
         activeStage: (project as any)?.currentStage,
         targetSkill: targetReg.key,
         feedback: userFeedbackText,
-        payload: { ...cleanPayload, proposalId, targetSkill: targetReg.key, skill: targetReg.key },
+        payload: {
+          ...cleanPayload,
+          actionType: task.actionType,
+          taskId,
+          targetSkill: targetReg.key,
+          skill: targetReg.key,
+        },
         overrideParams: overrideParameters,
       };
 
@@ -516,11 +676,11 @@ export class Workflow {
           ? targetReg.execute
           : (targetReg.execute as any).execute.bind(targetReg.execute);
 
-      // 🌟 底座异步上下文注入：底层工具与封装的 Workflow 自动感知当前 proposalId
+      // 底座异步上下文注入：底层工具与封装的 Workflow 自动感知当前 taskId
       const stepOutput = await workflowTaskStorage.run(
         {
           projectId,
-          proposalId,
+          taskId,
           skill: targetReg.key,
           stage: (project as any)?.currentStage,
           startTime,
@@ -533,22 +693,24 @@ export class Workflow {
         throw new Error(toolResult.error || toolResult.message || '工序返回明确失败');
       }
 
-      // 终态核验防御：若执行期间提案被人为驳回或修改，放弃覆盖写入 executed
-      const latestCheck = proposalStore.getProposal(projectId, proposalId);
+      // 终态核验防御：若执行期间任务被人为取消，放弃覆盖写入 succeeded
+      const latestCheck = taskStore.getTask(projectId, taskId);
       if (latestCheck && latestCheck.status !== 'running') {
-        console.warn(`[Workflow] 提案 [${proposalId}] 执行中已被修改为 [${latestCheck.status}]，放弃覆盖终态`);
+        console.warn(`[Workflow] 任务 [${taskId}] 执行中已被修改为 [${latestCheck.status}]，放弃覆盖终态`);
         return {
           success: false,
-          proposal: latestCheck,
-          error: `提案已被修改为 [${latestCheck.status}]`,
+          task: latestCheck,
+          error: `任务已被修改为 [${latestCheck.status}]`,
         };
       }
 
-      // 工序成功执行完毕：底座硬敲 100%
-      const updatedProposal = proposalStore.updateProposalStatus(projectId, proposalId, 'executed', {
-        executedAt: new Date().toISOString(),
-        progress: { current: 100, total: 100, percent: 100 },
-        resultSummary: stepOutput?.lastSummary || `工序 [${targetReg.key}] 执行成功`,
+      // 任务成功：状态、进度、产物链接一次性落在 Task 上
+      const resultSummary = stepOutput?.lastSummary || `工序 [${targetReg.key}] 执行成功`;
+      const artifacts = this.collectTaskArtifacts(projectId, task, beforeStageKeys, stepOutput, resultSummary);
+      const updatedTask = taskStore.setStatus(projectId, taskId, 'succeeded', {
+        progress: { current: 100, total: 100, percent: 100, note: resultSummary },
+        resultSummary,
+        artifacts,
       });
 
       // 触发业务生命周期流转钩子
@@ -556,9 +718,9 @@ export class Workflow {
         try {
           await targetReg.onSuccess({
             projectId,
-            sessionId: proposal.sessionId,
-            proposalId,
-            actionType: proposal.actionType,
+            sessionId: task.sessionId,
+            taskId,
+            actionType: task.actionType,
             payload: inputData.payload,
             result: toolResult || stepOutput,
           });
@@ -570,7 +732,7 @@ export class Workflow {
       // 更新项目聚合状态
       const currentProject = projectStore.getProject(projectId);
       if (currentProject) {
-        const pendingList = proposalStore.listProposals(projectId, { status: 'pending' });
+        const pendingList = taskStore.listTasks(projectId, { status: 'proposed' });
         currentProject.status =
           pendingList.length > 0 ? SessionStatus.WAITING_FOR_INTERVENTION : SessionStatus.IDLE;
         currentProject.updatedAt = new Date().toISOString();
@@ -579,15 +741,14 @@ export class Workflow {
 
       return {
         success: true,
-        proposal: updatedProposal || proposal,
+        task: updatedTask || task,
         result: toolResult || stepOutput,
       };
     } catch (err: any) {
-      console.error(`[Workflow] 提案 [${proposalId}] 执行失败:`, err);
-      const latestProposal = proposalStore.getProposal(projectId, proposalId);
-      if (latestProposal && latestProposal.status === 'running') {
-        proposalStore.updateProposalStatus(projectId, proposalId, 'failed', {
-          failedAt: new Date().toISOString(),
+      console.error(`[Workflow] 任务 [${taskId}] 执行失败:`, err);
+      const latestTask = taskStore.getTask(projectId, taskId);
+      if (latestTask && latestTask.status === 'running') {
+        taskStore.setStatus(projectId, taskId, 'failed', {
           error: err.message || '执行异常',
         });
       }
@@ -599,27 +760,69 @@ export class Workflow {
       }
       return {
         success: false,
-        proposal: latestProposal || proposal,
+        task: latestTask || task,
         error: err.message,
       };
     }
   }
 
   /**
-   * 同步执行提案（供自动化测试或同步调用端使用）
+   * 汇总本任务真实产出的产物链接：
+   * 1. 本次执行新增的工序产物（首次落盘）；
+   * 2. 修改轨上报 changedStages 命中的既有产物（覆盖写）；
+   * 3. 任务显式涉及的工序（stages 命中已有产物键位时）。
+   * 质检报告类键位（critic_review_*）不进入产物清单。
    */
-  public async executeProposal(options: ExecuteProposalOptions): Promise<ExecuteProposalResult> {
-    const { proposalId } = options;
-    await this.startProposal(options);
-    const runningTask = this.activeTasks.get(proposalId);
+  private collectTaskArtifacts(
+    projectId: string,
+    task: Task,
+    beforeStageKeys: Set<string>,
+    stepOutput: any,
+    resultSummary?: string
+  ): TaskArtifact[] {
+    const project = ProjectStore.getInstance().getProject(projectId);
+    const artifacts = project?.stageArtifacts || {};
+    const keys = Object.keys(artifacts).filter(
+      (k) => artifacts[k] && !k.startsWith('critic_review')
+    );
+
+    const produced = new Set<string>();
+    for (const key of keys) {
+      if (!beforeStageKeys.has(key)) produced.add(key);
+    }
+
+    const changed: string[] = Array.isArray(stepOutput?.changedStages) ? stepOutput.changedStages : [];
+    for (const stage of changed) {
+      if (keys.includes(stage)) produced.add(stage);
+    }
+    for (const stage of task.stages || []) {
+      if (keys.includes(stage)) produced.add(stage);
+    }
+
+    const now = new Date().toISOString();
+    return Array.from(produced).map((stage) => ({
+      stage,
+      kind: 'stage-artifact',
+      url: `/api/projects/${projectId}/artifacts/${stage}`,
+      summary: resultSummary,
+      createdAt: now,
+    }));
+  }
+
+  /**
+   * 同步执行任务（供自动化测试或同步调用端使用）
+   */
+  public async executeTask(options: ExecuteTaskOptions): Promise<ExecuteTaskResult> {
+    const { taskId } = options;
+    await this.startTask(options);
+    const runningTask = this.activeTasks.get(taskId);
     if (runningTask) {
       return await runningTask;
     }
-    const proposalStore = ProposalStore.getInstance();
-    const current = proposalStore.getProposal(options.projectId, proposalId);
+    const current = TaskStore.getInstance().getTask(options.projectId, taskId);
     return {
-      success: current?.status === 'executed',
-      proposal: current!,
+      success: current?.status === 'succeeded',
+      task: current!,
       error: current?.error,
     };
   }
@@ -627,67 +830,54 @@ export class Workflow {
   /**
    * 底层工序任务直接执行入口 (提供单元测试与底层自愈直通能力)
    */
-  public async runProposal(
+  public async runTaskDirect(
     projectId: string,
-    proposalId: string,
+    taskId: string,
     workflowKey?: string,
     parameters?: Record<string, any>
-  ): Promise<ExecuteProposalResult> {
+  ): Promise<ExecuteTaskResult> {
     const reg = workflowKey ? this.registrations.get(workflowKey) : undefined;
-    return this.runProposalTask(projectId, proposalId, reg, parameters);
+    return this.runTask(projectId, taskId, reg, parameters);
   }
 
   /**
-   * 创作者主动驳回提案
+   * 创作者主动取消（驳回）任务
    */
-  public async rejectProposal(projectId: string, proposalId: string, reason?: string): Promise<ActionProposal> {
+  public async cancelTask(projectId: string, taskId: string, reason?: string): Promise<Task> {
     const lock = ProjectLockManager.getInstance();
     return lock.withLock(projectId, async () => {
-      const proposalStore = ProposalStore.getInstance();
-      const current = proposalStore.getProposal(projectId, proposalId);
+      const taskStore = TaskStore.getInstance();
+      const current = taskStore.getTask(projectId, taskId);
       if (!current) {
-        throw new Error(`[Workflow] 提案 ${proposalId} 不存在`);
+        throw new Error(`[Workflow] 任务 ${taskId} 不存在`);
       }
-      if (current.status === 'running' || this.activeTasks.has(proposalId)) {
-        const err = new Error(`提案 ${proposalId} 正在执行中，不可驳回`);
+      if (current.status === 'running' || this.activeTasks.has(taskId)) {
+        const err = new Error(`任务 ${taskId} 正在执行中，不可取消`);
         (err as any).statusCode = 409;
         throw err;
       }
-      if (current.status === 'executed') {
-        const err = new Error(`提案 ${proposalId} 已执行完毕，无法驳回（仅 pending 允许驳回）`);
-        (err as any).statusCode = 409;
-        throw err;
+      const cancelled = taskStore.cancelTask(projectId, taskId, reason || '创作者主动驳回');
+      if (!cancelled) {
+        throw new Error(`[Workflow] 任务 ${taskId} 更新失败`);
       }
-      if (current.status !== 'pending') {
-        const err = new Error(`提案 ${proposalId} 当前状态为 [${current.status}]，不可驳回（仅 pending 允许驳回）`);
-        (err as any).statusCode = 409;
-        throw err;
-      }
-      const updated = proposalStore.updateProposalStatus(projectId, proposalId, 'dismissed', {
-        description: reason || '创作者主动驳回',
-      });
-      if (!updated) {
-        throw new Error(`[Workflow] 提案 ${proposalId} 更新失败`);
-      }
-      return updated;
+      return cancelled;
     });
   }
 
   /**
-   * 孤儿提案自愈扫描
+   * 孤儿任务自愈扫描
    */
-  public recoverOrphanProposals(): void {
+  public recoverOrphanTasks(): void {
     try {
       const projectStore = ProjectStore.getInstance();
-      const proposalStore = ProposalStore.getInstance();
+      const taskStore = TaskStore.getInstance();
       const projects = projectStore.listProjects();
 
       for (const p of projects) {
-        const runningList = proposalStore.listProposals(p.projectId, { status: 'running' as any });
+        const runningList = taskStore.listTasks(p.projectId, { status: 'running' });
         for (const orphan of runningList) {
-          console.warn(`[Workflow] 检测到中断的孤儿提案 [${orphan.actionId}]，自动恢复为 failed...`);
-          proposalStore.updateProposalStatus(p.projectId, orphan.actionId, 'failed', {
-            failedAt: new Date().toISOString(),
+          console.warn(`[Workflow] 检测到中断的孤儿任务 [${orphan.taskId}]，自动恢复为 failed...`);
+          taskStore.setStatus(p.projectId, orphan.taskId, 'failed', {
             error: '系统进程异常重启，任务已自动置为失败',
           });
         }

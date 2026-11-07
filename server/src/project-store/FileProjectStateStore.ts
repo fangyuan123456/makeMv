@@ -374,35 +374,35 @@ export class FileProjectStateStore implements IProjectStateStore {
         }
       }
 
-      // 6. 级联刷新当前处于 pending 等待执行状态的定妆/后续卡片
+      // 6. 级联刷新仍处于未开始（proposed）任务的标题与描述
       try {
-        const { ProposalStore } = require('./ProposalStore.js');
-        const proposalStore = ProposalStore.getInstance();
-        const pendingProposals = proposalStore.listProposals(projectId, { status: 'pending' });
-        for (const p of pendingProposals) {
+        const { TaskStore } = require('./TaskStore.js');
+        const taskStore = TaskStore.getInstance();
+        const proposedTasks = taskStore.listTasks(projectId, { status: 'proposed' });
+        for (const t of proposedTasks) {
           let touched = false;
-          if (p.label && p.label.includes(cleanOld)) {
-            p.label = p.label.replace(replaceRegex, cleanNew);
+          const patch: Record<string, any> = {};
+          if (t.title && t.title.includes(cleanOld)) {
+            patch.title = t.title.replace(replaceRegex, cleanNew);
             touched = true;
           }
-          if (p.description && p.description.includes(cleanOld)) {
-            p.description = p.description.replace(replaceRegex, cleanNew);
+          if (t.description && t.description.includes(cleanOld)) {
+            patch.description = t.description.replace(replaceRegex, cleanNew);
             touched = true;
           }
-          if (p.payload?.userPrompt && typeof p.payload.userPrompt === 'string' && p.payload.userPrompt.includes(cleanOld)) {
-            p.payload.userPrompt = p.payload.userPrompt.replace(replaceRegex, cleanNew);
+          if (t.payload?.userPrompt && typeof t.payload.userPrompt === 'string' && t.payload.userPrompt.includes(cleanOld)) {
+            patch.payload = { ...t.payload, userPrompt: t.payload.userPrompt.replace(replaceRegex, cleanNew) };
             touched = true;
           }
           if (touched) {
-            p.updatedAt = new Date().toISOString();
-            proposalStore.saveProposal(projectId, p);
+            taskStore.patchTask(projectId, t.taskId, patch as any);
           }
         }
-        if (pendingProposals.length > 0) {
-          modifiedFields.push('pendingProposals');
+        if (proposedTasks.length > 0) {
+          modifiedFields.push('pendingTasks');
         }
-      } catch (propErr) {
-        console.warn('[FileProjectStateStore] 级联刷新待办提案警告:', propErr);
+      } catch (taskErr) {
+        console.warn('[FileProjectStateStore] 级联刷新待办任务警告:', taskErr);
       }
 
       // 7. 保存主工程黑板
@@ -679,6 +679,39 @@ export class FileProjectStateStore implements IProjectStateStore {
       }
       this.saveSession(session);
     }
+  }
+
+  /**
+   * 向指定任务在会话中的最后一条消息正文追加内容（气泡原地生长，不单开新泡）。
+   * 找不到引用该 taskId 的消息时回退为追加一条新消息，保证语义不丢。
+   */
+  public appendToLastTaskMessage(
+    projectId: string,
+    sessionId: string,
+    taskId: string,
+    addition: string
+  ): { appended: boolean } {
+    this.validateProjectId(projectId);
+    const messages = this.getMessages(projectId, sessionId);
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].taskId === taskId && messages[i].role === 'assistant') {
+        messages[i] = {
+          ...messages[i],
+          content: `${messages[i].content}${messages[i].content.trim() ? '\n\n' : ''}${addition}`,
+        };
+        this.saveMessages(projectId, sessionId, messages);
+        return { appended: true };
+      }
+    }
+    this.appendMessage(projectId, sessionId, {
+      id: `msg_s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      role: 'assistant',
+      content: addition,
+      taskId,
+      createdAt: new Date().toISOString(),
+      timestamp: new Date().toISOString(),
+    });
+    return { appended: false };
   }
 
   public getScratchpad(projectId: string, sessionId: string): ScratchpadMemory {

@@ -68,6 +68,9 @@ export const config = {
     baseUrl: process.env.LLM_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     apiKey: process.env.LLM_API_KEY || '',
     model: process.env.LLM_MODEL || 'qwen-plus',
+    // 单次 LLM 调用超时。全量生成工序（如叙事架构分支图谱）动辄输出数千 token 的长 JSON，
+    // 72B 级模型 3 分钟内可能吐不完——默认放宽到 5 分钟，可用 LLM_TIMEOUT_MS 环境变量覆盖。
+    timeoutMs: parseInt(process.env.LLM_TIMEOUT_MS || '300000', 10),
   },
 
   // 文生图模型 (Image)

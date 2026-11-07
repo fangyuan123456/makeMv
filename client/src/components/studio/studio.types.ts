@@ -1,25 +1,49 @@
-export interface ProposalProgress {
+export interface TaskProgress {
   current: number; // 当前已完成切片数 (如 3)
   total: number;   // 总切片数 (如 12)
   percent: number; // 0..100 百分比
+  note?: string;   // 当前阶段可读描述
 }
 
-export interface ActionProposal {
-  actionId: string;
-  actionType?: string;
+export type TaskStatus = 'proposed' | 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+export interface TaskArtifact {
+  stage: string;
+  kind?: string;
+  label?: string;
+  url?: string;
+  path?: string;
+  summary?: string;
+  createdAt?: string;
+}
+
+/**
+ * 任务（唯一状态载体）。
+ * 铁律：对话消息只保存 taskId，状态 / 进度 / 产物一律从任务实体读取，
+ * 客户端不再从消息快照派生任何执行态。
+ */
+export interface TaskItem {
+  taskId: string;
+  projectId: string;
+  sessionId?: string;
+  intent: 'generate' | 'revise' | 'review';
   skill?: string;
-  label: string;
+  actionType?: string;
+  title: string;
   description?: string;
-  status: 'pending' | 'running' | 'executed' | 'dismissed' | 'failed';
-  isGateIntercept?: boolean;
+  status: TaskStatus;
+  stages: string[];
+  approval: { required: boolean; approvedAt?: string };
   payload?: Record<string, any>;
+  progress?: TaskProgress;
+  artifacts: TaskArtifact[];
   resultSummary?: string;
-  startedAt?: string;
-  lastMessage?: string;
   error?: string;
-  failedAt?: string;
-  progress?: ProposalProgress;
-  updatedAt?: string;
+  isGateIntercept?: boolean;
+  parentTaskId?: string;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
 }
 
 export type MilestoneId =
@@ -103,8 +127,8 @@ export interface ChatMessageItem {
   thinkingDurationSec?: number;
   timestamp: string;
   stage?: string;
-  actionProposal?: ActionProposal;
-  isExecutionTrigger?: boolean;
+  /** 本轮对话对应的任务 ID：唯一引用，消息本身不携带任何任务状态 */
+  taskId?: string;
   milestoneId?: MilestoneId;
   stopPoint?: {
     id: string;

@@ -5,13 +5,6 @@
 
 import { z } from 'zod';
 
-export const RefineCharacterVisualPromptSchema = z.object({
-  refinedVisualPrompt: z.string().describe('融合重写后的纯中文电影级定妆生图提示词'),
-  designNotes: z.string().optional().describe('设计调优思路与美学考量说明'),
-});
-
-export type RefineCharacterVisualPromptOutput = z.infer<typeof RefineCharacterVisualPromptSchema>;
-
 export const CharacterVisualSpecItemSchema = z.object({
   name: z.string().describe('角色姓名'),
   visualPrompt: z.string().describe('纯中文电影级特写定妆生图提示词'),

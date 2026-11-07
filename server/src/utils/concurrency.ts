@@ -4,7 +4,7 @@
  */
 
 import { getCurrentTaskContext } from '../workflow-engine/WorkflowContextStorage.js';
-import { ProposalStore } from '../project-store/ProposalStore.js';
+import { TaskStore } from '../project-store/TaskStore.js';
 
 /**
  * 底座级任务进度自动广播辅助函数 (Zero-Touch Infrastructure)
@@ -14,7 +14,8 @@ function broadcastTaskProgress(completed: number, total: number): void {
     const taskCtx = getCurrentTaskContext();
     if (taskCtx && total > 0) {
       const percent = Math.min(95, Math.max(5, Math.round((completed / total) * 90) + 5));
-      ProposalStore.getInstance().updateProposalStatus(taskCtx.projectId, taskCtx.proposalId, 'running', {
+      TaskStore.getInstance().patchTask(taskCtx.projectId, taskCtx.taskId, {
+        status: 'running',
         progress: { current: completed, total, percent },
       });
     }

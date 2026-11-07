@@ -10,7 +10,7 @@
 
 import { ProjectStore } from '../../../project-store/ProjectStore.js';
 import { WorkflowStage } from '../../../types/index.js';
-import { SKILL_OF_STAGE } from '../generator/constants.js';
+import { DERIVED_SKILL_OF_STAGE } from '../catalog.js';
 
 export function resolveTargetToSkill(
   projectId: string,
@@ -24,14 +24,14 @@ export function resolveTargetToSkill(
   }
 
   if (!targetEntity || !targetEntity.trim()) {
-    return (currentStage && SKILL_OF_STAGE[currentStage]) || 'story-bible';
+    return (currentStage && DERIVED_SKILL_OF_STAGE[currentStage]) || 'story-bible';
   }
 
   const target = targetEntity.trim().toLowerCase();
   const store = ProjectStore.getInstance();
   const project = store.getProject(projectId);
   if (!project) {
-    return (currentStage && SKILL_OF_STAGE[currentStage]) || 'story-bible';
+    return (currentStage && DERIVED_SKILL_OF_STAGE[currentStage]) || 'story-bible';
   }
 
   const artifacts = project.stageArtifacts || {};
@@ -96,5 +96,5 @@ export function resolveTargetToSkill(
   }
 
   // 3. 最终安全兜底：当前阶段对应的法定工序
-  return (currentStage && SKILL_OF_STAGE[currentStage]) || 'story-bible';
+  return (currentStage && DERIVED_SKILL_OF_STAGE[currentStage]) || 'story-bible';
 }

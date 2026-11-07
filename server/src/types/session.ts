@@ -50,10 +50,14 @@ export interface ChatMessage {
   thought?: string; // 思考流 (Thought Chain / CoT)
   toolCalls?: ToolCallItem[];
   toolCallId?: string;
-  actionProposal?: ActionProposal; // 重型任务操作提案 (前端渲染确认高光卡片)
-  isExecutionTrigger?: boolean; // 显式指示该消息是否由创作者批准/开工指令触发 (开工执行看板模式)
+  /**
+   * 本轮对话对应的任务 ID（唯一引用）。
+   * 铁律：消息不保存任何任务状态快照，状态 / 进度 / 产物一律从 Task 仓库读取。
+   */
+  taskId?: string;
   isError?: boolean; // 显式标明是否为执行异常占位消息
   isAborted?: boolean; // 显式标明是否为创作者主动中断消息
+  timestamp?: string; // 落库时间戳 (历史数据实际使用字段)
   createdAt: string;
 }
 

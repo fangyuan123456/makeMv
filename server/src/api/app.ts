@@ -8,7 +8,7 @@ import { handleCors, sendJson } from './helpers.js';
 import { handleMediaRequest } from './media.js';
 import { handleProjectRoutes } from './routes/projects.js';
 import { handleChatRoute } from './routes/chat.js';
-import { handleProposalRoutes } from './routes/proposals.js';
+import { handleTaskRoutes } from './routes/tasks.js';
 import { handleMastraRoutes } from './routes/mastra.js';
 
 export async function dispatchHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -41,8 +41,8 @@ export async function dispatchHttpRequest(req: IncomingMessage, res: ServerRespo
     return;
   }
 
-  // 6. 提案流转与人在回路审核: /api/proposals/:id/approve, /api/proposals/:id/reject
-  if (await handleProposalRoutes(req, res, pathname)) {
+  // 6. 任务流转与人在回路审核: /api/projects/:id/tasks, /api/tasks/:id/approve|reject|retry
+  if (await handleTaskRoutes(req, res, pathname)) {
     return;
   }
 

@@ -5,6 +5,7 @@
 
 import type { LLMService } from '../../../../../llm/LLMService.js';
 import { KeyframeRenderer } from '../../../../../media/index.js';
+import type { KeyframePromptMeta } from '../../../../../artifacts/keyframe-reference.js';
 import { KEYFRAME_REFERENCE_SYSTEM_PROMPT, buildKeyframeReferencePrompt } from './prompt.js';
 import {
   KeyframeBatchOutputSchema,
@@ -20,11 +21,8 @@ export interface GenerateKeyframePromptsBatchOptions {
   projectId?: string;
 }
 
-export interface KeyframePromptMeta {
-  prompt: string;
-  subjectAppearance?: string;
-  sceneEnvironment?: string;
-}
+/** 提示词元数据属于产物契约，实现已下沉至 artifacts/keyframe-reference.ts */
+export type { KeyframePromptMeta };
 
 export async function generateKeyframePromptsBatch(
   llm: LLMService,

@@ -24,7 +24,7 @@ async function bootstrap() {
   registerPipelineWorkflows();
 
   // 启动期执行孤儿提案自愈扫描 (恢复因崩溃/重启卡在 running 的孤儿条目)
-  Workflow.getInstance().recoverOrphanProposals();
+  Workflow.getInstance().recoverOrphanTasks();
 
   const server = http.createServer(dispatchHttpRequest);
 
@@ -32,7 +32,7 @@ async function bootstrap() {
     console.log(`\n🚀 Mastra 后端服务正在监听: http://localhost:${PORT}`);
     console.log(`📡 提供核心接口:`);
     console.log(`   - POST http://localhost:${PORT}/api/chat (自由对话、SSE流式打字机与双轨记忆落盘)`);
-    console.log(`   - POST http://localhost:${PORT}/api/proposals/:id/approve (安全互斥批准提案)`);
+    console.log(`   - POST http://localhost:${PORT}/api/tasks/:id/approve (安全互斥批准任务)`);
     console.log(`   - POST http://localhost:${PORT}/api/proposals/:id/reject  (驳回提案)`);
     console.log(`   - GET  http://localhost:${PORT}/api/projects/:id/graph (状态图全景拓扑与阶段隔离门禁)`);
     console.log(`   - GET  http://localhost:${PORT}/api/projects (项目列表)`);

@@ -35,6 +35,13 @@ export interface IProjectStateStore {
   getMessages(projectId: string, sessionId: string): ChatMessage[];
   saveMessages(projectId: string, sessionId: string, messages: ChatMessage[]): void;
   appendMessage(projectId: string, sessionId: string, message: ChatMessage): void;
+  /** 向指定任务在会话中的最后一条消息正文追加内容；找不到时回退为新增消息 */
+  appendToLastTaskMessage(
+    projectId: string,
+    sessionId: string,
+    taskId: string,
+    addition: string
+  ): { appended: boolean };
   getScratchpad(projectId: string, sessionId: string): ScratchpadMemory;
   updateScratchpad(projectId: string, sessionId: string, patch: Partial<ScratchpadMemory>): ScratchpadMemory;
 

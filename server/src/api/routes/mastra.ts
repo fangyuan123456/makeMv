@@ -9,7 +9,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'http';
 import { mastra } from '../../mastra.js';
-import { sendJson, readJsonBody } from '../helpers.js';
+import { sendJson } from '../helpers.js';
 
 export async function handleMastraRoutes(
   req: IncomingMessage,
@@ -38,13 +38,22 @@ export async function handleMastraRoutes(
   // 2. 获取已挂载工作流全景拓扑列表: GET /api/workflows
   if (pathname === '/api/workflows' && req.method === 'GET') {
     try {
-      const registeredWorkflows = (mastra as any).workflows || {};
+      // Mastra 的工作流存在容器内部 Map 中，对外只能经 listWorkflows() 读取。
+      // 早期这里写的是 (mastra as any).workflows，该属性在现版本不存在，恒为 {}，
+      // 导致本接口长期返回空列表（前端没有调用方，所以一直没被发现）。
+      const registeredWorkflows = mastra.listWorkflows() || {};
+      // 展示名兜底：description 为空时列表里会出现裸 id，补两条需要人读的
+      const DISPLAY_NAMES: Record<string, string> = {
+        'film-production-pipeline': '全工序流水线宏观状态机',
+        'subwf-modify': '资产定向精修（文本 / 图像 / 视频三分支）',
+      };
+
       const workflowsList = Object.entries(registeredWorkflows).map(([key, wf]: [string, any]) => {
         const stepKeys = wf.steps ? Object.keys(wf.steps) : [];
         const isPipeline = key === 'film-production-pipeline';
         return {
           id: key,
-          name: isPipeline ? '全工序流水线宏观状态机' : wf.description?.split('：')[0] || key,
+          name: DISPLAY_NAMES[key] || wf.description?.split('：')[0] || key,
           description: wf.description || '',
           type: isPipeline ? 'pipeline' : 'subworkflow',
           stepsCount: stepKeys.length,
@@ -90,63 +99,15 @@ export async function handleMastraRoutes(
     }
   }
 
-  // 4. 标准启动工作流/微观子工作流: POST /api/workflows/:id/start
-  if (pathname.startsWith('/api/workflows/') && pathname.endsWith('/start') && req.method === 'POST') {
-    const workflowId = decodeURIComponent(pathname.replace('/api/workflows/', '').replace('/start', ''));
-    try {
-      const wf = mastra.getWorkflow(workflowId as any);
-      if (!wf) {
-        sendJson(res, 404, { success: false, error: `未找到 ID 为 [${workflowId}] 的工作流` });
-        return true;
-      }
-
-      const body = await readJsonBody(req);
-      const run = await wf.createRun();
-      const result = await run.start({ inputData: body.inputData || body });
-
-      sendJson(res, 200, {
-        success: result.status === 'success',
-        runId: run.runId,
-        status: result.status,
-        result: (result as any).result || (result as any).steps,
-      });
-      return true;
-    } catch (err: any) {
-      sendJson(res, 500, { success: false, error: err.message });
-      return true;
-    }
-  }
-
-  // 5. 标准恢复挂起的工作流: POST /api/workflows/:id/resume
-  if (pathname.startsWith('/api/workflows/') && pathname.endsWith('/resume') && req.method === 'POST') {
-    const workflowId = decodeURIComponent(pathname.replace('/api/workflows/', '').replace('/resume', ''));
-    try {
-      const wf = mastra.getWorkflow(workflowId as any);
-      if (!wf) {
-        sendJson(res, 404, { success: false, error: `未找到 ID 为 [${workflowId}] 的工作流` });
-        return true;
-      }
-
-      const body = await readJsonBody(req);
-      const { stepId, resumeData } = body;
-      const run = await wf.createRun();
-      const result = await run.resume({
-        step: stepId,
-        resumeData: resumeData || {},
-      } as any);
-
-      sendJson(res, 200, {
-        success: result.status === 'success',
-        runId: run.runId,
-        status: result.status,
-        result: (result as any).result || (result as any).steps,
-      });
-      return true;
-    } catch (err: any) {
-      sendJson(res, 500, { success: false, error: err.message });
-      return true;
-    }
-  }
+  // 4. 边界声明：本路由只做拓扑自省，不提供任何执行入口
+  //
+  // 这里曾有两个 POST：/:id/start 与 /:id/resume，实现是直接 createRun() + run.start()。
+  // 它们绕过了 createPipelineExecutor —— 也就绕过了 actionType 分流、validateGate 门禁、
+  // onSuccess 的阶段推进与下游清理。后果是「产物已被改写、项目状态机不动、提案与历史不留痕」，
+  // 这种静默不一致比直接报错难排查得多。
+  //
+  // 业务的唯一执行入口是 Workflow.dispatch(key)：一次请求对应一张卡、一次门禁、一次阶段推进。
+  // mastra.workflows 的挂载只服务 Studio 与 GET /api/workflows 的拓扑内省，不承担执行职责。
 
   return false;
 }

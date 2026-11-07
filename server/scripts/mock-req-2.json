@@ -1,0 +1,65 @@
+{
+  "seq": 2,
+  "url": "/v1/chat/completions",
+  "stream": true,
+  "tool_choice": "auto",
+  "tools_count": 1,
+  "messages_count": 4,
+  "last_role": "tool",
+  "full_body": {
+    "model": "mock-model",
+    "messages": [
+      {
+        "role": "system",
+        "content": "你是测试导演。"
+      },
+      {
+        "role": "user",
+        "content": "开始生成故事圣经"
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_1",
+            "type": "function",
+            "function": {
+              "name": "emit_director_intent",
+              "arguments": "{\"action\":\"approve\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_1",
+        "content": "{\"message\":\"意图已记录\",\"success\":true}"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "emit_director_intent",
+          "description": "记录导演意图决策",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        }
+      }
+    ],
+    "tool_choice": "auto",
+    "stream": true
+  }
+}

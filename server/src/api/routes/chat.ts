@@ -11,10 +11,10 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'http';
-import { ProjectStore, ProposalStore } from '../../project-store/index.js';
+import { ProjectStore, TaskStore } from '../../project-store/index.js';
 import { createDirectorAgent, ChatMemoryManager, extractDirectorIntent, type AgentIntentSignal } from '../../agents/director/index.js';
 import { resolveTargetToSkill } from '../../agents/director/modifier/index.js';
-import { WorkflowStage, SessionStatus, STAGE_SEQUENCE, type ActionProposal } from '../../types/index.js';
+import { WorkflowStage, SessionStatus, STAGE_SEQUENCE, type Task } from '../../types/index.js';
 import { Workflow } from '../../workflow-engine/index.js';
 import { STAGE_TRANSITION_MAP, SKILL_OF_STAGE, STAGE_OF_SKILL } from '../../agents/director/generator/constants.js';
 import { readJsonBody, sendJson, sendError } from '../helpers.js';
@@ -27,17 +27,17 @@ import { readJsonBody, sendJson, sendError } from '../helpers.js';
  * ══════════════════════════════════════════════════════════════════════════════ */
 
 /* ══════════════════════════════════════════════════════════════════════════════
- * 模块 A：意图向行动提案解析器 (Intent ➔ ActionProposal SSOT)
+ * 模块 A：意图向任务解析器 (Intent ➔ Task SSOT)
  * 职责：纯业务领域逻辑。接收大模型 Tool Call 意图信号，结合项目黑板状态与门禁，
- *       生成生命周期为 pending 或 running 的合法强类型提案。
+ *       产出唯一状态载体 Task（proposed 待确认 / queued 待执行 / 直接 running）。
  * ══════════════════════════════════════════════════════════════════════════════ */
 
-async function resolveIntentToProposal(
+async function resolveIntentToTask(
   projectId: string,
   sessionId: string,
   intent: AgentIntentSignal,
   userMessage: string
-): Promise<ActionProposal | undefined> {
+): Promise<Task | undefined> {
   const projectStore = ProjectStore.getInstance();
   const project = projectStore.getProject(projectId);
   if (!project) return undefined;
@@ -61,11 +61,11 @@ async function resolveIntentToProposal(
     return undefined;
   }
 
-  // 3. 刚性防重放守卫：若当前已有工序处于 running 执行中，复用该提案，拦截大模型重复发放新推进卡片
-  const proposalStore = ProposalStore.getInstance();
-  const existingRunning = proposalStore.listProposals(projectId, { status: 'running' });
+  // 3. 刚性防重放守卫：若当前已有工序处于 running 执行中，复用该任务，拦截大模型重复发放新任务
+  const taskStore = TaskStore.getInstance();
+  const existingRunning = taskStore.listTasks(projectId, { status: 'running' });
   if (existingRunning.length > 0 && intent.action === 'next') {
-    console.log(`[chat] 检测到当前已有工序 [${existingRunning[0].skill}] 处于 running 执行中，复用该提案，拦截重复派发`);
+    console.log(`[chat] 检测到当前已有工序 [${existingRunning[0].skill}] 处于 running 执行中，复用该任务，拦截重复派发`);
     return existingRunning[0];
   }
 
@@ -108,22 +108,22 @@ async function resolveIntentToProposal(
           userPrompt: userMessage,
           requireConfirmation: true, // 对话中提议推进，100% 生成 pending 待审卡片
         });
-        return dispatchRes.proposal;
+        return dispatchRes.task;
       }
       return undefined;
     }
 
     case 'approve': {
-      // 创作者打字同意/开启：激活启动当前待审提案
-      const currentPendingList = proposalStore.listProposals(projectId, { status: 'pending' });
-      if (currentPendingList.length > 0) {
-        const targetProposal = currentPendingList[currentPendingList.length - 1];
-        console.log(`[Director Intent] AI 识别创作者打字批准意图 -> 启动提案 [${targetProposal.actionId}] (${targetProposal.label})`);
-        const startResult = await engine.startProposal({
+      // 创作者打字同意/开启：激活启动当前待确认任务
+      const currentProposedList = taskStore.listTasks(projectId, { status: 'proposed' });
+      if (currentProposedList.length > 0) {
+        const targetTask = currentProposedList[currentProposedList.length - 1];
+        console.log(`[Director Intent] AI 识别创作者打字批准意图 -> 启动任务 [${targetTask.taskId}] (${targetTask.title})`);
+        const startResult = await engine.startTask({
           projectId,
-          proposalId: targetProposal.actionId,
+          taskId: targetTask.taskId,
         });
-        return startResult.proposal;
+        return startResult.task;
       }
 
       const targetSkill = SKILL_OF_STAGE[currentStage] || 'story-bible';
@@ -136,7 +136,7 @@ async function resolveIntentToProposal(
         userPrompt: userMessage,
         requireConfirmation: false,
       });
-      return dispatchRes.proposal;
+      return dispatchRes.task;
     }
 
     case 'modify': {
@@ -147,6 +147,29 @@ async function resolveIntentToProposal(
         currentStage,
         intent.skill || undefined
       );
+
+      // 刚性兜底：微调的前提是「目标工序已有落盘产物」。全新项目的第一句话极易被
+      // 意图模型误判为 modify（如“确定故事核心为主线为…”），此时修改轨 load 发现
+      // 无任何产物会直接抛错、提案 failed。这里在分流前拦截：产物未就绪时把微调
+      // 意图降级为该工序的生成提案（pending 待审），宁可多一次确认也不空转报错。
+      const targetStageOfSkill = STAGE_OF_SKILL[targetSkill] || currentStage;
+      const targetArtifact = projectStore.getArtifact(projectId, targetStageOfSkill);
+      if (!targetArtifact) {
+        console.warn(
+          `[chat] 拦截空转微调: 工序 [${targetSkill}] 尚无已落盘产物，modify 意图自动降级为生成提案`
+        );
+        const downgradeRes = await engine.dispatch({
+          projectId,
+          sessionId,
+          workflowKey: targetSkill,
+          actionType: 'PROCEED_STAGE',
+          reason: `生成工序 [${targetSkill}]（微调请求因产物未就绪自动转为生成）`,
+          userPrompt: intent.content || userMessage,
+          requireConfirmation: true,
+        });
+        return downgradeRes.task;
+      }
+
       const userInstruction = intent.content || userMessage;
       const dispatchRes = await engine.dispatch({
         projectId,
@@ -160,7 +183,7 @@ async function resolveIntentToProposal(
           userFeedback: userInstruction,
         },
       });
-      return dispatchRes.proposal;
+      return dispatchRes.task;
     }
 
     case 'audit': {
@@ -173,7 +196,7 @@ async function resolveIntentToProposal(
         userPrompt: userMessage,
         requireConfirmation: true,
       });
-      return dispatchRes.proposal;
+      return dispatchRes.task;
     }
 
     case 'rollback': {
@@ -187,7 +210,7 @@ async function resolveIntentToProposal(
         userPrompt: userMessage,
         requireConfirmation: true,
       });
-      return dispatchRes.proposal;
+      return dispatchRes.task;
     }
 
     default:
@@ -208,9 +231,9 @@ interface SsePipelineParams {
   projectId: string;
   sessionId: string;
   cleanUserText: string;
-  initialProposalIds: Set<string>;
-  justApprovedProposal?: ActionProposal;
-  approvedProposalId?: string;
+  initialTaskIds: Set<string>;
+  justApprovedTask?: Task;
+  approvedTaskId?: string;
 }
 
 async function runSseStreamPipeline(params: SsePipelineParams): Promise<void> {
@@ -222,13 +245,13 @@ async function runSseStreamPipeline(params: SsePipelineParams): Promise<void> {
     projectId,
     sessionId,
     cleanUserText,
-    initialProposalIds,
-    justApprovedProposal,
-    approvedProposalId,
+    initialTaskIds,
+    justApprovedTask,
+    approvedTaskId,
   } = params;
 
   const projectStore = ProjectStore.getInstance();
-  const proposalStore = ProposalStore.getInstance();
+  const taskStore = TaskStore.getInstance();
   const memoryManager = ChatMemoryManager.getInstance();
 
   // 1. 初始化 SSE 管道连接与抗缓冲头部
@@ -295,45 +318,44 @@ async function runSseStreamPipeline(params: SsePipelineParams): Promise<void> {
     const detectedIntent = await extractDirectorIntent(streamResult);
     console.log(`[chat] 项目 [${projectId}] 流式结束，意图决策提取结果:`, detectedIntent);
 
-    let newProposal: ActionProposal | undefined;
-    if (detectedIntent) {
-      newProposal = await resolveIntentToProposal(projectId, sessionId, detectedIntent, cleanUserText);
+    // 本轮对应的任务：
+    // - 批准轮：必须归属「刚批准的那个任务」，否则进度/成果会挂到意图模型顺手派发的新任务上；
+    // - 普通轮：归属意图派发新建的任务（或本轮新出现的待审任务）。
+    let roundTask: Task | undefined;
+    if (approvedTaskId) {
+      roundTask = taskStore.getTask(projectId, approvedTaskId) || justApprovedTask;
+    } else if (detectedIntent) {
+      roundTask = await resolveIntentToTask(projectId, sessionId, detectedIntent, cleanUserText);
     } else {
-      const currentPendingList = proposalStore.listProposals(projectId, { status: 'pending' });
-      newProposal = currentPendingList.find((p) => !initialProposalIds.has(p.actionId));
-      if (!newProposal && justApprovedProposal) {
-        newProposal = (approvedProposalId ? proposalStore.getProposal(projectId, approvedProposalId) : undefined) || justApprovedProposal;
-      }
+      roundTask = taskStore
+        .listTasks(projectId, { status: 'proposed' })
+        .find((t) => !initialTaskIds.has(t.taskId));
     }
 
-    if (newProposal && !res.writableEnded) {
-      res.write(`data: ${JSON.stringify({ type: 'proposal', proposal: newProposal })}\n\n`);
+    if (roundTask && !res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ type: 'task', task: roundTask })}\n\n`);
     }
 
-    const isExecutionTrigger = Boolean(approvedProposalId || detectedIntent?.action === 'approve');
-
-    // 6. 触发对话完成事件 (向前端回传 fullText 与 finalProposal)
+    // 6. 触发对话完成事件
     if (!res.writableEnded) {
       res.write(
         `data: ${JSON.stringify({
           type: 'done',
           fullText: fullReply,
-          finalProposal: newProposal,
-          isExecutionTrigger,
+          taskId: roundTask?.taskId,
+          task: roundTask,
         })}\n\n`
       );
     }
 
-    // 7. 持久化记录助手回复
-    const assistantMsg = {
+    // 7. 持久化助手回复：只保存 taskId 引用，状态与产物一律从任务仓库读取
+    projectStore.appendMessage(projectId, sessionId, {
       role: 'assistant',
       content: fullReply.trimStart(),
       thought: fullThought || undefined,
       timestamp: new Date().toISOString(),
-      proposal: newProposal,
-      isExecutionTrigger,
-    };
-    projectStore.appendMessage(projectId, sessionId, assistantMsg as any);
+      taskId: roundTask?.taskId,
+    } as any);
   } catch (streamErr: any) {
     console.error(`[HTTP API] SSE 流式生成异常:`, streamErr);
     if (!res.writableEnded) {
@@ -414,11 +436,13 @@ export async function handleChatRoute(
   }
 
   const projectStore = ProjectStore.getInstance();
-  const proposalStore = ProposalStore.getInstance();
+  const taskStore = TaskStore.getInstance();
 
   try {
     const body = await readJsonBody(req);
-    const { message, projectId, sessionId, approvedProposalId, overrideParameters } = body;
+    const { message, projectId, sessionId, overrideParameters } = body;
+    // approvedTaskId 为现行口径；approvedProposalId 保留兼容旧客户端
+    const approvedTaskId: string | undefined = body.approvedTaskId || body.approvedProposalId;
     const wantsStream = req.headers.accept === 'text/event-stream' || searchParams.get('stream') === 'true';
 
     // 1. 确保项目与会话有效
@@ -426,19 +450,19 @@ export async function handleChatRoute(
 
     console.log(`[HTTP API] 对话干预 -> 项目 [${effectiveProjectId}][会话: ${effectiveSessionId}]: "${message}" (流式: ${wantsStream})`);
 
-    // 2. 若创作者通过卡片按钮推进，原子启动该被批准提案
-    let justApprovedProposal: ActionProposal | undefined;
-    if (approvedProposalId) {
-      console.log(`[HTTP API] 对话驱动批准执行提案 [${approvedProposalId}] -> 项目 [${effectiveProjectId}]`);
+    // 2. 若创作者通过卡片按钮推进，原子启动该被批准任务
+    let justApprovedTask: Task | undefined;
+    if (approvedTaskId) {
+      console.log(`[HTTP API] 对话驱动批准执行任务 [${approvedTaskId}] -> 项目 [${effectiveProjectId}]`);
       try {
-        const startResult = await Workflow.getInstance().startProposal({
+        const startResult = await Workflow.getInstance().startTask({
           projectId: effectiveProjectId,
-          proposalId: approvedProposalId,
+          taskId: approvedTaskId,
           overrideParameters,
         });
-        justApprovedProposal = startResult.proposal;
+        justApprovedTask = startResult.task;
       } catch (err: any) {
-        console.warn(`[HTTP API] 对话驱动启动提案非致命提示:`, err.message);
+        console.warn(`[HTTP API] 对话驱动启动任务非致命提示:`, err.message);
       }
     }
 
@@ -450,9 +474,9 @@ export async function handleChatRoute(
       timestamp: new Date().toISOString(),
     } as any);
 
-    // 4. 记录既有提案快照，用于比对新增
-    const initialProposalIds = new Set(
-      proposalStore.listProposals(effectiveProjectId).map((p) => p.actionId)
+    // 4. 记录既有任务快照，用于比对本轮新增
+    const initialTaskIds = new Set(
+      taskStore.listTasks(effectiveProjectId).map((t) => t.taskId)
     );
 
     // 5. 组装微观工作记忆 Turns（严格保障 user 首发与角色交替）
@@ -480,9 +504,9 @@ export async function handleChatRoute(
         projectId: effectiveProjectId,
         sessionId: effectiveSessionId,
         cleanUserText,
-        initialProposalIds,
-        justApprovedProposal,
-        approvedProposalId,
+        initialTaskIds,
+        justApprovedTask,
+        approvedTaskId,
       });
       return true;
     }
@@ -499,35 +523,36 @@ export async function handleChatRoute(
     // 从原生 Tool Calls 提取意图 (SSOT 纯粹源头提取)
     const detectedIntent = await extractDirectorIntent(response);
 
-    let newProposal: ActionProposal | undefined;
-    if (detectedIntent) {
-      newProposal = await resolveIntentToProposal(
+    let roundTask: Task | undefined;
+    if (approvedTaskId) {
+      roundTask = taskStore.getTask(effectiveProjectId, approvedTaskId) || justApprovedTask;
+    } else if (detectedIntent) {
+      roundTask = await resolveIntentToTask(
         effectiveProjectId,
         effectiveSessionId,
         detectedIntent,
         cleanUserText
       );
     } else {
-      const currentPendingList = proposalStore.listProposals(effectiveProjectId, { status: 'pending' });
-      newProposal = currentPendingList.find((p) => !initialProposalIds.has(p.actionId));
-      if (!newProposal && justApprovedProposal) {
-        newProposal = (approvedProposalId ? proposalStore.getProposal(effectiveProjectId, approvedProposalId) : undefined) || justApprovedProposal;
-      }
+      roundTask = taskStore
+        .listTasks(effectiveProjectId, { status: 'proposed' })
+        .find((t) => !initialTaskIds.has(t.taskId));
     }
 
     let safeReply = (finalReply || '').trim();
-    if (!safeReply && newProposal) {
-      safeReply = `收到您的创作构想！我已为您评估好【${newProposal.label}】实施方案，请查阅下方生成的行动卡片，确认授权后即可开启本阶段制作。`;
+    if (!safeReply && roundTask) {
+      safeReply = `收到您的创作构想！我已为您评估好【${roundTask.title}】实施方案，请查阅下方任务卡片，确认授权后即可开启本阶段制作。`;
     } else if (!safeReply) {
       safeReply = '导演已收到您的指令，正在为您构思推演中...';
     }
 
+    // 消息只存 taskId 引用，不再内嵌任何任务状态快照
     projectStore.appendMessage(effectiveProjectId, effectiveSessionId, {
       role: 'assistant',
       content: safeReply,
       thought: finalThought || undefined,
       timestamp: new Date().toISOString(),
-      proposal: newProposal,
+      taskId: roundTask?.taskId,
     } as any);
 
     sendJson(res, 200, {
@@ -536,7 +561,8 @@ export async function handleChatRoute(
       sessionId: effectiveSessionId,
       reply: safeReply,
       thought: finalThought || undefined,
-      proposal: newProposal,
+      taskId: roundTask?.taskId,
+      task: roundTask,
     });
     return true;
   } catch (err: any) {

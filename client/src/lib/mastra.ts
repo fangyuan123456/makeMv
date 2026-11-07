@@ -4,7 +4,7 @@
  */
 
 import { MastraClient } from '@mastra/client-js';
-import type { ActionProposal } from '../components/studio/studio.types';
+import type { TaskItem } from '../components/studio/studio.types';
 
 export const MASTRA_SERVER_URL = import.meta.env.VITE_MASTRA_SERVER_URL || 'http://localhost:4111';
 
@@ -33,8 +33,8 @@ export interface StreamChatCallbacks {
   onMeta?: (meta: { projectId: string; sessionId?: string }) => void;
   onChunk?: (chunk: string) => void;
   onThought?: (thought: string) => void;
-  onProposal?: (proposal: ActionProposal) => void;
-  onDone?: (info: { fullText?: string; finalProposal?: ActionProposal; isExecutionTrigger?: boolean }) => void;
+  onTask?: (task: TaskItem) => void;
+  onDone?: (info: { fullText?: string; taskId?: string; task?: TaskItem }) => void;
   onComplete?: (fullText: string) => void;
   onError?: (err: any) => void;
 }
@@ -135,37 +135,47 @@ export const mastraStudioApi = {
     if (!res.ok) throw new Error(`删除项目失败: HTTP ${res.status}`);
   },
 
-  // 9. 获取提案列表 (细粒度进度轮询)
-  async getProposals(projectId: string): Promise<ActionProposal[]> {
-    const res = await fetch(`${MASTRA_SERVER_URL}/api/projects/${projectId}/proposals`);
+  // 9. 获取项目任务列表（唯一状态来源：未开始 / 执行中 / 已结束 + 产物链接）
+  async getTasks(projectId: string): Promise<TaskItem[]> {
+    const res = await fetch(`${MASTRA_SERVER_URL}/api/projects/${projectId}/tasks`);
     if (!res.ok) return [];
     const data = await res.json();
-    return data.proposals || [];
+    return data.tasks || [];
   },
 
-  // 10. 批准执行提案 (人在回路仲裁)
-  async approveProposal(
-    proposalId: string,
+  // 10. 批准并启动任务（未开始 → 执行中）
+  async approveTask(
+    taskId: string,
     projectId: string,
     overrideParameters?: Record<string, any>
   ): Promise<any> {
-    const res = await fetch(`${MASTRA_SERVER_URL}/api/proposals/${proposalId}/approve`, {
+    const res = await fetch(`${MASTRA_SERVER_URL}/api/tasks/${taskId}/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId, overrideParameters }),
     });
-    if (!res.ok) throw new Error(`批准提案失败: HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`批准任务失败: HTTP ${res.status}`);
     return await res.json();
   },
 
-  // 11. 驳回提案
-  async rejectProposal(proposalId: string, projectId: string, reason?: string): Promise<any> {
-    const res = await fetch(`${MASTRA_SERVER_URL}/api/proposals/${proposalId}/reject`, {
+  // 11. 取消任务 / 失败重试（复用同一任务实体）
+  async cancelTask(taskId: string, projectId: string, reason?: string): Promise<any> {
+    const res = await fetch(`${MASTRA_SERVER_URL}/api/tasks/${taskId}/reject`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId, reason }),
     });
-    if (!res.ok) throw new Error(`驳回提案失败: HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`取消任务失败: HTTP ${res.status}`);
+    return await res.json();
+  },
+
+  async retryTask(taskId: string, projectId: string, overrideParameters?: Record<string, any>): Promise<any> {
+    const res = await fetch(`${MASTRA_SERVER_URL}/api/tasks/${taskId}/retry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId, overrideParameters }),
+    });
+    if (!res.ok) throw new Error(`重试任务失败: HTTP ${res.status}`);
     return await res.json();
   },
 
@@ -174,7 +184,7 @@ export const mastraStudioApi = {
     projectId: string,
     message: string,
     callbacks: StreamChatCallbacks,
-    options?: { approvedProposalId?: string; overrideParameters?: Record<string, any> }
+    options?: { approvedTaskId?: string; overrideParameters?: Record<string, any> }
   ): Promise<void> {
     const res = await fetch(`${MASTRA_SERVER_URL}/api/chat?stream=true`, {
       method: 'POST',
@@ -182,7 +192,7 @@ export const mastraStudioApi = {
       body: JSON.stringify({
         projectId,
         message,
-        approvedProposalId: options?.approvedProposalId,
+        approvedTaskId: options?.approvedTaskId,
         overrideParameters: options?.overrideParameters,
       }),
     });
@@ -230,14 +240,14 @@ export const mastraStudioApi = {
               accumulatedText += data.content;
               callbacks.onChunk?.(accumulatedText);
             }
-            // 3. 行动提案协议拦截
-            if (data.type === 'proposal' && data.proposal) {
-              callbacks.onProposal?.(data.proposal);
+            // 3. 任务实体推送（状态与产物只走任务，不走消息）
+            if (data.type === 'task' && data.task) {
+              callbacks.onTask?.(data.task);
             }
             // 4. 对话完成事件
             if (data.type === 'done') {
-              if (data.finalProposal) {
-                callbacks.onProposal?.(data.finalProposal);
+              if (data.task) {
+                callbacks.onTask?.(data.task);
               }
               if (data.fullText) {
                 accumulatedText = data.fullText;
@@ -245,8 +255,8 @@ export const mastraStudioApi = {
               }
               callbacks.onDone?.({
                 fullText: data.fullText,
-                finalProposal: data.finalProposal,
-                isExecutionTrigger: data.isExecutionTrigger,
+                taskId: data.taskId,
+                task: data.task,
               });
             }
           } catch {}

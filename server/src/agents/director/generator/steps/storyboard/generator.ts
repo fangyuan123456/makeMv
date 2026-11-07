@@ -4,6 +4,7 @@
  */
 
 import type { LLMService } from '../../../../../llm/LLMService.js';
+import { calculateTotalDurationSec } from '../../../../../artifacts/storyboard.js';
 import { STORYBOARD_SYSTEM_PROMPT, buildStoryboardPrompt } from './prompt.js';
 import {
   StoryboardBatchOutputSchema,
@@ -76,9 +77,8 @@ export async function generateStoryboardBatch(
   return { shots: allShots, totalDurationSec };
 }
 
-export function calculateTotalDurationSec(shots: StoryboardShotItem[]): number {
-  return shots.reduce((acc, shot) => acc + (shot.durationSec || 4), 0);
-}
+/** 时长核算实现已下沉至 artifacts/storyboard.ts（产物契约层），此处保留导出入口兼容既有调用 */
+export { calculateTotalDurationSec };
 
 export async function generateStoryboard(
   llm: LLMService,

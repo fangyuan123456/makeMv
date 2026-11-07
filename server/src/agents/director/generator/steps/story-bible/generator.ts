@@ -114,8 +114,65 @@ export async function generateStoryGraph(
     }
   );
 
+  repairStoryGraphDanglingRefs(graph);
   validateStoryGraph(graph);
   return graph;
+}
+
+/**
+ * 确定性悬空引用自愈 (Dangling Reference Self-Heal)
+ *
+ * LLM 偶发幻觉出不在节点清单里的 id（如生成 node_i7 却只定义了 node_1..node_6）。
+ * 这类错误内容语义完好、只是 id 引用悬空——为此烧掉整轮 3 分钟的生成不值得。
+ * 修复策略（全部确定性，无猜测）：
+ * 1. 分支目标悬空 → 重映射到「当前节点之后下一幕的首个节点」（剧情向后推进的语义），
+ *    已是末幕则兜底到最后一个节点；
+ * 2. 根节点悬空 → 重映射到首个节点；
+ * 3. 全图无终局 → 把最后一个节点标记为终局。
+ * 每处修复都 console.warn 留痕，绝不静默改写。
+ */
+export function repairStoryGraphDanglingRefs(graph: StoryGraphOutput): number {
+  if (!graph || !Array.isArray(graph.nodes) || graph.nodes.length === 0) return 0;
+  let repaired = 0;
+  const nodeIds = new Set<string>(graph.nodes.map((n: any) => n.id).filter(Boolean));
+
+  // 根节点悬空 → 首个节点
+  if (graph.rootNodeId && !nodeIds.has(graph.rootNodeId)) {
+    console.warn(
+      `[StoryGraph] 根节点 [${graph.rootNodeId}] 悬空，自愈重映射到 [${graph.nodes[0].id}]`
+    );
+    graph.rootNodeId = graph.nodes[0].id;
+    repaired++;
+  }
+
+  for (const node of graph.nodes as any[]) {
+    if (!Array.isArray(node.choices)) continue;
+    for (const choice of node.choices) {
+      if (choice.targetNodeId && !nodeIds.has(choice.targetNodeId)) {
+        const currentIdx = graph.nodes.findIndex((m: any) => m.id === node.id);
+        const nextActNode =
+          graph.nodes.find(
+            (m: any, i: number) => i > currentIdx && Number(m.act) > Number(node.act)
+          ) || graph.nodes[graph.nodes.length - 1];
+        console.warn(
+          `[StoryGraph] 节点 [${node.id}] 的分支目标 [${choice.targetNodeId}] 悬空，` +
+            `自愈重映射到 [${nextActNode.id}]（${nextActNode.title || ''}）`
+        );
+        choice.targetNodeId = nextActNode.id;
+        repaired++;
+      }
+    }
+  }
+
+  // 终局缺失 → 标记最后一个节点
+  if (!graph.nodes.some((n: any) => n.isEnding)) {
+    const last = graph.nodes[graph.nodes.length - 1] as any;
+    console.warn(`[StoryGraph] 全图缺少终局节点，自愈将 [${last.id}] 标记为终局 (isEnding: true)`);
+    last.isEnding = true;
+    repaired++;
+  }
+
+  return repaired;
 }
 
 export function validateStoryGraph(graph: StoryGraphOutput | null | undefined): void {
@@ -211,7 +268,8 @@ export async function generateStoryGraphAndPivots(
     throw new Error('网状剧情拓扑推演失败，未产出有效图谱数据');
   }
 
-  // 严格执行图论与连通性刚性校验
+  // 先做悬空引用自愈，再执行图论与连通性刚性校验
+  repairStoryGraphDanglingRefs(result.storyGraph);
   validateStoryGraph(result.storyGraph);
 
   // 刚性契约核验：确保宏观分支抉择点与节点分支真实对应
