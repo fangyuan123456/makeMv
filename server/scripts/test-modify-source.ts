@@ -1,15 +1,18 @@
 /**
  * scripts/test-modify-source.ts
- * 修改源头裁决器回归测试。
+ * 修改源头裁决器回归测试（确定性沙盒，不依赖任何真实项目）
  *
- * 核心不变量：
- * 1. 设定事实（年龄/身份/剧情）永远从文本源头改，即使模型把工序猜成图像轨；
- * 2. 未落盘的媒体工序绝不能被选为修改目标；
- * 3. 源头确定后，下游已落盘阶段必须被算进 cascade（改完源头 → 下游失效重推）；
- * 4. 没有任何文本产物时返回 no-source，由调用方降级为生成提案。
+ * 核心不变量（每一条都对应一次线上事故或一次可预见的误判）：
+ * 1. 源头由「改哪一类属性」决定，不由「改谁」决定：
+ *    同一个张明，年龄在故事圣经、台词在分场剧本、发型在定妆照。
+ * 2. 「显得/看起来」这类观感副词是视觉诉求，不能被年龄词劫持。
+ * 3. 「符合剧情氛围」这类修饰语不是设定事实，不能把画面诉求拽回文本轨。
+ * 4. 目标工序未落盘时按显式上游链降级，绝不跳到角色定妆。
+ * 5. 未落盘的媒体工序永不被选中；无任何文本产物时返回 no-source。
  */
 import { resolveModifySource } from '../src/agents/director/modifier/source-resolver.js';
 import { ProjectStore } from '../src/project-store/ProjectStore.js';
+import { MemoryProjectStateStore } from '../src/project-store/MemoryProjectStateStore.js';
 import { WorkflowStage } from '../src/types/index.js';
 
 let pass = 0;
@@ -24,96 +27,190 @@ function check(name: string, cond: boolean, extra?: any) {
   }
 }
 
-const store = ProjectStore.getInstance();
-const all = store.listProjects();
-const project = all.find((p) => p.projectId === 'proj_1794101350967_b9al');
-const arts = (project?.stageArtifacts || {}) as Record<string, any>;
-const hasBible = Boolean(arts[WorkflowStage.NARRATIVE_DESIGN]);
-const hasPortrait = Boolean(arts[WorkflowStage.CHARACTER_DESIGN]);
+const store = new MemoryProjectStateStore();
+ProjectStore.setInstance(store);
 
-console.log(`样本项目: ${project?.projectId || '未找到'}`);
-console.log(`已落盘: story-bible=${hasBible} character-portrait=${hasPortrait}`);
-if (!project || !hasBible) {
-  console.log('\n⚠️ 真实样本不可用，跳过依赖黑板的断言');
+const PID = 'proj_scratch_modify_source';
+const FULL = 'proj_scratch_full';
+
+function seed(projectId: string, artifacts: Record<string, any>) {
+  const now = new Date().toISOString();
+  store.saveProject({
+    projectId,
+    title: '深海回响',
+    description: '探针工程',
+    status: 'idle',
+    currentStage: WorkflowStage.KEYFRAME_REFERENCE,
+    stageArtifacts: artifacts,
+    createdAt: now,
+    updatedAt: now,
+  } as any);
 }
 
-/* 1. 线上故障复现：「男一太老了吧」 */
-if (project && hasBible) {
-  console.log('\n[1] 线上案例「男一太老了吧」（模型把工序猜成 character-portrait）');
-  const plan = resolveModifySource(project.projectId, {
-    target: '张明',
-    content: '将男主角张明的年龄改为更年轻',
-    currentStage: WorkflowStage.CHARACTER_DESIGN,
-    skillHint: 'character-portrait',
-  });
-  check('裁决到事实源头 story-bible', plan.sourceSkill === 'story-bible', plan.sourceSkill);
-  check('依据是文本源', plan.basis === 'text-source', plan.basis);
-  check('模型 hint 未劫持裁决', plan.sourceSkill !== 'character-portrait');
+const bible = {
+  title: '深海回响',
+  style: '冷调悬疑',
+  characters: [
+    { name: '张明', role: '男主角' },
+    { name: '李娜', role: '女主角' },
+  ],
+  goldenSpine: [{ name: '起因' }, { name: '对抗' }],
+  storyGraph: { rootNodeId: 'node_1', nodes: [{ id: 'node_1', title: '失踪' }] },
+};
+const script = {
+  totalScenes: 2,
+  scenes: [
+    { sceneId: 'scene_1', sceneTitle: '码头', dialogues: [{ speaker: '张明', text: '你好' }] },
+    { sceneId: 'scene_2', sceneTitle: '船舱', dialogues: [{ speaker: '张明', text: '走' }] },
+  ],
+};
+const board = { shots: [{ shotId: 'shot_1', shotScale: '特写', durationSec: 3 }] };
+const portrait = { portraits: [{ characterName: '张明', imagePath: '/tmp/zm.png' }] };
+const keyframe = { frames: [{ shotId: 'shot_1', imagePath: '/tmp/s1.png' }] };
 
-  /* 2. 泛称 target（黑板里没有「男主」这个实体，靠属性关键词兜底） */
-  console.log('\n[2] 泛称「男主太老了」');
-  const plan2 = resolveModifySource(project.projectId, {
-    target: '男主',
-    content: '男主太老了吧',
-    currentStage: WorkflowStage.CHARACTER_DESIGN,
-    skillHint: 'character-portrait',
-  });
-  check('仍归事实源头 story-bible', plan2.sourceSkill === 'story-bible', plan2.sourceSkill);
-  check('依据 text-source', plan2.basis === 'text-source', plan2.basis);
+// 全量工程：文本三件套 + 定妆 + 关键帧都已落盘
+seed(FULL, {
+  [WorkflowStage.NARRATIVE_DESIGN]: bible,
+  [WorkflowStage.SCENE_SCRIPT]: script,
+  [WorkflowStage.STORYBOARD]: board,
+  [WorkflowStage.CHARACTER_DESIGN]: portrait,
+  [WorkflowStage.KEYFRAME_REFERENCE]: keyframe,
+});
 
-  /* 3. cascade：源头之后已落盘的阶段 */
-  console.log('\n[3] 下游失效范围');
-  check(
-    'cascade 包含已落盘的角色定妆',
-    plan.cascadeStages.includes(WorkflowStage.CHARACTER_DESIGN) === hasPortrait,
-    plan.cascadeStages
-  );
-  check(
-    'cascade 按阶段位序排列',
-    plan.cascadeStages.every(
-      (s, i) =>
-        i === 0 ||
-        ['narrative_design', 'character_design', 'scene_script', 'storyboard', 'keyframe_reference', 'video_production', 'fmv_packaging'].indexOf(s) >
-          ['narrative_design', 'character_design', 'scene_script', 'storyboard', 'keyframe_reference', 'video_production', 'fmv_packaging'].indexOf(plan.cascadeStages[i - 1])
-    ),
-    plan.cascadeStages
-  );
-
-  /* 4. 纯视觉样式 + 已落盘媒体 → 允许走媒体轨 */
-  if (hasPortrait) {
-    console.log('\n[4] 纯视觉样式（无实体名，明确指向定妆）');
-    const plan3 = resolveModifySource(project.projectId, {
-      target: '',
-      content: '定妆照的配色换成冷蓝调，发型再利落一些',
-      currentStage: WorkflowStage.CHARACTER_DESIGN,
-      skillHint: 'character-portrait',
+/* ── 1. 属性定位：同一个实体，属性不同，源头不同 ── */
+console.log('\n[1] 同一实体「张明」，四类属性四种源头');
+{
+  const cases: Array<[string, string, string, string]> = [
+    ['张明的年龄改成 25 岁', 'story-bible', 'setting', '设定事实 → 故事圣经'],
+    ['把张明在第二场的台词改得凶狠一点', 'scene-script', 'dialogue', '台词 → 分场剧本'],
+    ['这个镜头构图再紧一点', 'storyboard', 'shot', '镜头语言 → 视听分镜'],
+    ['定妆照的发型换成银色寸头', 'character-portrait', 'visual', '人物外观 + 资产已落盘 → 定妆'],
+  ];
+  for (const [content, expect, attr, label] of cases) {
+    const p = resolveModifySource(FULL, {
+      target: content.includes('镜头') ? 'shot_1' : '张明',
+      content,
+      currentStage: WorkflowStage.KEYFRAME_REFERENCE,
     });
-    check('走媒体轨 character-portrait', plan3.sourceSkill === 'character-portrait', plan3.sourceSkill);
-    check('依据 media-asset', plan3.basis === 'media-asset', plan3.basis);
+    check(`${label}（${expect}）`, p.sourceSkill === expect, `${p.sourceSkill} / ${p.attribute}`);
+    check(`  属性标记正确`, p.attribute === attr, p.attribute);
   }
+}
 
-  /* 5. 未落盘媒体不得被选中 */
-  console.log('\n[5] 未落盘的媒体工序不得被选中');
-  const plan4 = resolveModifySource(project.projectId, {
+/* ── 2. 观感副词不得被年龄词劫持 ── */
+console.log('\n[2] 「显得年轻」是视觉诉求');
+{
+  const p = resolveModifySource(FULL, {
+    target: '张明',
+    content: '这张定妆图让他显得年轻一点，光影柔和些',
+    currentStage: WorkflowStage.CHARACTER_DESIGN,
+    skillHint: 'character-portrait',
+  });
+  check('不被「年轻」劫持到故事圣经', p.sourceSkill === 'character-portrait', p.sourceSkill);
+  check('依据 media-asset', p.basis === 'media-asset', p.basis);
+}
+
+/* ── 3. 修饰语「符合剧情氛围」不是设定事实 ── */
+console.log('\n[3] 画面诉求里的「剧情」只是修饰语');
+{
+  const p = resolveModifySource(FULL, {
+    target: '',
+    content: '这张关键帧的光影调暗一点，符合剧情氛围',
+    currentStage: WorkflowStage.KEYFRAME_REFERENCE,
+  });
+  check('走关键帧媒体轨', p.sourceSkill === 'keyframe-reference', p.sourceSkill);
+}
+
+/* ── 4. 场景锚点属于剧本，不是设定 ── */
+console.log('\n[4] 「第 3 场的背景改成雨夜」');
+{
+  const p = resolveModifySource(FULL, {
+    target: '第3场',
+    content: '把第3场的背景改成雨夜',
+    currentStage: WorkflowStage.SCENE_SCRIPT,
+  });
+  check('场景描述 → 分场剧本', p.sourceSkill === 'scene-script', p.sourceSkill);
+}
+
+/* ── 5. 剧情走向仍是设定事实 ── */
+console.log('\n[5] 「把结局改成大团圆」');
+{
+  const p = resolveModifySource(FULL, {
+    target: '',
+    content: '把结局改成大团圆',
+    currentStage: WorkflowStage.VIDEO_PRODUCTION,
+  });
+  check('结局 → 故事圣经', p.sourceSkill === 'story-bible', p.sourceSkill);
+  check('cascade 含全部已落盘下游', p.cascadeStages.length === 4, p.cascadeStages);
+  check(
+    'cascade 按阶段位序升序',
+    p.cascadeStages.every((s, i) => i === 0 || ['narrative_design', 'character_design', 'scene_script', 'storyboard', 'keyframe_reference', 'video_production', 'fmv_packaging'].indexOf(s) > ['narrative_design', 'character_design', 'scene_script', 'storyboard', 'keyframe_reference', 'video_production', 'fmv_packaging'].indexOf(p.cascadeStages[i - 1])),
+    p.cascadeStages
+  );
+}
+
+/* ── 6. 降级链：目标未落盘时只能改上游文本 ── */
+console.log('\n[6] 剧本未落盘时改台词 → 降级到故事圣经，不得跳去定妆');
+{
+  seed(PID, {
+    [WorkflowStage.NARRATIVE_DESIGN]: bible,
+    [WorkflowStage.CHARACTER_DESIGN]: portrait,
+  });
+  const p = resolveModifySource(PID, {
+    target: '张明',
+    content: '把张明在第二场的台词改得凶狠一点',
+    currentStage: WorkflowStage.CHARACTER_DESIGN,
+  });
+  check('降级到 story-bible', p.sourceSkill === 'story-bible', p.sourceSkill);
+  check('不降级到 character-portrait', p.sourceSkill !== 'character-portrait', p.sourceSkill);
+  check('原因里说明了降级', p.reason.includes('上游'), p.reason);
+}
+
+/* ── 7. 未落盘的媒体工序永不被选中 ── */
+console.log('\n[7] 视频未落盘时不得选中 video-production');
+{
+  const p = resolveModifySource(FULL, {
     target: '',
     content: '这段视频节奏太慢了，重新剪一下',
-    currentStage: WorkflowStage.CHARACTER_DESIGN,
+    currentStage: WorkflowStage.KEYFRAME_REFERENCE,
     skillHint: 'video-production',
   });
-  check('video-production 未落盘 → 不选它', plan4.sourceSkill !== 'video-production', plan4.sourceSkill);
+  check('不选 video-production', p.sourceSkill !== 'video-production', p.sourceSkill);
 }
 
-/* 6. 无任何产物 → no-source */
-console.log('\n[6] 空项目');
+/* ── 8. 媒体资产未生成时，画面描述回落到上游文本 ── */
+console.log('\n[8] 定妆未生成时改人物外观 → 回故事圣经');
 {
-  const plan = resolveModifySource('proj_not_exists_for_test', {
+  seed(PID, { [WorkflowStage.NARRATIVE_DESIGN]: bible, [WorkflowStage.STORYBOARD]: board });
+  const p = resolveModifySource(PID, {
+    target: '张明',
+    content: '男一的形象换一下，换成短发',
+    currentStage: WorkflowStage.STORYBOARD,
+  });
+  check('回 story-bible 改角色外观描述', p.sourceSkill === 'story-bible', p.sourceSkill);
+}
+
+/* ── 9. 无任何产物 → no-source ── */
+console.log('\n[9] 空项目');
+{
+  const p = resolveModifySource('proj_not_exists_for_test', {
     target: '张明',
     content: '把他改年轻一点',
     currentStage: WorkflowStage.NARRATIVE_DESIGN,
-    skillHint: undefined,
   });
-  check('返回 no-source', plan.basis === 'no-source', plan.basis);
-  check('不产生 cascade', plan.cascadeStages.length === 0, plan.cascadeStages);
+  check('返回 no-source', p.basis === 'no-source', p.basis);
+  check('不产生 cascade', p.cascadeStages.length === 0, p.cascadeStages);
+}
+
+/* ── 10. WHO 兜底：属性说不清时按实体所在产物定位 ── */
+console.log('\n[10] 属性不明时的实体定位');
+{
+  const p = resolveModifySource(FULL, {
+    target: 'scene_2',
+    content: '第二段再改改',
+    currentStage: WorkflowStage.SCENE_SCRIPT,
+  });
+  check('定位到分场剧本', p.sourceSkill === 'scene-script', `${p.sourceSkill} / ${p.basis}`);
 }
 
 console.log(`\n总计 ${pass} 通过 / ${fail} 失败`);

@@ -2,30 +2,39 @@
  * agents/director/modifier/source-resolver.ts
  * 修改源头裁决器 (Modify Source Resolver SSOT)
  *
- * ── 为什么需要它 ──
- * 修改请求进来时只有一个真问题：「这个事实最早由哪份产物定义？」
- * 定义了它的那份产物就是源头，改源头、下游自然失效重推。
+ * ── 问题定义 ──
+ * 一条修改请求里有两个互相独立的变量：
+ *   WHO  —— 改谁（张明 / 第 3 场 / shot_1 / 这张定妆图）
+ *   WHAT —— 改它的哪一类属性（年龄？台词？运镜？发型？画面？）
  *
- * 旧实现把这个问题拆散在三处各猜一遍（意图 prompt 的工序表、entity-resolver 的
- * 阶段启发式、chat.ts 的降级 if），任一处猜错就靠下一层兜底打补丁，典型症状：
- * 「男一太老了吧」被判成角色定妆（图像轨）→ 图像轨只能重画图、改不了年龄设定
- * → 重画出来的角色依旧偏老，而 UI 话术宣称「已调整年龄」。
+ * 源头由 WHAT 决定，不由 WHO 决定：同一个「张明」，年龄写在故事圣经、台词写在
+ * 分场剧本、发型写在定妆照。若把 WHO 当源头判据（旧版「实体最早出现的产物」），
+ * 「改台词」「改发型」「调光影」会被一律拽回故事圣经——改完台词没变、图没换，
+ * 而 UI 却宣称已调整。这正是 8 个真实场景里 5 个判错的根因。
  *
- * ── 裁决原则（自顶向下，短路返回）──
- * 1. 事实源头优先：实体能在文本产物里定位到 → 交给文本轨。文本轨一次可同步
- *    故事圣经 / 剧本 / 分镜三份产物，且成功后引擎会自动失效其下游媒体资产，
- *    「改源头 + 下游重推」一次闭环。
- * 2. 图像/视频永远不是事实源：媒体轨只负责「这张图/这段片子本身的样式」，
- *    任何涉及年龄、身份、性格、剧情的诉求都不能从媒体轨改起。
- * 3. 判不出来时默认走文本源（宁可上游改宽一点，也不要把事实改动丢在图像轨）。
- * 4. 文本源都没有产物（项目刚建）→ no-source，由调用方降级为生成提案。
+ * ── 裁决顺序（短路返回）──
+ * 1. 视觉观感副词（显得 / 看起来 / 看上去）→ 视觉轨：谈的是画面观感，不是设定数值
+ * 2. 设定事实（年龄/性别/身份/性格/人物关系/剧情走向/结局）→ story-bible
+ * 3. 台词与场次内容（台词/对白/语气/第 N 场）→ scene-script
+ * 4. 镜头语言（景别/运镜/构图/时长/shot_x）→ storyboard
+ * 5. 视觉样式（服装/发型/妆容/配色/光影）→ 媒体轨
+ * 6. 媒体对象直指（定妆照/关键帧/这段视频）+ 该资产已落盘 → 对应媒体工序
+ * 7. 以上都没命中 → 用 WHO 在黑板的文本产物里定位条目
+ * 8. 仍判不出 → 当前阶段主责工序（绝不是「最早的文本源」）
+ * 9. 无任何文本产物 → no-source，由调用方降级为生成提案
+ *
+ * 目标工序未落盘时按显式上游链降级（台词还没写出来只能先改设定，镜头没拆只能
+ * 先改台词）。任何情况下都不会把设定事实丢给只能改画面的媒体轨。
  */
 
 import { WorkflowStage, STAGE_SEQUENCE } from '../../../types/index.js';
 import { ProjectStore } from '../../../project-store/ProjectStore.js';
-import { SKILL_OF_STAGE, STAGE_OF_SKILL } from '../generator/constants.js';
+import { SKILL_OF_STAGE } from '../generator/constants.js';
 
 export type ModifySourceBasis = 'text-source' | 'media-asset' | 'no-source';
+
+/** 诉求触及的属性类别，用于日志复盘与测试断言 */
+export type ModifyAttribute = 'setting' | 'dialogue' | 'shot' | 'visual' | 'media' | 'unknown';
 
 export interface ModifyPlan {
   /** 事实源头工序（text 轨三份产物共用同一个修改器实例） */
@@ -34,7 +43,13 @@ export interface ModifyPlan {
   sourceStage: WorkflowStage;
   /** 判定依据，便于日志与线上复盘 */
   basis: ModifySourceBasis;
-  /** 源头之后已落盘、修改成功后将失效并需重推的下游阶段 */
+  /** 判定的属性类别 */
+  attribute: ModifyAttribute;
+  /**
+   * 源头之后已落盘、修改成功后将过期需重推的下游阶段。
+   * 仅用于事前日志预估——真实清退以修改轨上报的 changedStages 为准
+   * （一次文本修改可能横跨三份产物，按单一源头推会删掉刚写好的东西）。
+   */
   cascadeStages: WorkflowStage[];
   /** 人类可读的判定说明 */
   reason: string;
@@ -51,27 +66,159 @@ export interface ModifySourceInput {
   skillHint?: string;
 }
 
-/* ─── 文本产物 = 事实定义处（按事实演进顺序：故事圣经 → 剧本 → 分镜） ─── */
+/* ─── 属性词表：决定 WHAT，从而决定源头 ─── */
 
-interface TextSource {
+/** 视觉观感副词：命中说明创作者在谈画面观感，不是设定数值 */
+const LOOK_WORDS = ['显得', '看起来', '看上去', '看着', '视觉上', '观感', '太老', '太年轻', '显老', '显年轻'];
+
+/** 设定事实：全剧唯一，只写在故事圣经 */
+const SETTING_WORDS = [
+  '年龄', '岁数', '多少岁', '年纪', '性别', '姓名', '名字', '身份', '职业',
+  '人设', '性格', '脾气', '动机', '背景故事', '身世', '世界观', '主线',
+  '剧情走向', '结局', '分支', '人物关系', '改成反派', '改成主角', '改成配角',
+];
+
+/** 台词与场次内容：写在分场剧本 */
+const DIALOGUE_WORDS = [
+  '台词', '对白', '说话', '语气', '口吻', '独白', '旁白', '场次内容',
+  '场面调度', '走位', '场景描述', '这场戏', '那场戏',
+];
+const DIALOGUE_ANCHORS = [
+  /第[一二三四五六七八九十百零两\d]+场/,
+  /scene[_-]?\d+/,
+  /这场/,
+  /那场/,
+];
+
+/** 镜头语言：写在视听分镜 */
+const SHOT_WORDS = [
+  '景别', '运镜', '构图', '机位', '角度', '时长', '切分', '转场',
+  '特写', '近景', '中景', '远景', '全景', '推镜', '拉镜', '摇镜', '跟拍', '拆分镜',
+];
+const SHOT_ANCHORS = [/shot[_-]?\d+/, /第[一二三四五六七八九十百零两\d]+镜/, /这个镜头/, /那个镜头/];
+
+/** 视觉样式：媒体轨的合法入口（不改变任何设定事实） */
+const STYLE_WORDS = [
+  '服装', '衣服', '外套', '造型', '形象', '发型', '头发', '短发', '长发', '寸头', '辫子',
+  '妆容', '化妆', '配色', '色调', '颜色', '光影', '打光', '质感', '材质', '画风', '风格',
+  '背景色', '更亮', '更暗', '更冷', '更暖', '更精致', '更粗糙',
+];
+
+/** 媒体对象：直接指名某张图 / 某段片子 */
+const MEDIA_OBJECTS: Array<{ skill: string; words: string[] }> = [
+  { skill: 'character-portrait', words: ['定妆', '定妆照', '形象照', '角色图', '人物图', '人像'] },
+  { skill: 'keyframe-reference', words: ['关键帧', '参考图', '概念图', '画面稿', '分镜图', '首帧'] },
+  { skill: 'video-production', words: ['视频', '成片', '片子', '片段', '短片', '镜头语言'] },
+];
+
+/** 视觉样式细分：诉求讲的是「人物外观」还是「画面观感」，决定落到哪个媒体工序 */
+const VISUAL_SUBJECT: Array<{ skill: string; words: string[] }> = [
+  {
+    skill: 'character-portrait',
+    words: ['形象', '长相', '五官', '脸', '服装', '衣服', '外套', '造型', '发型', '头发', '短发', '长发', '寸头', '辫子', '妆容', '化妆'],
+  },
+  {
+    skill: 'keyframe-reference',
+    words: ['光影', '打光', '构图', '色调', '配色', '颜色', '质感', '材质', '画风', '风格', '背景色', '更亮', '更暗', '更冷', '更暖'],
+  },
+  {
+    skill: 'video-production',
+    words: ['运镜节奏', '剪辑', '转场', '节奏', '镜头语言'],
+  },
+];
+
+/** 媒体动作：重出图 / 重渲染，本身不携带属性信息 */
+const MEDIA_VERBS = ['重画', '重绘', '重新出图', '重新生成图', '重渲染', '换一张', '再出一版', '重新出片', '重拍'];
+
+const MEDIA_STAGE: Record<string, WorkflowStage> = {
+  'character-portrait': WorkflowStage.CHARACTER_DESIGN,
+  'keyframe-reference': WorkflowStage.KEYFRAME_REFERENCE,
+  'video-production': WorkflowStage.VIDEO_PRODUCTION,
+};
+
+/**
+ * 目标工序未落盘时的显式上游降级链。
+ * 刻意不用「沿 STAGE_SEQUENCE 往前找」——CHARACTER_DESIGN 排在 SCENE_SCRIPT 之前，
+ * 线性回退会让「改台词」在剧本未落盘时误降级到角色定妆。
+ */
+const UPSTREAM_CHAIN: Record<string, WorkflowStage[]> = {
+  'scene-script': [WorkflowStage.NARRATIVE_DESIGN],
+  storyboard: [WorkflowStage.SCENE_SCRIPT, WorkflowStage.NARRATIVE_DESIGN],
+  'character-portrait': [WorkflowStage.NARRATIVE_DESIGN],
+  'keyframe-reference': [WorkflowStage.STORYBOARD, WorkflowStage.SCENE_SCRIPT, WorkflowStage.NARRATIVE_DESIGN],
+  'video-production': [WorkflowStage.STORYBOARD, WorkflowStage.SCENE_SCRIPT, WorkflowStage.NARRATIVE_DESIGN],
+};
+
+/* ─── 工具 ─── */
+
+function containsAny(haystack: string, needles: string[]): string | undefined {
+  return needles.find((n) => haystack.includes(n));
+}
+
+function matchAny(haystack: string, patterns: RegExp[]): string | undefined {
+  return patterns.find((p) => p.test(haystack))?.source;
+}
+
+/** 实体名匹配：单字目标不参与包含匹配，避免「K」匹配到「麦克」这类泛化误命中 */
+function looseEq(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.length < 2 || b.length < 2) return false;
+  return a.includes(b) || b.includes(a);
+}
+
+function computeCascade(artifacts: Record<string, any>, sourceStage: WorkflowStage): WorkflowStage[] {
+  const from = STAGE_SEQUENCE.indexOf(sourceStage);
+  if (from < 0) return [];
+  return STAGE_SEQUENCE.slice(from + 1).filter((stage) => Boolean(artifacts[stage]));
+}
+
+/* ─── 属性判定 ─── */
+
+interface AttributeVerdict {
+  attribute: ModifyAttribute;
+  hit?: string;
+}
+
+function detectAttribute(content: string): AttributeVerdict {
+  const c = content.toLowerCase();
+
+  const setting = containsAny(c, SETTING_WORDS);
+  const look = containsAny(c, LOOK_WORDS);
+  // 「让他显得年轻」谈的是观感；只有出现明确改写动词或数值时才认作设定改写
+  if (setting && look && !/改成|改为|设为|调成|变成|变回|\d/.test(c)) {
+    return { attribute: 'visual', hit: `${look}（观感）+ ${setting}` };
+  }
+  if (setting) return { attribute: 'setting', hit: setting };
+
+  const dialogue = containsAny(c, DIALOGUE_WORDS) || matchAny(c, DIALOGUE_ANCHORS);
+  if (dialogue) return { attribute: 'dialogue', hit: dialogue };
+
+  const shot = containsAny(c, SHOT_WORDS) || matchAny(c, SHOT_ANCHORS);
+  if (shot) return { attribute: 'shot', hit: shot };
+
+  const style = containsAny(c, STYLE_WORDS);
+  if (style) return { attribute: 'visual', hit: style };
+
+  const mediaVerb = containsAny(c, MEDIA_VERBS);
+  if (mediaVerb) return { attribute: 'media', hit: mediaVerb };
+
+  return { attribute: 'unknown' };
+}
+
+/* ─── WHO 定位：仅在第 7 步兜底时使用 ─── */
+
+const WHO_SOURCES: Array<{
   skill: string;
   stage: WorkflowStage;
   matches: (artifact: any, target: string) => boolean;
-}
-
-function looseEq(a: string, b: string): boolean {
-  if (!a || !b) return false;
-  return a === b || a.includes(b) || b.includes(a);
-}
-
-const TEXT_SOURCES: TextSource[] = [
+}> = [
   {
     skill: 'story-bible',
     stage: WorkflowStage.NARRATIVE_DESIGN,
-    // 角色（姓名/身份）、幕结构、剧情节点标题 —— 全剧设定的事实定义处
     matches: (art, t) => {
       const chars: any[] = Array.isArray(art?.characters) ? art.characters : [];
-      if (chars.some((c) => looseEq(String(c?.name || '').toLowerCase(), t) || looseEq(String(c?.role || '').toLowerCase(), t))) {
+      if (chars.some((x) => looseEq(String(x?.name || '').toLowerCase(), t) || looseEq(String(x?.role || '').toLowerCase(), t))) {
         return true;
       }
       const acts: any[] = Array.isArray(art?.goldenSpine) ? art.goldenSpine : [];
@@ -86,7 +233,7 @@ const TEXT_SOURCES: TextSource[] = [
     matches: (art, t) => {
       const scenes: any[] = Array.isArray(art?.scenes) ? art.scenes : [];
       return scenes.some(
-        (s) => looseEq(String(s?.sceneId || '').toLowerCase(), t) || looseEq(String(s?.title || '').toLowerCase(), t)
+        (s) => looseEq(String(s?.sceneId || '').toLowerCase(), t) || looseEq(String(s?.sceneTitle || s?.title || '').toLowerCase(), t)
       );
     },
   },
@@ -100,58 +247,17 @@ const TEXT_SOURCES: TextSource[] = [
   },
 ];
 
-/* ─── 关键词兜底（仅在黑板实体定位失败时使用） ─── */
-
-/** 设定事实诉求：命中即必须从文本源改，禁止落到媒体轨 */
-const FACT_HINTS = [
-  '年龄', '岁数', '太老', '太年轻', '更年轻', '年纪', '性别', '姓名', '名字', '身份', '职业',
-  '性格', '动机', '人设', '关系', '背景故事', '前世', '剧情', '情节', '结局', '分支', '世界观', '设定',
-];
-
-/** 纯视觉样式诉求：媒体轨的合法入口 */
-const STYLE_HINTS = [
-  '配色', '色调', '颜色', '服装', '衣服', '外套', '发型', '妆容', '化妆', '背景', '构图',
-  '光影', '质感', '材质', '风格', '重画', '重绘', '重新出图', '换一张', '更亮', '更暗', '更冷', '更暖',
-];
-
-/** 明确指向媒体资产的词 → 对应工序 */
-const MEDIA_KEYWORDS: Array<{ skill: string; words: string[] }> = [
-  { skill: 'video-production', words: ['视频', '成片', '片子', '片段', '运镜节奏', '镜头语言'] },
-  { skill: 'keyframe-reference', words: ['关键帧', '参考图', '概念图', '画面稿'] },
-  { skill: 'character-portrait', words: ['定妆', '定妆照', '形象照', '角色图', '人像'] },
-];
-
-const MEDIA_STAGE: Record<string, WorkflowStage> = {
-  'character-portrait': WorkflowStage.CHARACTER_DESIGN,
-  'keyframe-reference': WorkflowStage.KEYFRAME_REFERENCE,
-  'video-production': WorkflowStage.VIDEO_PRODUCTION,
-};
-
-function containsAny(haystack: string, needles: string[]): boolean {
-  return needles.some((n) => haystack.includes(n));
-}
-
-/** 源头之后的已落盘阶段：这些资产在源头变更后必然过期，需要按序重推 */
-function computeCascade(artifacts: Record<string, any>, sourceStage: WorkflowStage): WorkflowStage[] {
-  const from = STAGE_SEQUENCE.indexOf(sourceStage);
-  if (from < 0) return [];
-  return STAGE_SEQUENCE.slice(from + 1).filter((stage) => Boolean(artifacts[stage]));
-}
-
-function buildPlan(
+/** 上游链降级：目标工序未落盘时返回最近的有产物的上游 */
+function degradeToReady(
   artifacts: Record<string, any>,
-  sourceSkill: string,
-  sourceStage: WorkflowStage,
-  basis: ModifySourceBasis,
-  reason: string
-): ModifyPlan {
-  return {
-    sourceSkill,
-    sourceStage,
-    basis,
-    cascadeStages: basis === 'no-source' ? [] : computeCascade(artifacts, sourceStage),
-    reason,
-  };
+  targetSkill: string
+): { skill: string; stage: WorkflowStage } | undefined {
+  for (const stage of UPSTREAM_CHAIN[targetSkill] || []) {
+    if (artifacts[stage]) {
+      return { skill: SKILL_OF_STAGE[stage] || 'story-bible', stage };
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -160,83 +266,155 @@ function buildPlan(
 export function resolveModifySource(projectId: string, input: ModifySourceInput): ModifyPlan {
   const project = ProjectStore.getInstance().getProject(projectId);
   const artifacts: Record<string, any> = project?.stageArtifacts || {};
-  const target = (input.target || '').trim().toLowerCase();
   const content = (input.content || '').trim().toLowerCase();
+  const target = (input.target || '').trim().toLowerCase();
 
-  // 1. 事实源头定位：按事实演进顺序扫描文本产物，最早定义该实体的那份即源头
+  const plan = (
+    skill: string,
+    stage: WorkflowStage,
+    basis: ModifySourceBasis,
+    attribute: ModifyAttribute,
+    reason: string
+  ): ModifyPlan => ({
+    sourceSkill: skill,
+    sourceStage: stage,
+    basis,
+    attribute,
+    cascadeStages: basis === 'no-source' ? [] : computeCascade(artifacts, stage),
+    reason,
+  });
+
+  /** 目标工序没产物时降级到上游；连上游都没有则交回调用方 */
+  const settle = (
+    skill: string,
+    stage: WorkflowStage,
+    basis: ModifySourceBasis,
+    attribute: ModifyAttribute,
+    reason: string
+  ): ModifyPlan | undefined => {
+    if (artifacts[stage]) return plan(skill, stage, basis, attribute, reason);
+    const up = degradeToReady(artifacts, skill);
+    if (!up) return undefined;
+    return plan(
+      up.skill,
+      up.stage,
+      'text-source',
+      attribute,
+      `${reason}；但 ${skill} 尚无产物，先改上游 ${up.skill}`
+    );
+  };
+
+  // 1-5. 按属性类别定位源头（属性优先于实体）
+  const verdict = detectAttribute(content);
+  if (verdict.attribute === 'setting') {
+    return (
+      settle('story-bible', WorkflowStage.NARRATIVE_DESIGN, 'text-source', 'setting',
+        `诉求属设定事实（${verdict.hit}），必须从设定源头故事圣经改起`) ?? noSource(input, artifacts)
+    );
+  }
+  if (verdict.attribute === 'dialogue') {
+    return (
+      settle('scene-script', WorkflowStage.SCENE_SCRIPT, 'text-source', 'dialogue',
+        `诉求落在台词与场次内容（${verdict.hit}），源头是分场剧本`) ?? noSource(input, artifacts)
+    );
+  }
+  if (verdict.attribute === 'shot') {
+    return (
+      settle('storyboard', WorkflowStage.STORYBOARD, 'text-source', 'shot',
+        `诉求落在镜头语言（${verdict.hit}），源头是视听分镜`) ?? noSource(input, artifacts)
+    );
+  }
+  if (verdict.attribute === 'visual' || verdict.attribute === 'media') {
+    const picked = pickMediaSkill(input.skillHint, content, artifacts);
+    if (picked) {
+      return plan(
+        picked,
+        MEDIA_STAGE[picked],
+        'media-asset',
+        verdict.attribute,
+        `诉求属画面表现（${verdict.hit}）且 ${picked} 已有落盘资产，走媒体轨`
+      );
+    }
+    // 媒体资产还没生成：画面描述此时只存在于文本产物里，按诉求对象改最近的文本源
+    // （人物外观最早写在角色设定里；画面观感最早写在分镜的画面描述里）
+    const mediaHint = VISUAL_SUBJECT.find((e) => containsAny(content, e.words))?.skill;
+    const textCandidates =
+      mediaHint === 'character-portrait'
+        ? [WorkflowStage.NARRATIVE_DESIGN]
+        : [WorkflowStage.STORYBOARD, WorkflowStage.SCENE_SCRIPT, WorkflowStage.NARRATIVE_DESIGN];
+    const textStage = textCandidates.find((s) => artifacts[s]);
+    if (textStage) {
+      return plan(
+        SKILL_OF_STAGE[textStage] || 'story-bible',
+        textStage,
+        'text-source',
+        verdict.attribute,
+        `诉求属画面表现（${verdict.hit}），但相关媒体资产尚未生成，改记录该描述的上游文本`
+      );
+    }
+  }
+
+  // 6. 媒体对象直指 + 已落盘（无属性词时也能精确命中）
+  const mediaByObject = pickMediaSkill(input.skillHint, content, artifacts);
+  if (mediaByObject && containsAny(content, MEDIA_OBJECTS.flatMap((m) => m.words))) {
+    return plan(
+      mediaByObject,
+      MEDIA_STAGE[mediaByObject],
+      'media-asset',
+      'media',
+      `诉求直指媒体资产（${mediaByObject}），且该资产已落盘`
+    );
+  }
+
+  // 7. WHO 定位：属性说不清时，用实体在文本产物里的条目位置判源头
   if (target) {
-    for (const src of TEXT_SOURCES) {
-      const art = artifacts[src.stage];
-      if (!art) continue;
-      if (src.matches(art, target)) {
-        return buildPlan(
-          artifacts,
+    for (const src of WHO_SOURCES) {
+      if (artifacts[src.stage] && src.matches(artifacts[src.stage], target)) {
+        return plan(
           src.skill,
           src.stage,
           'text-source',
-          `实体「${input.target}」由 ${src.skill} 定义，改动从事实源头起`
+          'unknown',
+          `未能识别属性类别，按实体「${input.target}」所在的文本产物定位到 ${src.skill}`
         );
       }
     }
   }
 
-  // 2. 诉求属设定事实 → 故事圣经（全剧设定源）。图像/视频永远不是事实源
-  if (containsAny(content, FACT_HINTS)) {
-    const bible = artifacts[WorkflowStage.NARRATIVE_DESIGN];
-    if (bible) {
-      return buildPlan(
-        artifacts,
-        'story-bible',
-        WorkflowStage.NARRATIVE_DESIGN,
-        'text-source',
-        '诉求属设定事实（年龄/身份/剧情等），从设定源头故事圣经改起'
-      );
-    }
+  // 8. 兜底：当前阶段的主责工序（工作面在哪儿就从哪儿改，而不是最老的文本源）
+  const curSkill = SKILL_OF_STAGE[input.currentStage];
+  if (curSkill && artifacts[input.currentStage]) {
+    return plan(curSkill, input.currentStage, 'text-source', 'unknown',
+      '诉求无法归类，回到当前工作面所属工序');
+  }
+  const upFromCurrent = curSkill ? degradeToReady(artifacts, curSkill) : undefined;
+  if (upFromCurrent) {
+    return plan(upFromCurrent.skill, upFromCurrent.stage, 'text-source', 'unknown',
+      '诉求无法归类，且当前阶段无产物，改最近的上游文本源');
   }
 
-  // 3. 纯视觉样式 + 目标媒体资产已落盘 → 媒体轨
-  if (containsAny(content, STYLE_HINTS)) {
-    const picked = pickMediaSkill(input.skillHint, content, artifacts);
-    if (picked) {
-      return buildPlan(
-        artifacts,
-        picked,
-        MEDIA_STAGE[picked],
-        'media-asset',
-        `纯视觉样式诉求，且 ${picked} 已有落盘资产`
-      );
-    }
-  }
+  // 9. 连文本产物都没有（项目刚创建）
+  return noSource(input, artifacts);
+}
 
-  // 4. 兜底：仍以文本源为准（宁可上游改宽，不把事实改动丢到图像轨）
-  const fallbackStage =
-    (artifacts[WorkflowStage.NARRATIVE_DESIGN] && WorkflowStage.NARRATIVE_DESIGN) ||
-    (artifacts[WorkflowStage.SCENE_SCRIPT] && WorkflowStage.SCENE_SCRIPT) ||
-    (artifacts[WorkflowStage.STORYBOARD] && WorkflowStage.STORYBOARD) ||
-    undefined;
-
-  if (fallbackStage) {
-    return buildPlan(
-      artifacts,
-      SKILL_OF_STAGE[fallbackStage] || 'story-bible',
-      fallbackStage,
-      'text-source',
-      '诉求无法直接对应媒体资产，回到最近的文本事实源'
-    );
-  }
-
-  // 5. 连文本产物都没有（项目刚创建）→ 无源可改
+/** 无源可改：交回调用方降级为生成提案 */
+function noSource(input: ModifySourceInput, artifacts: Record<string, any>): ModifyPlan {
   const curSkill = SKILL_OF_STAGE[input.currentStage] || 'story-bible';
+  const fallbackStage =
+    [WorkflowStage.NARRATIVE_DESIGN, WorkflowStage.SCENE_SCRIPT, WorkflowStage.STORYBOARD].find(
+      (s) => artifacts[s]
+    ) || input.currentStage;
   return {
     sourceSkill: curSkill,
-    sourceStage: input.currentStage,
+    sourceStage: fallbackStage,
     basis: 'no-source',
+    attribute: 'unknown',
     cascadeStages: [],
     reason: '项目尚无任何已落盘文本产物，无法执行微调',
   };
 }
 
-/** 从 hint / 关键词 / 已落盘媒体资产中挑一个媒体工序 */
+/** 从 hint / 媒体对象 / 唯一已落盘资产中挑一个媒体工序 */
 function pickMediaSkill(
   skillHint: string | undefined,
   content: string,
@@ -246,21 +424,16 @@ function pickMediaSkill(
 
   if (skillHint && MEDIA_STAGE[skillHint] && isReady(skillHint)) return skillHint;
 
-  for (const entry of MEDIA_KEYWORDS) {
+  for (const entry of MEDIA_OBJECTS) {
+    if (containsAny(content, entry.words) && isReady(entry.skill)) return entry.skill;
+  }
+
+  // 主观样式词细分：人物外观 → 定妆；画面观感 → 关键帧；成片节奏 → 视频
+  for (const entry of VISUAL_SUBJECT) {
     if (containsAny(content, entry.words) && isReady(entry.skill)) return entry.skill;
   }
 
   // 只有唯一一个已落盘媒体资产时，才能无歧义地指向它
   const ready = Object.keys(MEDIA_STAGE).filter(isReady);
   return ready.length === 1 ? ready[0] : undefined;
-}
-
-/** 供外层复用的阶段→工序反查 */
-export function skillOfStage(stage: WorkflowStage): string | undefined {
-  return SKILL_OF_STAGE[stage];
-}
-
-/** 供外层复用的工序→阶段反查 */
-export function stageOfSkill(skill: string): WorkflowStage | undefined {
-  return STAGE_OF_SKILL[skill];
 }

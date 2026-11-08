@@ -159,12 +159,14 @@ async function resolveIntentToTask(
 
       if (intent.skill && intent.skill !== plan.sourceSkill) {
         console.log(
-          `[chat] 微调源头裁决: 模型建议 [${intent.skill}] → 事实源头 [${plan.sourceSkill}]（${plan.reason}）`
+          `[chat] 微调源头裁决: 模型建议 [${intent.skill}] → 事实源头 [${plan.sourceSkill}]` +
+            `（属性=${plan.attribute}，${plan.reason}）`
         );
       }
       if (plan.cascadeStages.length > 0) {
         console.log(
-          `[chat] 源头变更将失效下游阶段: ${plan.cascadeStages.join(' → ')}（修改完成后自动清理并按序重推）`
+          `[chat] 预计受影响下游: ${plan.cascadeStages.join(' → ')}` +
+            `（实际清退以修改轨上报的 changedStages 为准）`
         );
       }
 
@@ -196,6 +198,7 @@ async function resolveIntentToTask(
           target: intent.target,
           userFeedback: userInstruction,
           sourceBasis: plan.basis,
+          sourceAttribute: plan.attribute,
           cascadeStages: plan.cascadeStages,
         },
       });
