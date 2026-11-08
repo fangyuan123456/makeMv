@@ -18,6 +18,21 @@ import { z } from 'zod';
 import { createTool } from '../src/mastra-compat/index.js';
 import { LLMRegistry } from '../src/llm/LLMRegistry.js';
 import { ProjectStore } from '../src/project-store/ProjectStore.js';
+import { STAGE_OF_SKILL, SKILL_OF_STAGE } from '../src/agents/director/generator/constants.js';
+
+/**
+ * 工序名与阶段键是两套命名：任务用 story-bible / scene-script，产物键用
+ * narrative_design / scene_script。判定时把两边都归一化，否则「改性别判对了
+ * characters[0].gender」会被报成 FAIL——这是判定器的错，不是模型判错。
+ */
+const STAGE_NAMES = new Set(Object.values(STAGE_OF_SKILL).map(String));
+function canonicalArtifact(name: string): string {
+  const raw = String(name || '').trim().toLowerCase();
+  const normalized = raw.replace(/-/g, '_');
+  if (STAGE_NAMES.has(normalized)) return normalized;
+  const stage = STAGE_OF_SKILL[raw] || STAGE_OF_SKILL[normalized.replace(/_/g, '-')];
+  return stage ? String(stage) : normalized;
+}
 
 const PID = process.argv[2] || 'proj_1794101350967_b9al';
 const USER_LINE = process.argv[3] || '男一太老了吧';
@@ -246,6 +261,17 @@ ${skeletonText()}
 4. 只用 search_facts / read_artifact 取证，不要凭空推断字段名，也不要修改任何东西。
 5. 最多 4 轮工具调用。
 
+【角色字段的含义（判「改什么」时以此为准，别按字面相似度猜）】
+  characters[].name        角色名
+  characters[].role        戏份定位：主角 / 配角 / 反派。**不是性别，也不是身份**
+  characters[].gender      性别（男 / 女）
+  characters[].age         年龄（数字）
+  characters[].identity    身份职业（侦探 / 修表匠）
+  characters[].personality 性格
+  characters[].appearance  外貌文字（事实）
+  characters[].visualPrompt 派生画面描述（不是事实，改它下次重生成会被打回）
+  改年龄 → age；改性别 → gender；改戏份轻重（主角/配角/反派）→ role；改职业 → identity。
+
 最终只输出一段 JSON（不要额外解释）：
 {"definition":{"artifact":"...","field":"...","current":"当前值"},"derivedBy":[{"artifact":"...","field":"...","why":"为何是派生"}],"verdict":"一句话","confidence":"high|medium|low"}`,
   model: LLMRegistry.getLanguageModel(),
@@ -263,26 +289,39 @@ async function main() {
   const t0 = Date.now();
   const stepTimeline: Array<{ step: number; ms: number; input: number; output: number; tools: number }> = [];
   let lastTs = t0;
-  const res: any = await agent.generate(
-    [{ role: 'user', content: `创作者说：${USER_LINE}\n请分析这条修改诉求的事实定义处与派生引用。` }] as any,
-    {
-      maxSteps: 10,
-      prepareStep: ({ stepNumber }: any) => ({ toolChoice: stepNumber === 0 ? 'required' : 'auto' }),
-      onStepFinish: ({ stepNumber, usage, toolCalls }: any) => {
-        const now = Date.now();
-        stepTimeline.push({
-          step: (stepNumber ?? stepTimeline.length) + 1,
-          ms: now - lastTs,
-          input: usage?.inputTokens ?? 0,
-          output: usage?.outputTokens ?? 0,
-          tools: toolCalls?.length ?? 0,
-        });
-        lastTs = now;
-      },
-    } as any
-  );
+
+  /** 跑一轮探针；模型偶发只答散文不吐 JSON，此时带一句纠正再问一次 */
+  const runProbe = async (nudge?: string) => {
+    const content = `创作者说：${USER_LINE}\n请分析这条修改诉求的事实定义处与派生引用。` + (nudge || '');
+    const res: any = await agent.generate(
+      [{ role: 'user', content }] as any,
+      {
+        maxSteps: 10,
+        prepareStep: ({ stepNumber }: any) => ({ toolChoice: stepNumber === 0 ? 'required' : 'auto' }),
+        onStepFinish: ({ stepNumber, usage, toolCalls }: any) => {
+          const now = Date.now();
+          stepTimeline.push({
+            step: (stepNumber ?? stepTimeline.length) + 1,
+            ms: now - lastTs,
+            input: usage?.inputTokens ?? 0,
+            output: usage?.outputTokens ?? 0,
+            tools: toolCalls?.length ?? 0,
+          });
+          lastTs = now;
+        },
+      } as any
+    );
+    return String(res?.text || '');
+  };
+
+  let text = await runProbe();
+  if (!/\{[\s\S]*\}/.test(text)) {
+    console.log('（首轮未给出 JSON，按格式要求重试一次）');
+    logs.length = 0;
+    seq = 0;
+    text = await runProbe('\n\n注意：只输出那段 JSON，不要任何解释文字。');
+  }
   const totalMs = Date.now() - t0;
-  const text = String(res?.text || '');
 
   console.log('\n=== 工具调用轨迹 ===');
   for (const l of logs) console.log(`#${l.seq} ${l.name.padEnd(13)} ${l.detail}`);
@@ -309,9 +348,11 @@ async function main() {
         const field = String(parsed?.definition?.field || '');
         // characters[].age 与 characters[0].age 视为同一字段
         const norm = (s: string) => s.replace(/\[\d*\]/g, '[]');
-        const artOk = art.includes(EXPECT_ARTIFACT) || norm(art).includes(EXPECT_ARTIFACT);
+        const artOk = canonicalArtifact(art) === canonicalArtifact(EXPECT_ARTIFACT);
         const fieldOk = norm(field).includes(norm(EXPECT_FIELD));
-        verdict = artOk && fieldOk ? 'PASS' : `FAIL(实际 ${art} / ${field})`;
+        verdict = artOk && fieldOk
+          ? 'PASS'
+          : `FAIL(实际 ${canonicalArtifact(art)} / ${field || '(空字段)'}，期望 ${canonicalArtifact(EXPECT_ARTIFACT)} / ${EXPECT_FIELD})`;
       } catch {
         verdict = 'FAIL(JSON 解析失败)';
       }
