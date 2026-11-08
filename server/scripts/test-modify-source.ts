@@ -84,7 +84,10 @@ console.log('\n[1] 同一实体「张明」，四类属性四种源头');
     ['张明的年龄改成 25 岁', 'story-bible', 'setting', '设定事实 → 故事圣经'],
     ['把张明在第二场的台词改得凶狠一点', 'scene-script', 'dialogue', '台词 → 分场剧本'],
     ['这个镜头构图再紧一点', 'storyboard', 'shot', '镜头语言 → 视听分镜'],
-    ['定妆照的发型换成银色寸头', 'character-portrait', 'visual', '人物外观 + 资产已落盘 → 定妆'],
+    ['这张定妆照的发型换成银色寸头', 'character-portrait', 'media', '带指示词「这张」→ 只改这一版画面'],
+    ['定妆照的发型换成银色寸头', 'story-bible', 'appearance', '外观属角色事实 → 故事圣经（不带指示词）'],
+    ['男一的形象换一下，换成短发', 'story-bible', 'appearance', '形象/发型是 appearance，不是画面呈现'],
+    ['这张定妆照的光影调暗一点，别改设定', 'character-portrait', 'visual', '光影是这一张的呈现 → 媒体轨'],
   ];
   for (const [content, expect, attr, label] of cases) {
     const p = resolveModifySource(FULL, {
@@ -178,16 +181,26 @@ console.log('\n[7] 视频未落盘时不得选中 video-production');
   check('不选 video-production', p.sourceSkill !== 'video-production', p.sourceSkill);
 }
 
-/* ── 8. 媒体资产未生成时，画面描述回落到上游文本 ── */
-console.log('\n[8] 定妆未生成时改人物外观 → 回故事圣经');
+/* ── 8. 外观属于事实：即使定妆已落盘，也必须回源头改（只改画面下次会被打回） ── */
+console.log('\n[8] 定妆已落盘时改外观 → 仍回故事圣经 appearance');
 {
-  seed(PID, { [WorkflowStage.NARRATIVE_DESIGN]: bible, [WorkflowStage.STORYBOARD]: board });
+  seed(PID, {
+    [WorkflowStage.NARRATIVE_DESIGN]: bible,
+    [WorkflowStage.STORYBOARD]: board,
+    [WorkflowStage.CHARACTER_DESIGN]: portrait,
+  });
   const p = resolveModifySource(PID, {
     target: '张明',
     content: '男一的形象换一下，换成短发',
     currentStage: WorkflowStage.STORYBOARD,
   });
   check('回 story-bible 改角色外观描述', p.sourceSkill === 'story-bible', p.sourceSkill);
+  check('属性标记为 appearance', p.attribute === 'appearance', p.attribute);
+  check(
+    '定妆被列为待失效下游',
+    p.cascadeStages.includes(WorkflowStage.CHARACTER_DESIGN),
+    p.cascadeStages.join(',')
+  );
 }
 
 /* ── 9. 无任何产物 → no-source ── */

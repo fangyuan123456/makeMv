@@ -17,11 +17,13 @@
  * 2. 设定事实（年龄/性别/身份/性格/人物关系/剧情走向/结局）→ story-bible
  * 3. 台词与场次内容（台词/对白/语气/第 N 场）→ scene-script
  * 4. 镜头语言（景别/运镜/构图/时长/shot_x）→ storyboard
- * 5. 视觉样式（服装/发型/妆容/配色/光影）→ 媒体轨
- * 6. 媒体对象直指（定妆照/关键帧/这段视频）+ 该资产已落盘 → 对应媒体工序
- * 7. 以上都没命中 → 用 WHO 在黑板的文本产物里定位条目
- * 8. 仍判不出 → 当前阶段主责工序（绝不是「最早的文本源」）
- * 9. 无任何文本产物 → no-source，由调用方降级为生成提案
+ * 5. 角色客观外观（发型/发色/服装/妆容/伤疤/体型…）→ story-bible 的 appearance
+ *    （只有带「这张/这一版」等指示词时才降为画面呈现，见 PRESENTATION_ANCHORS）
+ * 6. 画面呈现（光影/色调/质感/画风…）→ 媒体轨
+ * 7. 媒体对象直指（定妆照/关键帧/这段视频）+ 该资产已落盘 → 对应媒体工序
+ * 8. 以上都没命中 → 用 WHO 在黑板的文本产物里定位条目
+ * 9. 仍判不出 → 当前阶段主责工序（绝不是「最早的文本源」）
+ * 10. 无任何文本产物 → no-source，由调用方降级为生成提案
  *
  * 目标工序未落盘时按显式上游链降级（台词还没写出来只能先改设定，镜头没拆只能
  * 先改台词）。任何情况下都不会把设定事实丢给只能改画面的媒体轨。
@@ -34,7 +36,15 @@ import { SKILL_OF_STAGE } from '../generator/constants.js';
 export type ModifySourceBasis = 'text-source' | 'media-asset' | 'no-source';
 
 /** 诉求触及的属性类别，用于日志复盘与测试断言 */
-export type ModifyAttribute = 'setting' | 'dialogue' | 'shot' | 'visual' | 'media' | 'unknown';
+export type ModifyAttribute =
+  | 'setting'
+  | 'appearance'
+  | 'dialogue'
+  | 'shot'
+  | 'visual'
+  | 'media'
+  | 'unknown';
+
 
 export interface ModifyPlan {
   /** 事实源头工序（text 轨三份产物共用同一个修改器实例） */
@@ -97,11 +107,26 @@ const SHOT_WORDS = [
 ];
 const SHOT_ANCHORS = [/shot[_-]?\d+/, /第[一二三四五六七八九十百零两\d]+镜/, /这个镜头/, /那个镜头/];
 
-/** 视觉样式：媒体轨的合法入口（不改变任何设定事实） */
+/**
+ * 角色客观外观：这些是角色自身的属性，写在故事圣经的 characters[].appearance 里，
+ * 定妆 visualPrompt 只是它的派生。只改 visualPrompt 会在下次重新生成时被打回原样
+ * ——这正是「改了等于没改」的来源，所以外观改动必须落到事实源头。
+ * 唯一例外：带「这张 / 这一版」等指示词时，创作者明确只要这一版画面不同。
+ */
+const APPEARANCE_WORDS = [
+  '发型', '头发', '发色', '短发', '长发', '寸头', '辫子', '刘海', '平头', '卷发',
+  '胡须', '胡子', '服装', '衣服', '外套', '旗袍', '西装', '造型', '形象', '长相',
+  '五官', '脸型', '妆容', '化妆', '妆造', '伤疤', '疤痕', '纹身', '体型', '身材',
+  '胖瘦', '眼镜', '配饰', '穿着', '打扮',
+];
+
+/** 指示词：明确指向「当前这一版画面」，此时外观类诉求降为呈现诉求 */
+const PRESENTATION_ANCHORS = [/这张/, /这一版/, /这套图/, /这个图/, /当前这/, /这版/];
+
+/** 画面呈现：属于「这一张怎么拍/怎么渲染」，不是角色属性，媒体轨的合法入口 */
 const STYLE_WORDS = [
-  '服装', '衣服', '外套', '造型', '形象', '发型', '头发', '短发', '长发', '寸头', '辫子',
-  '妆容', '化妆', '配色', '色调', '颜色', '光影', '打光', '质感', '材质', '画风', '风格',
-  '背景色', '更亮', '更暗', '更冷', '更暖', '更精致', '更粗糙',
+  '色调', '配色', '颜色', '光影', '打光', '布光', '质感', '材质', '画风', '风格',
+  '背景色', '更亮', '更暗', '更冷', '更暖', '更精致', '更粗糙', '景深', '虚化', '氛围感',
 ];
 
 /** 媒体对象：直接指名某张图 / 某段片子 */
@@ -111,15 +136,15 @@ const MEDIA_OBJECTS: Array<{ skill: string; words: string[] }> = [
   { skill: 'video-production', words: ['视频', '成片', '片子', '片段', '短片', '镜头语言'] },
 ];
 
-/** 视觉样式细分：诉求讲的是「人物外观」还是「画面观感」，决定落到哪个媒体工序 */
+/** 画面呈现的落点细分：同一张图 / 某一帧 / 成片节奏 */
 const VISUAL_SUBJECT: Array<{ skill: string; words: string[] }> = [
   {
     skill: 'character-portrait',
-    words: ['形象', '长相', '五官', '脸', '服装', '衣服', '外套', '造型', '发型', '头发', '短发', '长发', '寸头', '辫子', '妆容', '化妆'],
+    words: ['定妆', '人像', '角色图', '人物图'],
   },
   {
     skill: 'keyframe-reference',
-    words: ['光影', '打光', '构图', '色调', '配色', '颜色', '质感', '材质', '画风', '风格', '背景色', '更亮', '更暗', '更冷', '更暖'],
+    words: ['光影', '打光', '布光', '色调', '配色', '颜色', '质感', '材质', '画风', '风格', '背景色', '更亮', '更暗', '更冷', '更暖', '景深', '虚化'],
   },
   {
     skill: 'video-production',
@@ -196,6 +221,12 @@ function detectAttribute(content: string): AttributeVerdict {
 
   const shot = containsAny(c, SHOT_WORDS) || matchAny(c, SHOT_ANCHORS);
   if (shot) return { attribute: 'shot', hit: shot };
+
+  // 角色客观外观：默认是事实（写进故事圣经 appearance）；带「这张/这一版」时降为呈现
+  const appearance = containsAny(c, APPEARANCE_WORDS);
+  if (appearance && !matchAny(c, PRESENTATION_ANCHORS)) {
+    return { attribute: 'appearance', hit: appearance };
+  }
 
   const style = containsAny(c, STYLE_WORDS);
   if (style) return { attribute: 'visual', hit: style };
@@ -310,6 +341,13 @@ export function resolveModifySource(projectId: string, input: ModifySourceInput)
     return (
       settle('story-bible', WorkflowStage.NARRATIVE_DESIGN, 'text-source', 'setting',
         `诉求属设定事实（${verdict.hit}），必须从设定源头故事圣经改起`) ?? noSource(input, artifacts)
+    );
+  }
+  if (verdict.attribute === 'appearance') {
+    return (
+      settle('story-bible', WorkflowStage.NARRATIVE_DESIGN, 'text-source', 'appearance',
+        `诉求属角色客观外观（${verdict.hit}），写在故事圣经的角色档案里；定妆只是它的派生，` +
+        `只改画面会在下次重新生成时被打回原样`) ?? noSource(input, artifacts)
     );
   }
   if (verdict.attribute === 'dialogue') {
