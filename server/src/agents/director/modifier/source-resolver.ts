@@ -40,7 +40,7 @@
 
 import { WorkflowStage, STAGE_SEQUENCE } from '../../../types/index.js';
 import { ProjectStore } from '../../../project-store/ProjectStore.js';
-import { SKILL_OF_STAGE } from '../generator/constants.js';
+import { SKILL_OF_STAGE } from '../constants.js';
 import { getModifierSpec } from './manifest.js';
 import {
   classifyModifyAttribute,

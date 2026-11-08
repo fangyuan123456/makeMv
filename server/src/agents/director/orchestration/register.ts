@@ -1,7 +1,11 @@
 /**
- * agents/pipeline/workflows/register.ts
+ * agents/director/orchestration/register.ts
  * 影视业务工序与状态机动态注册器 (Workflow Registration IoC SSOT)
- * 
+ *
+ * 本文件是【编排层】：注册全部工作流（含生成轨、修改轨、重算轨）、
+ * 声明状态机钩子与审批任务派发。它同时依赖三条轨，因此不属于任何一轨，
+ * 过去放在 generator/ 下会造成「生成轨反向依赖修改轨」的结构错位。
+ *
  * 核心设计：
  * 1. 控制反转 (IoC)：影视 8 大工序阶段流转、质检门禁阻断与时空回退逻辑由本业务模块声明式注入；
  * 2. 彻底解耦通用底座：通用底座 WorkflowEngine 保持纯粹，不逆向硬编码任何特定业务；
@@ -11,28 +15,18 @@
 import { Workflow, type WorkflowHookContext } from '../../../workflow-engine/index.js';
 import { ProjectStore } from '../../../project-store/index.js';
 import { WorkflowStage, SessionStatus, STAGE_SEQUENCE } from '../../../types/index.js';
+import { STEP_MANIFESTS, getStepManifest } from '../generator/constants.js';
 import {
-  STEP_MANIFESTS,
-  getStepManifest,
   STAGE_TRANSITION_MAP,
   STAGE_OF_SKILL,
   SKILL_OF_STAGE,
   SKILL_TITLES,
-} from './constants.js';
+} from '../constants.js';
 import { modifierWorkflow } from '../modifier/modifier.workflow.js';
 import { getModifierSpec } from '../modifier/manifest.js';
 import { scheduleFollowUpAsks } from '../modifier/follow-up.js';
 import { peekStageDirectives, clearStageDirectives } from '../modifier/stage-directives.js';
-import { decideRecompute, createIncrementalRecomputeExecutor } from '../recompute-executor.js';
-
-export {
-  STEP_MANIFESTS,
-  getStepManifest,
-  STAGE_TRANSITION_MAP,
-  STAGE_OF_SKILL,
-  SKILL_OF_STAGE,
-  SKILL_TITLES,
-} from './constants.js';
+import { decideRecompute, createIncrementalRecomputeExecutor } from '../lineage/recompute-executor.js';
 
 /**
  * 8 大视听工序标准 Step 微内核映射表获取函数 (从 Manifests 动态派生)

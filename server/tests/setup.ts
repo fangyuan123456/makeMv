@@ -4,7 +4,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { registerPipelineWorkflows } from '../src/agents/director/generator/index.js';
+import { registerPipelineWorkflows } from '../src/agents/director/orchestration/index.js';
 
 // 刚性设置测试环境变量，确保所有配置与存储路由至沙箱
 process.env.NODE_ENV = 'test';

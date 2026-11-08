@@ -1,5 +1,5 @@
 /**
- * agents/director/character-identity.ts
+ * agents/director/lineage/character-identity.ts
  * 角色稳定身份 (Character Identity SSOT)
  *
  * ── 为什么需要 ──

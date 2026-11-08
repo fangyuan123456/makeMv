@@ -19,8 +19,8 @@ import path from 'path';
 import '../src/utils/config.js'; // 导入即加载 .env
 import { RealLLMService } from '../src/llm/RealLLMService.js';
 import { generateStoryboardBatch } from '../src/agents/director/generator/steps/storyboard/generator.js';
-import { syncShotCharacterIds } from '../src/agents/director/character-identity.js';
-import { buildLineage, queryImpact } from '../src/agents/director/lineage.js';
+import { syncShotCharacterIds } from '../src/agents/director/lineage/character-identity.js';
+import { buildLineage, queryImpact } from '../src/agents/director/lineage/lineage.js';
 
 const PROJECTS_ROOT = path.resolve(process.cwd(), 'data/projects');
 

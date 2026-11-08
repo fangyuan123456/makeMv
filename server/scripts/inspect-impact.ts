@@ -15,13 +15,13 @@
 
 import fs from 'fs';
 import path from 'path';
-import { buildLineage, queryImpact } from '../src/agents/director/lineage.js';
-import type { ImpactQuery } from '../src/agents/director/lineage.js';
-import { findStaleAssets } from '../src/agents/director/fingerprint.js';
+import { buildLineage, queryImpact } from '../src/agents/director/lineage/lineage.js';
+import type { ImpactQuery } from '../src/agents/director/lineage/lineage.js';
+import { findStaleAssets } from '../src/agents/director/lineage/fingerprint.js';
 import {
   buildRecomputePlan,
   formatRecomputePlan,
-} from '../src/agents/director/recompute-plan.js';
+} from '../src/agents/director/lineage/recompute-plan.js';
 
 const PROJECTS_ROOT = path.resolve(process.cwd(), 'data/projects');
 

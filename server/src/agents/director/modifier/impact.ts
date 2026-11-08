@@ -13,7 +13,7 @@
  * 因为重渲要花真钱。
  */
 
-import { buildLineage, queryImpact, type ImpactQuery, type ImpactResult } from '../lineage.js';
+import { buildLineage, queryImpact, type ImpactQuery, type ImpactResult } from '../lineage/lineage.js';
 
 export interface ImpactSample {
   id: string;

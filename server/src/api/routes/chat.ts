@@ -17,7 +17,7 @@ import { resolveModifySource } from '../../agents/director/modifier/index.js';
 import { previewModifyImpact } from '../../agents/director/modifier/impact.js';
 import { WorkflowStage, SessionStatus, STAGE_SEQUENCE, type Task } from '../../types/index.js';
 import { Workflow } from '../../workflow-engine/index.js';
-import { STAGE_TRANSITION_MAP, SKILL_OF_STAGE, STAGE_OF_SKILL } from '../../agents/director/generator/constants.js';
+import { STAGE_TRANSITION_MAP, SKILL_OF_STAGE, STAGE_OF_SKILL } from '../../agents/director/constants.js';
 import { readJsonBody, sendJson, sendError } from '../helpers.js';
 
 /* ══════════════════════════════════════════════════════════════════════════════

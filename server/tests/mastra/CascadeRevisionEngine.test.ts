@@ -24,7 +24,7 @@ import { MockLLMService } from '../../src/llm/MockLLMService.js';
 import { WorkflowStage, STAGE_SEQUENCE, SessionStatus } from '../../src/types/index.js';
 import { resolveModifySource, modifierWorkflow } from '../../src/agents/director/modifier/index.js';
 import { DERIVED_STAGE_SEQUENCE } from '../../src/agents/director/catalog.js';
-import { registerPipelineWorkflows } from '../../src/agents/director/generator/index.js';
+import { registerPipelineWorkflows } from '../../src/agents/director/orchestration/index.js';
 import { Workflow } from '../../src/workflow-engine/index.js';
 
 describe('CascadeRevision - 改动源头后的下游失效与清退', () => {

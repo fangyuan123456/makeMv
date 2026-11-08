@@ -23,7 +23,7 @@
 import { ProjectStore } from '../../../project-store/ProjectStore.js';
 import { Workflow } from '../../../workflow-engine/index.js';
 import { STAGE_SEQUENCE, WorkflowStage } from '../../../types/index.js';
-import { STAGE_OF_SKILL } from '../generator/constants.js';
+import { STAGE_OF_SKILL } from '../constants.js';
 import { addStageDirective } from './stage-directives.js';
 
 /** 由 chat.ts 写进任务 payload 的追加诉求 */

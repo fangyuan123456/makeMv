@@ -1,5 +1,5 @@
 /**
- * agents/director/provenance.ts
+ * agents/director/lineage/provenance.ts
  * 产物来源信息统一补齐 (Artifact Provenance)
  *
  * ── 为什么收在存储层 ──

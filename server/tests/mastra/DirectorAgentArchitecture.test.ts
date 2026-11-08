@@ -11,7 +11,7 @@ import { Workflow } from '../../src/workflow-engine/index.js';
 import { ProjectStore } from '../../src/project-store/ProjectStore.js';
 import { TaskStore } from '../../src/project-store/TaskStore.js';
 import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
-import { registerPipelineWorkflows } from '../../src/agents/director/generator/index.js';
+import { registerPipelineWorkflows } from '../../src/agents/director/orchestration/index.js';
 import { exportStoryBibleToDisk } from '../../src/agents/director/generator/steps/story-bible/index.js';
 import { ContextAssembler } from '../../src/project-store/index.js';
 

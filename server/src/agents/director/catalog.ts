@@ -7,9 +7,11 @@
  *
  * 依赖方向：
  *   generator ──┐
- *               ├──→ catalog（本文件，零业务依赖）
+ *               ├──→ constants.ts（中立别名出口）──→ catalog（本文件，零业务依赖）
  *   modifier  ──┘
- * 两条路线各自向自己的注册表登记执行体，彼此之间不存在横向 import。
+ *   api / 脚本 ─┘
+ * 两条路线各自向自己的注册表登记执行体，彼此之间不存在横向 import；
+ * 编排层单独放在 orchestration/，它才可以同时依赖两轨。
  */
 
 import { WorkflowStage, STAGE_SEQUENCE } from '../../types/index.js';

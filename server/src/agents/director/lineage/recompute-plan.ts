@@ -1,5 +1,5 @@
 /**
- * agents/director/recompute-plan.ts
+ * agents/director/lineage/recompute-plan.ts
  * 增量重算清单（Dry-Run Recompute Plan）
  *
  * ── 这一层回答什么 ──

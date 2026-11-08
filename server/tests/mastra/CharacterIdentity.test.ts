@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import { ProjectStore } from '../../src/project-store/ProjectStore.js';
 import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
 import { withCharacterFacts, findCharacterFacts } from '../../src/agents/director/character-facts.js';
-import { ensureBibleCharacterIds, syncShotCharacterIds } from '../../src/agents/director/character-identity.js';
+import { ensureBibleCharacterIds, syncShotCharacterIds } from '../../src/agents/director/lineage/character-identity.js';
 
 describe('CharacterIdentity - 角色稳定身份', () => {
   const store = ProjectStore.getInstance();

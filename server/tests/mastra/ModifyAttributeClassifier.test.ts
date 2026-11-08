@@ -23,7 +23,7 @@ import {
   classifyModifyAttribute,
   clearAttributeClassifierCache,
 } from '../../src/agents/director/modifier/attribute-classifier.js';
-import { registerPipelineWorkflows } from '../../src/agents/director/generator/index.js';
+import { registerPipelineWorkflows } from '../../src/agents/director/orchestration/index.js';
 
 describe('ModifyAttributeClassifier - 补判只补类别，且必须允许弃权', () => {
   const store = ProjectStore.getInstance();

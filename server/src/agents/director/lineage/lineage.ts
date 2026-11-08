@@ -1,5 +1,5 @@
 /**
- * agents/director/lineage.ts
+ * agents/director/lineage/lineage.ts
  * 产物血缘图与影响面查询 (Artifact Lineage & Impact Query)
  *
  * ── 为什么需要 ──

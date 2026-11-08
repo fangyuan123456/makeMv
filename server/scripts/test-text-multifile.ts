@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const { Workflow } = await import('../src/workflow-engine/index.js');
-const { registerPipelineWorkflows } = await import('../src/agents/director/generator/register.js');
+const { registerPipelineWorkflows } = await import('../src/agents/director/orchestration/register.js');
 
 const SRC = 'proj_1794014246317_0cta';
 const DST = 'proj_texmulti';

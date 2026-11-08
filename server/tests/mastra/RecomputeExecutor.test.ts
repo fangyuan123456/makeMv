@@ -12,18 +12,18 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRecomputePlan } from '../../src/agents/director/recompute-plan.js';
+import { buildRecomputePlan } from '../../src/agents/director/lineage/recompute-plan.js';
 import {
   computeKeyframeFingerprint,
   computeClipFingerprint,
-} from '../../src/agents/director/fingerprint.js';
+} from '../../src/agents/director/lineage/fingerprint.js';
 import {
   buildRecomputeWaves,
   decideRecompute,
   runIncrementalRecompute,
   createIncrementalRecomputeExecutor,
   type SubWorkflowRunner,
-} from '../../src/agents/director/recompute-executor.js';
+} from '../../src/agents/director/lineage/recompute-executor.js';
 import { dispatchHttpRequest } from '../../src/api/app.js';
 import { ProjectStore } from '../../src/project-store/ProjectStore.js';
 import { MemoryProjectStateStore } from '../../src/project-store/MemoryProjectStateStore.js';

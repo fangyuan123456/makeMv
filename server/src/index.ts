@@ -7,7 +7,7 @@ import http from 'http';
 import './mastra-compat/index.js';
 import { mastra } from './mastra.js';
 import { Workflow } from './workflow-engine/index.js';
-import { registerPipelineWorkflows } from './agents/director/generator/index.js';
+import { registerPipelineWorkflows } from './agents/director/orchestration/index.js';
 import { dispatchHttpRequest } from './api/app.js';
 
 const PORT = process.env.PORT || 4111;

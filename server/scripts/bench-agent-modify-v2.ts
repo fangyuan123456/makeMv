@@ -18,7 +18,7 @@ import { z } from 'zod';
 import { createTool } from '../src/mastra-compat/index.js';
 import { LLMRegistry } from '../src/llm/LLMRegistry.js';
 import { ProjectStore } from '../src/project-store/ProjectStore.js';
-import { STAGE_OF_SKILL, SKILL_OF_STAGE } from '../src/agents/director/generator/constants.js';
+import { STAGE_OF_SKILL, SKILL_OF_STAGE } from '../src/agents/director/constants.js';
 
 /**
  * 工序名与阶段键是两套命名：任务用 story-bible / scene-script，产物键用

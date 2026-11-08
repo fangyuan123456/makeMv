@@ -14,7 +14,7 @@ import {
   computeKeyframeFingerprint,
   computeClipFingerprint,
   findStaleAssets,
-} from '../../src/agents/director/fingerprint.js';
+} from '../../src/agents/director/lineage/fingerprint.js';
 
 const bible = () => ({
   characters: [

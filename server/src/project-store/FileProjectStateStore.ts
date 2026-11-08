@@ -11,7 +11,7 @@ import { randomUUID } from 'crypto';
 import { config } from '../utils/config.js';
 import { atomicWriteJsonSync, trace } from '../utils/index.js';
 import { JsonSanitizer } from '../utils/JsonSanitizer.js';
-import { applyArtifactProvenance } from '../agents/director/provenance.js';
+import { applyArtifactProvenance } from '../agents/director/lineage/provenance.js';
 import type { ProjectEntity, ChatSession, ChatMessage, ScratchpadMemory } from '../types/index.js';
 import type { IProjectStateStore } from './IProjectStateStore.js';
 import type { ProjectStateSnapshot } from './types.js';

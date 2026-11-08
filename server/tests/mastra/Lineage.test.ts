@@ -8,7 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLineage, queryImpact } from '../../src/agents/director/lineage.js';
+import { buildLineage, queryImpact } from '../../src/agents/director/lineage/lineage.js';
 
 /** 一个跑到分镜 + 首帧 + 视频的项目快照（结构取自真实项目 9gjm） */
 function project(overrides: { shotCharacters?: boolean } = {}) {

@@ -15,12 +15,12 @@ import assert from 'node:assert/strict';
 import {
   buildRecomputePlan,
   formatRecomputePlan,
-} from '../../src/agents/director/recompute-plan.js';
+} from '../../src/agents/director/lineage/recompute-plan.js';
 import {
   computeKeyframeFingerprint,
   computeClipFingerprint,
-} from '../../src/agents/director/fingerprint.js';
-import type { ImpactResult } from '../../src/agents/director/lineage.js';
+} from '../../src/agents/director/lineage/fingerprint.js';
+import type { ImpactResult } from '../../src/agents/director/lineage/lineage.js';
 
 const BIBLE = {
   characters: [{ name: '李明', characterId: 'c1', gender: '男', age: 38, appearance: '短发' }],

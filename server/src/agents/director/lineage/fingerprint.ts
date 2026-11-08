@@ -1,5 +1,5 @@
 /**
- * agents/director/fingerprint.ts
+ * agents/director/lineage/fingerprint.ts
  * 上游内容指纹与资产陈旧判定 (Input Fingerprint & Stale Detection)
  *
  * ── 为什么需要 ──

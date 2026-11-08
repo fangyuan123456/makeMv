@@ -8,8 +8,8 @@ import { ProjectStore, TaskStore } from '../../project-store/index.js';
 import { WorkflowStage, SessionStatus } from '../../types/index.js';
 import { CharacterRenderer } from '../../media/index.js';
 import { hydrateCharacterArtifact, hydratePortraitArtifact } from '../../agents/director/character-facts.js';
-import { buildRecomputePlan, formatRecomputePlan } from '../../agents/director/recompute-plan.js';
-import { decideRecompute } from '../../agents/director/recompute-executor.js';
+import { buildRecomputePlan, formatRecomputePlan } from '../../agents/director/lineage/recompute-plan.js';
+import { decideRecompute } from '../../agents/director/lineage/recompute-executor.js';
 import { readJsonBody, sendJson, sendError } from '../helpers.js';
 
 export async function handleProjectRoutes(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {

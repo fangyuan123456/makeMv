@@ -21,7 +21,7 @@ import { TaskStore } from '../../src/project-store/TaskStore.js';
 import { LLMRegistry } from '../../src/llm/LLMRegistry.js';
 import { MockLLMService } from '../../src/llm/MockLLMService.js';
 import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
-import { registerPipelineWorkflows } from '../../src/agents/director/generator/index.js';
+import { registerPipelineWorkflows } from '../../src/agents/director/orchestration/index.js';
 import { Workflow } from '../../src/workflow-engine/index.js';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

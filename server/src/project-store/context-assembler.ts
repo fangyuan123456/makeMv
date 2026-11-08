@@ -10,6 +10,10 @@
 
 import { ProjectStore } from './ProjectStore.js';
 import { WorkflowStage } from '../types/index.js';
+// 唯一一处「中立层 → 生成轨」的合法穿透：黑板摘要需要各工序的
+// summarizeArtifact 投影器，而它挂在生成轨 StepManifest 上、属于执行体字段。
+// 这里只借摘要能力，不参与任何工序调度。要彻底解耦须把 summarizeArtifact
+// 上提到中立产物领域层，那属于另一次语义重构，不在本次目录整理范围内。
 import { STEP_MANIFESTS, getStepManifestByStage } from '../agents/director/generator/constants.js';
 
 export interface AssembledContext {

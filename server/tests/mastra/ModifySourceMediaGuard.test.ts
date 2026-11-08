@@ -19,7 +19,7 @@ import { MockLLMService } from '../../src/llm/MockLLMService.js';
 import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
 import { resolveModifySource } from '../../src/agents/director/modifier/index.js';
 import { clearAttributeClassifierCache } from '../../src/agents/director/modifier/attribute-classifier.js';
-import { registerPipelineWorkflows } from '../../src/agents/director/generator/index.js';
+import { registerPipelineWorkflows } from '../../src/agents/director/orchestration/index.js';
 
 describe('ModifySourceMediaGuard - 派发媒体轨前复核，附加源头不得静默丢弃', () => {
   const store = ProjectStore.getInstance();

@@ -13,11 +13,11 @@
 import {
   buildRecomputePlan,
   formatRecomputePlan,
-} from '../src/agents/director/recompute-plan.js';
+} from '../src/agents/director/lineage/recompute-plan.js';
 import {
   computeKeyframeFingerprint,
   computeClipFingerprint,
-} from '../src/agents/director/fingerprint.js';
+} from '../src/agents/director/lineage/fingerprint.js';
 
 const bible = {
   characters: [{ name: '李明', characterId: 'c1', gender: '男', age: 38, appearance: '短发凌乱' }],

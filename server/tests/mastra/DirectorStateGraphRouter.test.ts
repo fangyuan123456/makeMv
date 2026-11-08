@@ -22,7 +22,7 @@ import fs from 'fs';
 import path from 'path';
 import { ProjectStore, TaskStore } from '../../src/project-store/index.js';
 import { Workflow } from '../../src/workflow-engine/index.js';
-import { registerPipelineWorkflows } from '../../src/agents/director/generator/index.js';
+import { registerPipelineWorkflows } from '../../src/agents/director/orchestration/index.js';
 import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
 import { LLMRegistry } from '../../src/llm/LLMRegistry.js';
 import { MockLLMService } from '../../src/llm/MockLLMService.js';

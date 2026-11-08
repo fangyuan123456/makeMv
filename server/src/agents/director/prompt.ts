@@ -4,7 +4,7 @@
  */
 
 import { ContextAssembler } from '../../project-store/index.js';
-import { buildLegalStepsPromptText } from './generator/constants.js';
+import { buildLegalStepsPromptText } from './constants.js';
 
 export function getDirectorAgentBaseInstructions(): string {
   const legalStepsText = buildLegalStepsPromptText();

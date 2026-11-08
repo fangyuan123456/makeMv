@@ -1,5 +1,5 @@
 /**
- * agents/director/recompute-executor.ts
+ * agents/director/lineage/recompute-executor.ts
  * 增量重算执行层：清单 → 波次 → 精确重渲
  *
  * ── 这一层回答什么 ──
@@ -27,14 +27,14 @@
  * 时返回 fallback，交给 register.ts 沿用原来的整段清退 —— 宁可多渲，绝不静默漏渲。
  */
 
-import { ProjectStore } from '../../project-store/index.js';
+import { ProjectStore } from '../../../project-store/index.js';
 import { buildRecomputePlan } from './recompute-plan.js';
 import type { RecomputePlan } from './recompute-plan.js';
-import { resolveImpactTargets } from './modifier/impact.js';
+import { resolveImpactTargets } from '../modifier/impact.js';
 import type { ImpactQuery } from './lineage.js';
 import { findStaleAssets } from './fingerprint.js';
-import { keyframeReferenceSubWorkflow } from './generator/steps/keyframe-reference/keyframe-reference.workflow.js';
-import { videoProductionSubWorkflow } from './generator/steps/video-production/video-production.workflow.js';
+import { keyframeReferenceSubWorkflow } from '../generator/steps/keyframe-reference/keyframe-reference.workflow.js';
+import { videoProductionSubWorkflow } from '../generator/steps/video-production/video-production.workflow.js';
 
 /* ══════════════════════════════════════════════════════════════════════
  * 1. 波次编排（纯函数）

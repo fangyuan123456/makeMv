@@ -35,7 +35,7 @@ export type PortraitHistoryRecord = z.infer<typeof PortraitHistoryRecordSchema>;
  */
 export const CharacterSheetItemSchema = z.object({
   /**
-   * 稳定身份：来自故事圣经的同名角色，写入层自动补齐（见 character-identity.ts）。
+   * 稳定身份：来自故事圣经的同名角色，写入层自动补齐（见 lineage/character-identity.ts）。
    * 与 name 解耦——改名不动它，因此改名不会断开关联；同名角色靠它区分。
    * 老数据可能没有，读取期回落按 name 匹配。
    */

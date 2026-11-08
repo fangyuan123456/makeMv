@@ -9,12 +9,12 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyArtifactProvenance } from '../../src/agents/director/provenance.js';
+import { applyArtifactProvenance } from '../../src/agents/director/lineage/provenance.js';
 import {
   computeKeyframeFingerprint,
   computeClipFingerprint,
   findStaleAssets,
-} from '../../src/agents/director/fingerprint.js';
+} from '../../src/agents/director/lineage/fingerprint.js';
 import { MemoryProjectStateStore } from '../../src/project-store/MemoryProjectStateStore.js';
 import { SessionStatus, WorkflowStage } from '../../src/types/index.js';
 

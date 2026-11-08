@@ -9,3 +9,5 @@ export * from './tools/emit-director-intent.tool.js';
 export * from './memory/index.js';
 export * from './generator/index.js';
 export * from './modifier/index.js';
+export * from './lineage/index.js';
+export * from './orchestration/index.js';

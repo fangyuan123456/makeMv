@@ -2,7 +2,7 @@
  * 存量回填：为历史项目的角色补稳定身份 characterId。
  *
  * 背景：角色名此前同时充当显示名和跨产物外键，改名即断链、同名即串味。
- * 写入层现在会自动补 id（见 agents/director/character-identity.ts），但已经落盘的
+ * 写入层现在会自动补 id（见 agents/director/lineage/character-identity.ts），但已经落盘的
  * 老项目不会自己长出 id——定妆条目在没有 id 时只能按名字关联，一旦改名就查不到事实。
  *
  * 用法：
@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import {
   ensureBibleCharacterIds,
   syncPortraitCharacterIds,
-} from '../src/agents/director/character-identity.js';
+} from '../src/agents/director/lineage/character-identity.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = path.resolve(__dirname, '../data/projects');

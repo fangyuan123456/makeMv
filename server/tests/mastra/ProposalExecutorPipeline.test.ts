@@ -18,7 +18,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import { Workflow } from '../../src/workflow-engine/index.js';
-import { registerPipelineWorkflows } from '../../src/agents/director/generator/index.js';
+import { registerPipelineWorkflows } from '../../src/agents/director/orchestration/index.js';
 import { ContextAssembler } from '../../src/project-store/index.js';
 import { ProjectStore, TaskStore } from '../../src/project-store/index.js';
 import { ProjectLockManager } from '../../src/utils/projectLock.js';

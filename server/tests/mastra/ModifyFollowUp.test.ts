@@ -13,7 +13,7 @@ import { describe, it, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { ProjectStore, TaskStore } from '../../src/project-store/index.js';
 import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
-import { registerPipelineWorkflows } from '../../src/agents/director/generator/index.js';
+import { registerPipelineWorkflows } from '../../src/agents/director/orchestration/index.js';
 import { planFollowUpTasks, scheduleFollowUpAsks } from '../../src/agents/director/modifier/follow-up.js';
 import {
   peekStageDirectives,
