@@ -29,7 +29,7 @@ export const DirectorIntentSchema = z.object({
   skill: z
     .string()
     .optional()
-    .describe('法定工序标识符（仅在 modify 或 rollback 时填写，例如 character-portrait, story-bible, video-production 等）'),
+    .describe('可选提示：你推测的工序标识符（如 character-portrait, story-bible）。仅作参考——系统会按黑板事实定位事实源头并以源头为准，你无需为此纠结'),
   target: z
     .string()
     .optional()
@@ -51,16 +51,10 @@ export const emitDirectorIntentTool = createTool({
 严格遵循自顶向下优先级漏斗（高优先级短路，禁止降级）：
 1. P0 (rollback): 创作者明确要求推翻重做、完全走偏、回退上游工序重新推演时调用；
 2. P1 (modify): 创作者对已有资产或设定提出任何修改、调整、重设诉求（如主角改年龄、性格、换装、剧情微调），即使带有“同意”只要有修改要求必须选 modify，禁止选 next 或 approve；
-   事实定位原则：按「被修改的事实落在哪个已落盘资产里」判断，而不是创作者字面提到的工序：
-   - 故事设定事实（角色姓名/性别/年龄/身份/背景/人物关系、世界观、剧情走向、幕结构）→ story-bible；
-   - 台词、场次内容、场面调度 → scene-script；镜头切分、运镜、构图 → storyboard；
-   - 角色视觉形象（服装/发型/长相风格）→ character-portrait；画面参考 → keyframe-reference；成片动态 → video-production；
-   两可裁决规则：角色的客观属性（年龄/性别/姓名/身份/性格/动机/人物关系）永远归属 story-bible，
-   即使创作者用外观口吻表达（如“男一太老了吧”“让他看起来年轻点”——观感偏老多源于年龄与形象设定，
-   应修改 story-bible 的角色设定，下游定妆会跟随新设定）；只有纯视觉样式诉求（服装配色/发型/妆容）
-   且定妆已生成时才选 character-portrait；
-   即使诉求听起来在谈后续工序（如"主角改成女的"是在聊角色形象），只要改动的是已落盘的设定事实，也必须选 modify；
-   skill 判断不准时，务必把 target 填成具体实体名（角色名/场次名/镜头号），系统会反查黑板真实产物自动定位工序；
+   事实定位原则：modify 时你只需要说清「改哪个实体（target）」和「改成什么（content）」，
+   落地工序由系统按黑板事实源头裁决——它在产物里找到定义该实体最早的那份，改源头、下游自动重推。
+   若你判断不准目标工序，宁可留空 skill，也务必把 target 填成具体实体名（角色名/场次名/镜头号）；
+   图像与视频永远不是事实源：涉及角色年龄/性别/身份/性格/剧情走向的诉求，不要指望改图能落地；
    前提硬约束：modify 只能作用于已经生成落盘的资产。若所涉工序从未执行（例如项目刚创建、首条消息就在描述创作构想），禁止选 modify，必须选 next 推进生成；
 3. P2 (approve): 创作者发出开启、推进、同意、开始制作、进入下一步等开工指令（无任何附加修改要求），确认启动当前工序时调用；
 4. P3 (audit): 创作者要求独立审查官审计挑毛病或进行质检评估时调用；

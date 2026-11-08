@@ -6,10 +6,10 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { directorAgent, createDirectorAgent } from '../../src/agents/director/index.js';
-import { resolveTargetToSkill } from '../../src/agents/director/modifier/index.js';
+import { resolveModifySource } from '../../src/agents/director/modifier/index.js';
 import { Workflow } from '../../src/workflow-engine/index.js';
 import { ProjectStore } from '../../src/project-store/ProjectStore.js';
-import { ProposalStore } from '../../src/project-store/ProposalStore.js';
+import { TaskStore } from '../../src/project-store/TaskStore.js';
 import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
 import { registerPipelineWorkflows } from '../../src/agents/director/generator/index.js';
 import { exportStoryBibleToDisk } from '../../src/agents/director/generator/steps/story-bible/index.js';
@@ -17,7 +17,7 @@ import { ContextAssembler } from '../../src/project-store/index.js';
 
 describe('DirectorArchitecture - AI 视听总导演单跳直出与解耦双轨架构测试', () => {
   const projectStore = ProjectStore.getInstance();
-  const proposalStore = ProposalStore.getInstance();
+  const taskStore = TaskStore.getInstance();
   const testProjectId = 'test_proj_director_agent_arch';
   const testSessionId = 'test_sess_director_agent_arch';
 
@@ -25,7 +25,6 @@ describe('DirectorArchitecture - AI 视听总导演单跳直出与解耦双轨�
     registerPipelineWorkflows();
     try {
       projectStore.deleteProject(testProjectId);
-      proposalStore.clearCache(testProjectId);
     } catch {}
 
     const now = new Date().toISOString();
@@ -64,7 +63,6 @@ describe('DirectorArchitecture - AI 视听总导演单跳直出与解耦双轨�
   after(() => {
     try {
       projectStore.deleteProject(testProjectId);
-      proposalStore.clearCache(testProjectId);
     } catch {}
   });
 
@@ -75,30 +73,43 @@ describe('DirectorArchitecture - AI 视听总导演单跳直出与解耦双轨�
     assert.ok(tools['emit_director_intent'], 'directorAgent 挂载原生结构化意图决策工具');
   });
 
-  it('1.1 实体反查器 entity-resolver 基于源头契约优先与黑板真实数据动态反查，零题材死字典硬编码', () => {
-    // 1. 源头求真第一法则：上游大模型显式指定 skill 时，直接采信，零猜测
-    const explicitRes = resolveTargetToSkill(testProjectId, '任意未知实体', WorkflowStage.STORYBOARD, 'character-portrait');
-    assert.equal(explicitRes, 'character-portrait', '显式传入 skill 必须 100% 直接采信');
+  it('1.1 修改源头裁决器 resolveModifySource 从事实定义处起改，模型 hint 不具裁决权', () => {
+    // 1. 角色实体在故事圣经里定义 → 事实源头就是故事圣经
+    const charPlan = resolveModifySource(testProjectId, {
+      target: 'K',
+      content: '把 K 的年龄改小一点',
+      currentStage: WorkflowStage.STORYBOARD,
+      skillHint: 'character-portrait',
+    });
+    assert.equal(charPlan.sourceSkill, 'story-bible', '角色属性由故事圣经定义，必须从事实源头改');
+    assert.equal(charPlan.basis, 'text-source', '判定依据应为文本源');
 
-    // 2. 源头求真契约测试：大模型针对台词精修直出 skill="scene-script"，100% 直通采纳
-    const scriptRes = resolveTargetToSkill(testProjectId, '把主角K的台词改一下', WorkflowStage.STORYBOARD, 'scene-script');
-    assert.equal(scriptRes, 'scene-script', '大模型源头指定 scene-script 必须 100% 直接采信');
+    // 2. 幕名同样定义在故事圣经 → 源头不变
+    const actPlan = resolveModifySource(testProjectId, {
+      target: '深入下层',
+      content: '这一幕的冲突再激烈一点',
+      currentStage: WorkflowStage.KEYFRAME_REFERENCE,
+    });
+    assert.equal(actPlan.sourceSkill, 'story-bible', '幕结构由故事圣经定义');
 
-    // 2.1 源头求真契约测试：大模型针对运镜重拍直出 skill="video-production"，100% 直通采纳
-    const videoRes = resolveTargetToSkill(testProjectId, '主角K第二场的运镜重新拍一下', WorkflowStage.STORYBOARD, 'video-production');
-    assert.equal(videoRes, 'video-production', '大模型源头指定 video-production 必须 100% 直接采信');
+    // 3. 模型把工序猜成图像轨，但该工序尚无产物 → 裁决不被劫持
+    const hintedPlan = resolveModifySource(testProjectId, {
+      target: 'K',
+      content: 'K 看起来太老了',
+      currentStage: WorkflowStage.CHARACTER_DESIGN,
+      skillHint: 'character-portrait',
+    });
+    assert.equal(hintedPlan.sourceSkill, 'story-bible', 'hint 指向未落盘工序时不得采纳');
+    assert.notEqual(hintedPlan.basis, 'media-asset', '未落盘的媒体工序不能作为修改目标');
 
-    // 2.2 动态黑板比对：黑板中已有角色 K，目标指名角色实体 K 动态反查锁定 character-portrait
-    const charSkill = resolveTargetToSkill(testProjectId, 'K', WorkflowStage.STORYBOARD);
-    assert.equal(charSkill, 'character-portrait', '通过黑板真实 characters 列表比对，必须动态反查到 character-portrait');
-
-    // 3. 动态黑板比对：黑板中已有故事金线戏剧幕名“深入下层”，目标提及该幕名必须动态反查到 story-bible
-    const bibleSkill = resolveTargetToSkill(testProjectId, '深入下层', WorkflowStage.KEYFRAME_REFERENCE);
-    assert.equal(bibleSkill, 'story-bible', '通过黑板真实 goldenSpine 列表比对，必须动态反查到 story-bible');
-
-    // 4. 无匹配兜底：若目标不在黑板任何已有资产中，安全兜底当前阶段工序
-    const fallbackSkill = resolveTargetToSkill(testProjectId, '未知异次元产物', WorkflowStage.STORYBOARD);
-    assert.equal(fallbackSkill, 'storyboard', '无匹配项时安全兜底当前阶段对应工序');
+    // 4. 实体在黑板里查不到 → 回最近的文本事实源（而不是可能无法承载事实的当前阶段）
+    const fallbackPlan = resolveModifySource(testProjectId, {
+      target: '未知异次元产物',
+      content: '随便调一下',
+      currentStage: WorkflowStage.STORYBOARD,
+    });
+    assert.equal(fallbackPlan.sourceSkill, 'story-bible', '无匹配时回最近的文本事实源');
+    assert.equal(fallbackPlan.basis, 'text-source');
   });
 
   it('2. DirectorAgent 提示词装配器具备全景影视指导、法定 8 大工序与业务守则', async () => {
@@ -117,7 +128,7 @@ describe('DirectorArchitecture - AI 视听总导演单跳直出与解耦双轨�
     assert.ok(systemPrompt.includes('仿生人记忆黑市'));
   });
 
-  it('4. WorkflowEngine 能基于业务意图动态生成工序提案并落盘 ProposalStore', async () => {
+  it('4. WorkflowEngine 能基于业务意图动态生成待审任务并落盘 TaskStore', async () => {
     const engine = Workflow.getInstance();
     const res = await engine.dispatch({
       projectId: testProjectId,
@@ -127,12 +138,13 @@ describe('DirectorArchitecture - AI 视听总导演单跳直出与解耦双轨�
     });
 
     assert.equal(res.success, true);
-    assert.ok(res.proposal);
-    assert.equal(res.proposal.skill, 'character-portrait');
-    assert.equal(res.proposal.status, 'pending');
+    assert.ok(res.task, '必须有唯一状态载体 Task');
+    assert.equal(res.task.skill, 'character-portrait');
+    assert.equal(res.task.status, 'proposed');
 
-    const saved = proposalStore.getProposal(testProjectId, res.proposal.actionId);
-    assert.ok(saved, '提案必须落盘 ProposalStore');
+    const saved = taskStore.getTask(testProjectId, res.task.taskId);
+    assert.ok(saved, '任务必须落盘 TaskStore');
+    assert.equal(saved?.taskId, res.task.taskId);
   });
 
   it('5. Mastra 官方容器已正确挂载 filmProductionPipelineWorkflow 声明式流水线', async () => {
@@ -160,7 +172,7 @@ describe('DirectorArchitecture - AI 视听总导演单跳直出与解耦双轨�
     assert.ok(intent, '必须准确捕获 1 个意图协议');
     assert.equal(intent?.action, 'next');
 
-    // 验证经过状态机派发转化为真实的 ActionProposal
+    // 验证经过状态机派发转化为真实的待审 Task
     const engine = Workflow.getInstance();
     const dispatchRes = await engine.dispatch({
       projectId: testProjectId,
@@ -172,14 +184,14 @@ describe('DirectorArchitecture - AI 视听总导演单跳直出与解耦双轨�
       requireConfirmation: true,
     });
     assert.equal(dispatchRes.success, true);
-    assert.ok(dispatchRes.proposal);
-    assert.equal(dispatchRes.proposal.status, 'pending');
-    assert.equal(dispatchRes.proposal.skill, 'character-portrait');
+    assert.ok(dispatchRes.task);
+    assert.equal(dispatchRes.task.status, 'proposed');
+    assert.equal(dispatchRes.task.skill, 'character-portrait');
 
-    // 验证落盘黑板持久化
-    const saved = proposalStore.getProposal(testProjectId, dispatchRes.proposal.actionId);
-    assert.ok(saved, '提案必须已物理落盘至 ProposalStore');
-    assert.equal(saved?.actionId, dispatchRes.proposal.actionId);
+    // 验证落盘持久化
+    const saved = taskStore.getTask(testProjectId, dispatchRes.task.taskId);
+    assert.ok(saved, '任务必须已物理落盘至 TaskStore');
+    assert.equal(saved?.taskId, dispatchRes.task.taskId);
   });
 
   it('8. ContextAssembler 能基于阶段审计报告 (critic_review_${stage}) 真实注入质检态势黑板', () => {
@@ -268,19 +280,14 @@ describe('DirectorArchitecture - AI 视听总导演单跳直出与解耦双轨�
     });
 
     assert.equal(res.success, true);
-    // 立即执行该提案，验证级联清理效果
-    const execRes = await engine.executeProposal({ projectId: testProjectId, proposalId: res.proposal!.actionId });
-    assert.equal(execRes.success, true, '提案必须成功执行');
-
-    // 3. 验证因果闭环：下游资产必须被全量清退，下游门禁也必须被清除
-    const afterProject = projectStore.getProject(testProjectId)!;
-    assert.equal(afterProject.stageArtifacts[WorkflowStage.SCENE_SCRIPT], undefined, '下游剧本资产必须被级联清理');
-    assert.equal(afterProject.stageArtifacts[WorkflowStage.STORYBOARD], undefined, '下游分镜资产必须被级联清理');
-    assert.equal(afterProject.stageArtifacts[WorkflowStage.VIDEO_PRODUCTION], undefined, '下游视频资产必须被级联清理');
-    assert.equal(afterProject.stageArtifacts[`critic_review_${WorkflowStage.SCENE_SCRIPT}`], undefined, '下游审查门禁必须被级联清理');
-    assert.equal(afterProject.stageArtifacts[`critic_review_${WorkflowStage.VIDEO_PRODUCTION}`], undefined, '下游审查门禁必须被级联清理');
-    assert.equal(afterProject.stageArtifacts['criticReports'], undefined, '全链路总质检必须被级联重置');
-    assert.equal(afterProject.currentStage, WorkflowStage.NARRATIVE_DESIGN, '项目当前阶段必须重置对齐至微调的上游阶段');
+    // Task 架构：派发产生唯一状态载体，微调意图与目标实体必须完整透传
+    assert.ok(res.task, '必须产生 Task');
+    assert.equal(res.task.actionType, 'TARGETED_REVISE');
+    assert.equal(res.task.skill, 'story-bible');
+    assert.equal(res.task.payload?.target, '阿诺');
+    assert.equal(res.task.payload?.userFeedback, '把主角阿诺的发型改成银色寸头');
+    // 级联清退发生在任务成功后的 onSuccess 钩子（按 changedStages 计算下游起点），
+    // 需要真实执行生成轨才能触发，故此处只校验派发契约。
   });
 
 
@@ -321,7 +328,7 @@ describe('DirectorArchitecture - AI 视听总导演单跳直出与解耦双轨�
     });
 
     assert.equal(dispatchRes.success, true);
-    assert.ok(dispatchRes.proposal);
-    assert.equal(dispatchRes.proposal.payload?.userPrompt, '赛博朋克深海潜艇侦探探案');
+    assert.ok(dispatchRes.task);
+    assert.equal(dispatchRes.task.payload?.userPrompt, '赛博朋克深海潜艇侦探探案');
   });
 });

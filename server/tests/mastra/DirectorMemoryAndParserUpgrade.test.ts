@@ -10,7 +10,7 @@ import { ProjectStore } from '../../src/project-store/ProjectStore.js';
 import { StreamTagParser } from '../../src/utils/StreamTagParser.js';
 import { ContextAssembler } from '../../src/project-store/context-assembler.js';
 import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
-import { resolveTargetToSkill } from '../../src/agents/director/modifier/index.js';
+import { resolveModifySource } from '../../src/agents/director/modifier/index.js';
 
 test('Director Upgrade - 微观工作记忆与流式解析加固测试', async (t) => {
   const store = ProjectStore.getInstance();
@@ -132,11 +132,24 @@ test('Director Upgrade - 微观工作记忆与流式解析加固测试', async (
     assert.ok(instructions.includes('绝对严禁再提议进入下一阶段'));
   });
 
-  await t.test('8. entity-resolver 在关键帧工序阶段将 shot_1 正确反查至 keyframe-reference', () => {
+  await t.test('8. 修改源头裁决：镜头微调回分镜文本源，已落盘关键帧进入 cascade 失效重推', () => {
     store.setArtifact(testPid, WorkflowStage.STORYBOARD, {
       shots: [{ shotId: 'shot_1', visualComposition: '测试特写' }],
     });
-    const skill = resolveTargetToSkill(testPid, 'shot_1', WorkflowStage.KEYFRAME_REFERENCE);
-    assert.strictEqual(skill, 'keyframe-reference', '关键帧阶段针对镜头的微调必须反查为 keyframe-reference');
+    store.setArtifact(testPid, WorkflowStage.KEYFRAME_REFERENCE, {
+      frames: [{ shotId: 'shot_1', imagePath: '/tmp/shot_1.png' }],
+    });
+    const plan = resolveModifySource(testPid, {
+      target: 'shot_1',
+      content: '这个镜头的景别改成特写',
+      currentStage: WorkflowStage.KEYFRAME_REFERENCE,
+      skillHint: 'keyframe-reference',
+    });
+    assert.strictEqual(plan.sourceSkill, 'storyboard', '镜头定义在分镜文本，必须从分镜改起');
+    assert.strictEqual(plan.basis, 'text-source');
+    assert.ok(
+      plan.cascadeStages.includes(WorkflowStage.KEYFRAME_REFERENCE),
+      '关键帧由分镜派生，源头变更后必须失效重推'
+    );
   });
 });

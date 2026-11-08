@@ -13,4 +13,4 @@ export * from './modifier.workflow.js';
 export * from './manifest.js';
 export * from './spec.js';
 export * from './steps/index.js';
-export * from './entity-resolver.js';
+export * from './source-resolver.js';
