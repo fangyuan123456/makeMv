@@ -473,6 +473,29 @@ async function main() {
     });
     check('主裁决改台词', two.sourceSkill === 'scene-script', two.sourceSkill);
     check('记录的第二个源头是分镜', two.additionalAsks?.[0]?.sourceSkill === 'storyboard', JSON.stringify(two.additionalAsks));
+    check('同文本轨标为 merged（主单跨文件补丁覆盖）', two.additionalAsks?.[0]?.relation === 'merged', two.additionalAsks?.[0]?.relation);
+
+    // 上游：故事圣经在定妆之前，接单会把刚出的定妆清退 → 只能记录
+    const up = await resolveModifySource(FULL, {
+      target: '张明',
+      content: '让她显得年轻些，另外发型换成寸头',
+      currentStage: WorkflowStage.CHARACTER_DESIGN,
+      classify: null,
+    });
+    check('上游诉求标为 upstream', up.additionalAsks?.[0]?.relation === 'upstream', JSON.stringify(up.additionalAsks));
+
+    // 下游：关键帧在剧本之后，可以等主单落地再接
+    const down = await resolveModifySource(FULL, {
+      target: '',
+      content: '台词再压短些，另外关键帧的光影调暗一点',
+      currentStage: WorkflowStage.SCENE_SCRIPT,
+      classify: null,
+    });
+    check(
+      '下游诉求标为 downstream',
+      down.additionalAsks?.some((a) => a.relation === 'downstream'),
+      JSON.stringify(down.additionalAsks)
+    );
     check('第二个源头带原文分句', (two.additionalAsks?.[0]?.clause || '').includes('镜头'), two.additionalAsks?.[0]?.clause);
 
     const mixed = await resolveModifySource(FULL, {

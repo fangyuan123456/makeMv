@@ -21,6 +21,8 @@ import {
 } from './constants.js';
 import { modifierWorkflow } from '../modifier/modifier.workflow.js';
 import { getModifierSpec } from '../modifier/manifest.js';
+import { scheduleFollowUpAsks } from '../modifier/follow-up.js';
+import { peekStageDirectives, clearStageDirectives } from '../modifier/stage-directives.js';
 
 export {
   STEP_MANIFESTS,
@@ -263,6 +265,30 @@ function createPipelineSuccessHandler(skillKey: string) {
           console.warn(`[WorkflowEngine] 自动就绪下一工序任务非致命提示:`, err.message);
         }
       }
+
+      /*
+       * 跨源头追加诉求（「台词压短，另外关键帧光影调暗」）。
+       *
+       * 必须放在这里：只有主单真正落盘、下游清退也执行完之后，才知道第二个源头
+       * 的产物还在不在——在就按修改接单，被清退就按指令重新生成。放在派发时做，
+       * 只能靠猜。
+       */
+      // 阶段待办已随本次生成生效，清除；修改轨不清（它没消费待办，留着等下次生成）
+      if (!isTargetedRevise && skillStage) {
+        clearStageDirectives(ctx.projectId, skillStage);
+      }
+
+      if (isTargetedRevise) {
+        try {
+          await scheduleFollowUpAsks({
+            projectId: ctx.projectId,
+            sessionId: ctx.sessionId,
+            payload: { ...(ctx.payload || {}), taskId: ctx.taskId },
+          });
+        } catch (err: any) {
+          console.warn(`[WorkflowEngine] 追加诉求接单失败（不影响主单）:`, err?.message || err);
+        }
+      }
     }
   };
 }
@@ -285,6 +311,27 @@ function createPipelineExecutor(skillKey: string, standardStep: any) {
       }
       console.log(`[ModifierPipeline] 工序 [${skillKey}] 走微调工作流（按媒介命中对应分支）`);
       return await modifierWorkflow.execute({ inputData });
+    }
+
+    /*
+     * 阶段待办指令：同一句话里落在这一步的要求（「关键帧光影调暗」），当时没有
+     * 产物可改、上游也没就绪，就挂在工序上。轮到真正生成这一步时，把它并进
+     * 创作者原话一起送进 prompt——生成轨各处读的都是 inputData.feedback。
+     */
+    const stage = STAGE_OF_SKILL[skillKey];
+    const directives = stage ? peekStageDirectives(inputData.projectId, stage) : [];
+    if (directives.length > 0) {
+      const merged = [inputData.feedback, ...directives.map((d) => d.text)]
+        .map((t) => String(t || '').trim())
+        .filter(Boolean)
+        .join('\n');
+      inputData.feedback = merged;
+      if (inputData.payload) inputData.payload.userPrompt = merged;
+      console.log(
+        `[WorkflowEngine] 工序 [${skillKey}] 携带 ${directives.length} 条阶段待办: ${directives
+          .map((d) => `「${d.text}」`)
+          .join('、')}`
+      );
     }
 
     // 默认顺向标准 Step 执行

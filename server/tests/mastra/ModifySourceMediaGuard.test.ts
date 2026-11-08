@@ -176,7 +176,33 @@ describe('ModifySourceMediaGuard - 派发媒体轨前复核，附加源头不得
     assert.ok(plan.additionalAsks && plan.additionalAsks.length === 1, '不得丢掉镜头那半句');
     assert.equal(plan.additionalAsks![0].sourceSkill, 'storyboard');
     assert.equal(plan.additionalAsks![0].attribute, 'shot');
+    assert.equal(plan.additionalAsks![0].relation, 'merged', '同为文本轨：主单的跨文件补丁会一并改到');
     assert.match(plan.additionalAsks![0].clause, /镜头/);
+  });
+
+  it('7.1 上游诉求只能记录：追加会把主单产物清退', async () => {
+    const plan = await resolveModifySource(projectId, {
+      target: '张明',
+      content: '让她显得年轻些，另外发型换成寸头',
+      currentStage: stage,
+      classify: null,
+    });
+    assert.equal(plan.sourceSkill, 'character-portrait', '观感词先命中，落定妆');
+    const ask = plan.additionalAsks?.[0];
+    assert.equal(ask?.sourceSkill, 'story-bible', '发型是角色事实');
+    assert.equal(ask?.relation, 'upstream', '故事圣经在定妆上游，改它会清掉刚出的定妆');
+  });
+
+  it('7.2 下游诉求可追加：等主单落地后再接', async () => {
+    const plan = await resolveModifySource(projectId, {
+      target: '',
+      content: '台词再压短些，另外关键帧的光影调暗一点',
+      currentStage: stage,
+      classify: null,
+    });
+    assert.equal(plan.sourceSkill, 'scene-script');
+    const ask = plan.additionalAsks?.find((a) => a.sourceSkill === 'keyframe-reference');
+    assert.equal(ask?.relation, 'downstream', '关键帧在剧本下游，可以等主单完成后接单');
   });
 
   it('8. 画面诉求藏在第二个分句里：主裁决改台词，画面那头也必须记录', async () => {

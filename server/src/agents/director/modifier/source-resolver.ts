@@ -41,6 +41,7 @@
 import { WorkflowStage, STAGE_SEQUENCE } from '../../../types/index.js';
 import { ProjectStore } from '../../../project-store/ProjectStore.js';
 import { SKILL_OF_STAGE } from '../generator/constants.js';
+import { getModifierSpec } from './manifest.js';
 import {
   classifyModifyAttribute,
   isAttributeClassifierEnabled,
@@ -88,6 +89,15 @@ export interface AdditionalAsk {
   attribute: ModifyAttribute;
   sourceSkill: string;
   sourceStage: WorkflowStage;
+  /**
+   * 与主单的关系，决定要不要接第二单：
+   * - merged：同一文本轨。文本修改器一次读三份、产出一份跨文件补丁，
+   *   第二个文本源头在主单里就会一起被改到，不需要另起任务。
+   * - downstream：目标阶段在主单之后。可以追加，但必须等主单落地后再决定
+   *   「改现有产物」还是「按这条指令重新生成」（见 follow-up.ts）。
+   * - upstream：目标阶段在主单之前。追加会把主单刚产出的东西清退，只能记录。
+   */
+  relation: 'merged' | 'downstream' | 'upstream';
 }
 
 export interface ModifySourceInput {
@@ -334,6 +344,7 @@ function findAdditionalAsks(
   input: ModifySourceInput,
   content: string,
   artifacts: Record<string, any>,
+  primarySkill: string,
   primaryStage: WorkflowStage
 ): AdditionalAsk[] {
   if (!CLAUSE_SEPARATORS.test(content)) return [];
@@ -342,6 +353,9 @@ function findAdditionalAsks(
     .map((c) => c.trim())
     .filter((c) => c.length >= 2);
   if (clauses.length < 2) return [];
+
+  const primaryKind = getModifierSpec(primarySkill)?.kind;
+  const primaryOrder = STAGE_SEQUENCE.indexOf(primaryStage);
 
   const asks: AdditionalAsk[] = [];
   for (const clause of clauses) {
@@ -359,7 +373,18 @@ function findAdditionalAsks(
     if (stage === primaryStage) continue;
     if (!artifacts[stage]) continue;
     if (asks.some((a) => a.sourceStage === stage)) continue;
-    asks.push({ clause, attribute, sourceSkill: skill, sourceStage: stage });
+
+    const kind = getModifierSpec(skill)?.kind;
+    const order = STAGE_SEQUENCE.indexOf(stage);
+    // 文本轨一次跨文件打补丁 → 同一主单已覆盖；图像/视频各工序各有独立规格，不能合并
+    const relation: AdditionalAsk['relation'] =
+      kind === 'text' && primaryKind === 'text'
+        ? 'merged'
+        : order > primaryOrder
+          ? 'downstream'
+          : 'upstream';
+
+    asks.push({ clause, attribute, sourceSkill: skill, sourceStage: stage, relation });
   }
   return asks;
 }
@@ -441,7 +466,7 @@ export async function resolveModifySource(projectId: string, input: ModifySource
     cascadeStages: basis === 'no-source' ? [] : computeCascade(artifacts, stage),
     reason,
     // 附加源头只在这里统一挂上：所有正常裁决都走 plan()，漏一处就等于静默丢诉求
-    additionalAsks: findAdditionalAsks(input, content, artifacts, stage),
+    additionalAsks: findAdditionalAsks(input, content, artifacts, skill, stage),
   });
 
   /** 目标工序没产物时降级到上游；连上游都没有则交回调用方 */

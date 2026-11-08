@@ -221,32 +221,57 @@ async function resolveIntentToTask(
       /*
        * 同一句话里落在其他源头的诉求（「台词压短，镜头换中景」）。
        *
-       * 为什么不在这一轮一起执行：改上游必然让下游产物过期，两个源头同批改会互相
-       * 清退，谁先谁后决定最后留下哪一份；而且修完台词再改分镜，分镜那单拿到的还是
-       * 旧台词的上下文。所以这里**记录而不擅自执行**——把它写进任务说明与 payload，
-       * 由创作者看完这单结果再决定要不要开第二单。
-       *
-       * 也不自动立一张待确认任务：approve 意图取的是「最后一张 proposed」，
-       * 凭空多出来的卡片会被下一句「开始」误启动。
+       * 分三种处置，判据在裁决器里（AdditionalAsk.relation）：
+       * - merged：同为文本轨，本单的跨文件补丁已经覆盖，不需要额外动作；
+       * - downstream：可以追加，但必须等本单落地后再定「改」还是「重生成」，
+       *   所以只写进 payload，由主单的成功钩子（follow-up.ts）接单，且派发成待确认；
+       * - upstream：目标阶段在本单之前，追加会把本单产物清退，只记录不执行。
        */
       const additional = plan.additionalAsks || [];
-      if (additional.length > 0) {
-        const detail = additional.map((a) => `「${a.clause}」→ ${a.sourceSkill}`).join('、');
+      const followUps = additional.filter((a) => a.relation === 'downstream');
+      const merged = additional.filter((a) => a.relation === 'merged');
+      const blocked = additional.filter((a) => a.relation === 'upstream');
+
+      if (merged.length > 0) {
         console.log(
-          `[chat] 同一句话还包含另一个源头诉求: ${detail}（本轮只改 ${plan.sourceSkill}，其余待创作者确认）`
+          `[chat] 同句诉求同属文本轨，本单跨文件补丁一并处理: ${merged
+            .map((a) => `「${a.clause}」`)
+            .join('、')}`
         );
       }
+      if (followUps.length > 0) {
+        console.log(
+          `[chat] 同句另有下游诉求，待本单完成后接单: ${followUps
+            .map((a) => `「${a.clause}」→ ${a.sourceSkill}`)
+            .join('、')}`
+        );
+      }
+      if (blocked.length > 0) {
+        console.log(
+          `[chat] 同句含上游诉求，本单不回改（会清退刚产出的产物）: ${blocked
+            .map((a) => `「${a.clause}」→ ${a.sourceSkill}`)
+            .join('、')}`
+        );
+      }
+
+      const tailNote = [
+        merged.length > 0 ? `同句另含：${merged.map((a) => `「${a.clause}」`).join('、')}（文本轨本单一并处理）` : '',
+        followUps.length > 0
+          ? `同句另需：${followUps.map((a) => `「${a.clause}」→ ${a.sourceSkill}`).join('、')}（本单完成后接单）`
+          : '',
+        blocked.length > 0
+          ? `另有上游诉求：${blocked.map((a) => `「${a.clause}」`).join('、')}（需先于本单执行，本轮不做）`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('；');
 
       const dispatchRes = await engine.dispatch({
         projectId,
         sessionId,
         workflowKey: plan.sourceSkill,
         actionType: 'TARGETED_REVISE',
-        reason:
-          (userInstruction || `定向微调 [${plan.sourceSkill}]（${plan.reason}）`) +
-          (additional.length > 0
-            ? `；同句另含：${additional.map((a) => `「${a.clause}」→ ${a.sourceSkill}`).join('、')}（未在本轮执行）`
-            : ''),
+        reason: (userInstruction || `定向微调 [${plan.sourceSkill}]（${plan.reason}）`) + (tailNote ? `；${tailNote}` : ''),
         userPrompt: userInstruction,
         parameters: {
           target: intent.target,
@@ -255,6 +280,8 @@ async function resolveIntentToTask(
           sourceAttribute: plan.attribute,
           cascadeStages: plan.cascadeStages,
           additionalAsks: additional,
+          // 只把可追加的下游诉求交给成功钩子；merged 已由本单覆盖，upstream 会打架
+          followUpAsks: followUps,
         },
       });
 
