@@ -6,14 +6,22 @@
  *   npx tsx scripts/inspect-impact.ts <projectId> --node node_2
  *   npx tsx scripts/inspect-impact.ts <projectId> --shot shot_3
  *   npx tsx scripts/inspect-impact.ts <projectId> --stale
+ *   npx tsx scripts/inspect-impact.ts <projectId> --plan 李明
+ *   npx tsx scripts/inspect-impact.ts <projectId> --plan --json
  *
- * 只读，不触发任何重渲或写盘。
+ * --plan 打印增量重算清单（dry-run），--json 输出可直接序列化的清单结构。
+ * 全部只读，不触发任何重渲或写盘。
  */
 
 import fs from 'fs';
 import path from 'path';
 import { buildLineage, queryImpact } from '../src/agents/director/lineage.js';
+import type { ImpactQuery } from '../src/agents/director/lineage.js';
 import { findStaleAssets } from '../src/agents/director/fingerprint.js';
+import {
+  buildRecomputePlan,
+  formatRecomputePlan,
+} from '../src/agents/director/recompute-plan.js';
 
 const PROJECTS_ROOT = path.resolve(process.cwd(), 'data/projects');
 
@@ -22,6 +30,14 @@ function loadProject(projectId: string): Record<string, any> | null {
   if (!fs.existsSync(file)) return null;
   const raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
   return raw.stageArtifacts || {};
+}
+
+function parseQuery(rest: string[]): ImpactQuery {
+  return rest[0] === '--node'
+    ? { nodeIds: [rest[1]] }
+    : rest[0] === '--shot'
+      ? { shotIds: [rest[1]] }
+      : { characters: rest };
 }
 
 function main() {
@@ -35,6 +51,15 @@ function main() {
   if (!artifacts) {
     console.error(`未找到项目: ${projectId}`);
     process.exit(1);
+  }
+
+  if (rest[0] === '--plan') {
+    const flags = rest.slice(1);
+    const asJson = flags.includes('--json');
+    const targets = flags.filter((f) => f !== '--json');
+    const plan = buildRecomputePlan(artifacts, targets.length ? { query: parseQuery(targets) } : {});
+    console.log(asJson ? JSON.stringify(plan, null, 2) : formatRecomputePlan(plan));
+    return;
   }
 
   if (rest[0] === '--stale') {
@@ -59,14 +84,7 @@ function main() {
   console.log(`图规模: ${graph.nodes.size} 个节点，镜头精度 ${graph.preciseShotCount}/${graph.totalShotCount}`);
   if (graph.missing.length) console.log(`缺失: ${graph.missing.join('、')}`);
 
-  const query =
-    rest[0] === '--node'
-      ? { nodeIds: [rest[1]] }
-      : rest[0] === '--shot'
-        ? { shotIds: [rest[1]] }
-        : { characters: rest };
-
-  const r = queryImpact(graph, query);
+  const r = queryImpact(graph, parseQuery(rest));
   console.log(`\n${r.summary}\n`);
   for (const [label, list] of [
     ['角色', r.characters],
