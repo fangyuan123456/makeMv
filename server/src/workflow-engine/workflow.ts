@@ -971,19 +971,6 @@ export class Workflow {
   }
 
   /**
-   * 底层工序任务直接执行入口 (提供单元测试与底层自愈直通能力)
-   */
-  public async runTaskDirect(
-    projectId: string,
-    taskId: string,
-    workflowKey?: string,
-    parameters?: Record<string, any>
-  ): Promise<ExecuteTaskResult> {
-    const reg = workflowKey ? this.registrations.get(workflowKey) : undefined;
-    return this.runTask(projectId, taskId, reg, parameters);
-  }
-
-  /**
    * 创作者主动取消（驳回）任务
    */
   public async cancelTask(projectId: string, taskId: string, reason?: string): Promise<Task> {
