@@ -260,15 +260,21 @@ export function buildLineage(stageArtifacts: Record<string, any> | undefined): L
       parents.push([`node:${nodeId}`, 'derives']);
       if (!nodeIds.has(nodeId)) missing.push(`node:${nodeId}（仅存在于分镜）`);
     }
-    // 镜头级出镜角色：精确声明，用于把影响面收窄到真正出镜的镜头
+    // 镜头级出镜角色：精确声明，用于把影响面收窄到真正出镜的镜头。
+    // 优先 characterIds（稳定），回落 characterNames（模型原始输出，改名后可能失效）
+    const declaredRaw = Array.isArray(shot?.characterIds)
+      ? shot.characterIds
+      : Array.isArray(shot?.characterNames)
+        ? shot.characterNames
+        : null;
     const shotChars = Array.from(
       new Set(
-        asArray<string>(shot?.characterIds)
+        asArray<string>(declaredRaw)
           .map((c) => resolveChar(c))
           .filter((x): x is string => !!x)
       )
     );
-    if (Array.isArray(shot?.characterIds)) {
+    if (declaredRaw) {
       preciseIds.add(`shot:${shotId}`);
       preciseShotCount++;
     }

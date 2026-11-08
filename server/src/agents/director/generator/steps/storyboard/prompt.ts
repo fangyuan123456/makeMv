@@ -30,5 +30,12 @@ export function buildStoryboardPrompt(
   }
   prompt += `【待切分分场剧本清单】：\n${JSON.stringify(scenesChunk, null, 2)}\n\n`;
   prompt += `请将以上场次全部拆解切分为专业的视听分镜头表。每个镜头必须明确绑定并返回其所属的剧情节点标识(nodeId)，包含镜头机位景别(shotScale)、摄影机运镜动感(cameraMovement)、专业物理轨迹(cameraTrajectory)、主体时序微动作(subjectMotion)、环境光影动态(sceneDynamics)、建议秒数(durationSec: 3~6s)与具体画面构图(visualComposition)。`;
+
+  /*
+   * 出镜角色必须逐镜登记，这是「改了某角色要重做哪几段视频」的唯一依据。
+   * 不写的话，下游只能按剧情节点粗算——同一节点里的空镜也会被算成受影响，
+   * 白花重渲的钱。允许空数组（纯环境空镜），但不能省略字段。
+   */
+  prompt += `\n\n【强制字段 characterNames】：每个镜头都必须返回 characterNames 数组，列出该镜头画面里实际出镜的角色姓名（严格取自剧本中出现的人物名，不得新造、不得用「主角」「她」等代词）。若该镜头是纯环境空镜或无人物出镜，返回空数组 []。此字段不可省略、不可填 null。`;
   return prompt;
 }

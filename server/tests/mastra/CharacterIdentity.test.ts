@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import { ProjectStore } from '../../src/project-store/ProjectStore.js';
 import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
 import { withCharacterFacts, findCharacterFacts } from '../../src/agents/director/character-facts.js';
-import { ensureBibleCharacterIds } from '../../src/agents/director/character-identity.js';
+import { ensureBibleCharacterIds, syncShotCharacterIds } from '../../src/agents/director/character-identity.js';
 
 describe('CharacterIdentity - 角色稳定身份', () => {
   const store = ProjectStore.getInstance();
@@ -177,5 +177,43 @@ describe('CharacterIdentity - 角色稳定身份', () => {
     const bible = legacy.stageArtifacts!.narrative_design;
     ensureBibleCharacterIds(bible);
     assert.ok(bible.characters.every((c: any) => c.characterId));
+  });
+
+  it('分镜镜头登记出镜角色：姓名解析成稳定 id，改名不断链', () => {
+    const bible = {
+      characters: [
+        { name: '李明', characterId: 'char_liming' },
+        { name: '李明的妻子', characterId: 'char_wife' },
+      ],
+    };
+    const storyboard = {
+      shots: [
+        { shotId: 'shot_1', nodeId: 'node_1', characterNames: ['李明'] },
+        { shotId: 'shot_2', nodeId: 'node_1', characterNames: [] }, // 纯环境空镜
+        { shotId: 'shot_3', nodeId: 'node_2', characterNames: ['李明', '李明的妻子', '李明'] },
+      ],
+    };
+
+    assert.equal(syncShotCharacterIds(bible, storyboard), 3);
+    assert.deepEqual(storyboard.shots[0].characterIds, ['char_liming']);
+    assert.deepEqual(storyboard.shots[1].characterIds, [], '空镜必须保持空数组，不能填成节点角色');
+    assert.deepEqual(storyboard.shots[2].characterIds, ['char_liming', 'char_wife'], '重复姓名去重');
+
+    // 幂等：再次同步不重写
+    assert.equal(syncShotCharacterIds(bible, storyboard), 0);
+  });
+
+  it('分镜未登记 characterNames 时不臆造 id（宁可降级到节点级）', () => {
+    const bible = { characters: [{ name: '李明', characterId: 'char_liming' }] };
+    const storyboard = { shots: [{ shotId: 'shot_1', nodeId: 'node_1' }] };
+    assert.equal(syncShotCharacterIds(bible, storyboard), 0);
+    assert.equal(storyboard.shots[0].characterIds, undefined, '缺字段不能拿节点角色兜底，否则影响面会漏算');
+  });
+
+  it('解析不到 id 的姓名保留原名，断链比丢失更糟', () => {
+    const bible = { characters: [{ name: '李明', characterId: 'char_liming' }] };
+    const storyboard = { shots: [{ shotId: 'shot_1', nodeId: 'node_1', characterNames: ['李明', '路人甲'] }] };
+    syncShotCharacterIds(bible, storyboard);
+    assert.deepEqual(storyboard.shots[0].characterIds, ['char_liming', '路人甲']);
   });
 });

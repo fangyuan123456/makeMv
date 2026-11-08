@@ -9,6 +9,10 @@ export const StoryboardShotItemSchema = z.object({
   shotId: z.string().describe('镜头标识，如 shot_1'),
   nodeId: z.string().describe('所属网状剧情节点 ID (如 node_1, node_2)'),
   shotNumber: z.number().describe('镜头全局序号'),
+  characterNames: z
+    .array(z.string())
+    .optional()
+    .describe('本镜头实际出镜的角色姓名（必须取自故事圣经 characterNames；空镜填空数组）。用于精确追踪「改了某角色要重做哪些镜头」，不可省略'),
   shotScale: z.enum(['特写', '近景', '中景', '全景', '大远景']).or(z.string()).describe('摄影机景别'),
   cameraMovement: z.string().describe('摄影机运镜动感方式（如 推、拉、摇、移、跟、固定）'),
   cameraTrajectory: z.string().optional().describe('专业物理摄影机轨迹原语（如：平稳向前推近、弧形环绕45度、手持呼吸感跟拍）'),

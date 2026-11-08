@@ -85,6 +85,56 @@ export function syncPortraitCharacterIds(bible: any, portrait: any): number {
 }
 
 /**
+ * 分镜镜头登记出镜角色的稳定身份（幂等）。
+ *
+ * 分镜是「角色」与「视频资产」之间唯一的挂靠点：改了某角色的性别，
+ * 到底哪几段视频要重渲，答案只能从这里推。模型输出的是姓名（它只知道姓名），
+ * 所以这里把姓名解析成 characterId 存进 characterIds，name 仍保留可读。
+ *
+ * 刻意不做的事：镜头没登记 characterNames 时不拿节点角色兜底填。
+ * 那会把「节点级粗算」伪装成「镜头级精确」，直接影响面漏算、少重渲，
+ * 比多渲几段更糟。宁可留空，让 lineage 自动降级到节点级并明确标注。
+ *
+ * @returns 本次写入 id 的镜头数
+ */
+export function syncShotCharacterIds(bible: any, storyboard: any): number {
+  const shots = Array.isArray(storyboard?.shots) ? storyboard.shots : [];
+  const bibleChars = Array.isArray(bible?.characters) ? bible.characters : [];
+  if (shots.length === 0 || bibleChars.length === 0) return 0;
+
+  const byName = new Map<string, string>();
+  for (const c of bibleChars) {
+    const name = typeof c?.name === 'string' ? c.name.trim() : '';
+    const id = c?.[CHARACTER_ID_KEY];
+    if (name && hasId(id)) byName.set(name, id);
+  }
+
+  let touched = 0;
+  for (const shot of shots) {
+    if (!shot || typeof shot !== 'object') continue;
+    if (!Array.isArray(shot.characterNames)) continue;
+
+    const ids: string[] = [];
+    for (const raw of shot.characterNames) {
+      const name = typeof raw === 'string' ? raw.trim() : '';
+      if (!name) continue;
+      // 解析不到 id 时保留姓名：lineage 会按名字回落，断链比丢失更糟
+      ids.push(byName.get(name) || name);
+    }
+    const unique = Array.from(new Set(ids));
+    const same =
+      Array.isArray(shot.characterIds) &&
+      shot.characterIds.length === unique.length &&
+      shot.characterIds.every((v: any, i: number) => v === unique[i]);
+    if (same) continue;
+
+    shot.characterIds = unique;
+    touched++;
+  }
+  return touched;
+}
+
+/**
  * 产物写入前的统一身份补齐。
  *
  * 放在存储层而不是各个生成器里，是因为写产物的入口太散（生成轨 / 微调轨 /
@@ -108,5 +158,10 @@ export function applyCharacterIdentity(
   if (stage === 'character_design') {
     const bible = stageArtifacts?.['narrative_design'];
     syncPortraitCharacterIds(bible, artifact);
+    return;
+  }
+  if (stage === 'storyboard') {
+    const bible = stageArtifacts?.['narrative_design'];
+    syncShotCharacterIds(bible, artifact);
   }
 }
