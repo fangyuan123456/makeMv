@@ -150,7 +150,7 @@ async function resolveIntentToTask(
        * 它在黑板里定位实体最早出现的产物作为源头，并算出会失效的下游阶段。
        * 图像/视频产物永远不是事实源，涉及年龄/身份/剧情的诉求不会从媒体轨改起。
        */
-      const plan = resolveModifySource(projectId, {
+      const plan = await resolveModifySource(projectId, {
         target: intent.target,
         content: userInstruction,
         currentStage,

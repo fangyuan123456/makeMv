@@ -183,9 +183,9 @@ describe('CascadeRevision - 改动源头后的下游失效与清退', () => {
     assert.ok(order(WorkflowStage.KEYFRAME_REFERENCE) < order(WorkflowStage.VIDEO_PRODUCTION));
   });
 
-  it('2. 级联波及范围只含已落盘的下游阶段，绝不跨越尚未生成的工序', () => {
+  it('2. 级联波及范围只含已落盘的下游阶段，绝不跨越尚未生成的工序', async () => {
     // 改的是角色客观外观 → 属设定事实，源头必须是故事圣经（不是定妆照）
-    const plan = resolveModifySource(testProjectId, {
+    const plan = await resolveModifySource(testProjectId, {
       target: '阿诺',
       content: '改成身穿黑色长风衣，戴防风护目镜',
       currentStage: WorkflowStage.KEYFRAME_REFERENCE,

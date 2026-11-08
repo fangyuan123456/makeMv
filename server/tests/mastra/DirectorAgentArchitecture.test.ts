@@ -73,9 +73,9 @@ describe('DirectorArchitecture - AI 视听总导演单跳直出与解耦双轨�
     assert.ok(tools['emit_director_intent'], 'directorAgent 挂载原生结构化意图决策工具');
   });
 
-  it('1.1 修改源头裁决器 resolveModifySource 从事实定义处起改，模型 hint 不具裁决权', () => {
+  it('1.1 修改源头裁决器 resolveModifySource 从事实定义处起改，模型 hint 不具裁决权', async () => {
     // 1. 角色实体在故事圣经里定义 → 事实源头就是故事圣经
-    const charPlan = resolveModifySource(testProjectId, {
+    const charPlan = await resolveModifySource(testProjectId, {
       target: 'K',
       content: '把 K 的年龄改小一点',
       currentStage: WorkflowStage.STORYBOARD,
@@ -85,7 +85,7 @@ describe('DirectorArchitecture - AI 视听总导演单跳直出与解耦双轨�
     assert.equal(charPlan.basis, 'text-source', '判定依据应为文本源');
 
     // 2. 幕名同样定义在故事圣经 → 源头不变
-    const actPlan = resolveModifySource(testProjectId, {
+    const actPlan = await resolveModifySource(testProjectId, {
       target: '深入下层',
       content: '这一幕的冲突再激烈一点',
       currentStage: WorkflowStage.KEYFRAME_REFERENCE,
@@ -93,7 +93,7 @@ describe('DirectorArchitecture - AI 视听总导演单跳直出与解耦双轨�
     assert.equal(actPlan.sourceSkill, 'story-bible', '幕结构由故事圣经定义');
 
     // 3. 模型把工序猜成图像轨，但该工序尚无产物 → 裁决不被劫持
-    const hintedPlan = resolveModifySource(testProjectId, {
+    const hintedPlan = await resolveModifySource(testProjectId, {
       target: 'K',
       content: 'K 看起来太老了',
       currentStage: WorkflowStage.CHARACTER_DESIGN,
@@ -103,7 +103,7 @@ describe('DirectorArchitecture - AI 视听总导演单跳直出与解耦双轨�
     assert.notEqual(hintedPlan.basis, 'media-asset', '未落盘的媒体工序不能作为修改目标');
 
     // 4. 实体在黑板里查不到 → 回最近的文本事实源（而不是可能无法承载事实的当前阶段）
-    const fallbackPlan = resolveModifySource(testProjectId, {
+    const fallbackPlan = await resolveModifySource(testProjectId, {
       target: '未知异次元产物',
       content: '随便调一下',
       currentStage: WorkflowStage.STORYBOARD,

@@ -132,14 +132,14 @@ test('Director Upgrade - 微观工作记忆与流式解析加固测试', async (
     assert.ok(instructions.includes('绝对严禁再提议进入下一阶段'));
   });
 
-  await t.test('8. 修改源头裁决：镜头微调回分镜文本源，已落盘关键帧进入 cascade 失效重推', () => {
+  await t.test('8. 修改源头裁决：镜头微调回分镜文本源，已落盘关键帧进入 cascade 失效重推', async () => {
     store.setArtifact(testPid, WorkflowStage.STORYBOARD, {
       shots: [{ shotId: 'shot_1', visualComposition: '测试特写' }],
     });
     store.setArtifact(testPid, WorkflowStage.KEYFRAME_REFERENCE, {
       frames: [{ shotId: 'shot_1', imagePath: '/tmp/shot_1.png' }],
     });
-    const plan = resolveModifySource(testPid, {
+    const plan = await resolveModifySource(testPid, {
       target: 'shot_1',
       content: '这个镜头的景别改成特写',
       currentStage: WorkflowStage.KEYFRAME_REFERENCE,
