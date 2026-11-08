@@ -5,6 +5,7 @@
  *   npx tsx scripts/inspect-impact.ts <projectId> 李明
  *   npx tsx scripts/inspect-impact.ts <projectId> --node node_2
  *   npx tsx scripts/inspect-impact.ts <projectId> --shot shot_3
+ *   npx tsx scripts/inspect-impact.ts <projectId> --stale
  *
  * 只读，不触发任何重渲或写盘。
  */
@@ -12,6 +13,7 @@
 import fs from 'fs';
 import path from 'path';
 import { buildLineage, queryImpact } from '../src/agents/director/lineage.js';
+import { findStaleAssets } from '../src/agents/director/fingerprint.js';
 
 const PROJECTS_ROOT = path.resolve(process.cwd(), 'data/projects');
 
@@ -33,6 +35,23 @@ function main() {
   if (!artifacts) {
     console.error(`未找到项目: ${projectId}`);
     process.exit(1);
+  }
+
+  if (rest[0] === '--stale') {
+    const r = findStaleAssets(artifacts);
+    console.log(`产物层: ${Object.keys(artifacts).join(', ') || '（空）'}`);
+    console.log(`\n${r.summary}\n`);
+    for (const [label, list] of [
+      ['陈旧首帧图', r.staleKeyframes],
+      ['陈旧视频片段', r.staleClips],
+      ['无指纹首帧图（老资产）', r.unknownKeyframes],
+      ['无指纹片段（老资产）', r.unknownClips],
+      ['一致的首帧图', r.freshKeyframes],
+      ['一致的片段', r.freshClips],
+    ] as const) {
+      if (list.length) console.log(`【${label}】${list.length}  ${list.slice(0, 12).join('、')}${list.length > 12 ? ' …' : ''}`);
+    }
+    return;
   }
 
   const graph = buildLineage(artifacts);
