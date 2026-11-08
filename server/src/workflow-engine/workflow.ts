@@ -543,6 +543,30 @@ export class Workflow {
   }
 
   /**
+   * 任务失败时在对话气泡里补一条事实说明。
+   *
+   * 为什么必须有：气泡正文是派发前由模型生成的，那时它并不知道任务会失败，
+   * 所以正文里很可能已经写着「已为你改好…」。任务失败后若不纠正，用户看到的
+   * 就是「看起来成功的失败」——产物一个字没变，正文却说变了。
+   *
+   * 这里不改写历史正文（那是用户已经读过的内容），只在同一气泡末尾追加事实；
+   * 找不到引用该 taskId 的消息时由 store 回退为新增一条，语义不会丢。
+   */
+  private announceTaskFailure(task: Task | undefined, reason: string): void {
+    if (!task?.sessionId) return;
+    try {
+      ProjectStore.getInstance().appendToLastTaskMessage(
+        task.projectId,
+        task.sessionId,
+        task.taskId,
+        `⚠️ 本次操作未生效：${reason}`
+      );
+    } catch (err: any) {
+      console.warn(`[Workflow] 失败说明写入对话失败: ${err?.message || '未知异常'}`);
+    }
+  }
+
+  /**
    * 启动并执行任务 (人在回路批准点击或自动直通)
    */
   public async startTask(options: ExecuteTaskOptions): Promise<StartTaskResult> {
@@ -889,6 +913,8 @@ export class Workflow {
         taskStore.setStatus(projectId, taskId, 'failed', {
           error: err.message || '执行异常',
         });
+        // 只在 running → failed 这一跳播报，重放/重复失败不重复打扰
+        this.announceTaskFailure(latestTask, err.message || '执行异常');
       }
       const currentProject = projectStore.getProject(projectId);
       if (currentProject) {
