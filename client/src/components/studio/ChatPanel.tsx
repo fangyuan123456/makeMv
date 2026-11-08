@@ -273,6 +273,105 @@ function InlineTaskPanel({ task, onApprove, onRetry, onOpenArtifact }: InlineTas
  * 4. 子组件：底部输入表单与人在回路待审开工按钮
  * ══════════════════════════════════════════════════════════════════════════════ */
 
+/* ─── 待确认卡片：改动影响面 ───
+ * 数据来自后端 Task.payload.impact（血缘图算出来的，不是模型猜的）。
+ * 只做展示，不参与审批逻辑；缺字段时整块不渲染，老任务零影响。
+ */
+
+interface TaskImpactPreview {
+  summary: string;
+  targets: string[];
+  granularity: 'shot' | 'node';
+  incomplete: boolean;
+  counts: { scenes: number; shots: number; keyframes: number; clips: number };
+  samples: Array<{ id: string; chain: string[] }>;
+  missing: string[];
+}
+
+function readTaskImpact(task?: TaskItem): TaskImpactPreview | null {
+  const raw = task?.payload?.impact;
+  if (!raw || typeof raw !== 'object') return null;
+  if (typeof raw.summary !== 'string' || !raw.counts) return null;
+  return raw as TaskImpactPreview;
+}
+
+function ImpactNotice({ impact }: { impact: TaskImpactPreview }) {
+  const [open, setOpen] = useState(false);
+  const c = impact.counts || { scenes: 0, shots: 0, keyframes: 0, clips: 0 };
+  const hasAssets = (c.shots || 0) + (c.keyframes || 0) + (c.clips || 0) > 0;
+  const tone = hasAssets
+    ? 'border-amber-500/25 bg-amber-500/5 text-amber-100/90'
+    : 'border-slate-700/60 bg-slate-800/40 text-slate-300';
+
+  return (
+    <div className={`mb-2 rounded-lg border px-3 py-2 ${tone}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 text-left cursor-pointer"
+      >
+        {hasAssets ? (
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+        ) : (
+          <Brain className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+        )}
+        <span className="flex-1 text-[11px] leading-relaxed">{impact.summary}</span>
+        {(impact.samples?.length || 0) > 0 && (
+          <ChevronDown
+            className={`w-3.5 h-3.5 shrink-0 opacity-60 transition-transform ${open ? 'rotate-180' : ''}`}
+          />
+        )}
+      </button>
+
+      {open && (
+        <div className="mt-2 pt-2 border-t border-slate-700/50 space-y-2">
+          {impact.targets?.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] text-slate-400">识别到改动对象</span>
+              {impact.targets.map((t) => (
+                <span key={t} className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-indigo-500/15 text-indigo-200 border border-indigo-500/25">
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="grid grid-cols-4 gap-1.5">
+            {([
+              ['场次', c.scenes],
+              ['镜头', c.shots],
+              ['首帧图', c.keyframes],
+              ['视频片段', c.clips],
+            ] as const).map(([label, value]) => (
+              <div key={label} className="rounded bg-slate-950/50 border border-slate-700/40 px-2 py-1.5 text-center">
+                <div className="text-[13px] font-bold font-mono text-slate-100">{value || 0}</div>
+                <div className="text-[9px] text-slate-500">{label}</div>
+              </div>
+            ))}
+          </div>
+
+          {impact.samples?.length > 0 && (
+            <div className="space-y-0.5">
+              {impact.samples.map((s, i) => (
+                <div key={`${s.id}_${i}`} className="text-[10px] font-mono text-slate-400 truncate" title={s.chain?.join(' ← ')}>
+                  <span className="text-slate-200">{s.id}</span>
+                  <span className="opacity-60"> ← {s.chain?.slice(1).join(' ← ')}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <p className="text-[10px] text-slate-500 leading-relaxed">
+            依据产物血缘图推算，仅提示，不会自动重渲。
+            {impact.granularity === 'node' && ' 当前按剧情节点粗算，可能多算几段。'}
+            {impact.incomplete && impact.missing?.length > 0 && ` 部分产物尚未生成（${impact.missing.slice(0, 2).join('、')}），结果可能不完整。`}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface ChatInputBarProps {
   inputText: string;
   setInputText: (val: string) => void;
@@ -290,8 +389,10 @@ function ChatInputBar({
   pendingTask,
   onApproveTask,
 }: ChatInputBarProps) {
+  const impact = readTaskImpact(pendingTask);
   return (
     <div className="p-4 border-t border-slate-800 bg-slate-900 shrink-0">
+      {impact && <ImpactNotice impact={impact} />}
       <form onSubmit={onSubmit} className="flex items-center gap-2">
         <input
           type="text"

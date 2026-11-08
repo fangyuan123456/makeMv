@@ -14,6 +14,7 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import { ProjectStore, TaskStore } from '../../project-store/index.js';
 import { createDirectorAgent, ChatMemoryManager, extractDirectorIntent, type AgentIntentSignal } from '../../agents/director/index.js';
 import { resolveModifySource } from '../../agents/director/modifier/index.js';
+import { previewModifyImpact } from '../../agents/director/modifier/impact.js';
 import { WorkflowStage, SessionStatus, STAGE_SEQUENCE, type Task } from '../../types/index.js';
 import { Workflow } from '../../workflow-engine/index.js';
 import { STAGE_TRANSITION_MAP, SKILL_OF_STAGE, STAGE_OF_SKILL } from '../../agents/director/generator/constants.js';
@@ -266,6 +267,16 @@ async function resolveIntentToTask(
         .filter(Boolean)
         .join('；');
 
+      /*
+       * 待确认卡片上的影响面：从产物血缘图算「这一改会让哪些已生成资产作废」。
+       * 纯读、不阻断、失败静默降级——提示信息不该让修改任务派发失败。
+       * 识别不出具体变更对象时 preview 返回 null，前端就不展示这块。
+       */
+      const impactPreview = previewModifyImpact(
+        ProjectStore.getInstance().getProject(projectId)?.stageArtifacts,
+        userInstruction
+      );
+
       const dispatchRes = await engine.dispatch({
         projectId,
         sessionId,
@@ -280,6 +291,8 @@ async function resolveIntentToTask(
           sourceAttribute: plan.attribute,
           cascadeStages: plan.cascadeStages,
           additionalAsks: additional,
+          // 显式写 null：幂等复用会合并旧 payload，不覆盖的话上一条的影响面会残留成误导
+          impact: impactPreview,
           // 只把可追加的下游诉求交给成功钩子；merged 已由本单覆盖，upstream 会打架
           followUpAsks: followUps,
         },
