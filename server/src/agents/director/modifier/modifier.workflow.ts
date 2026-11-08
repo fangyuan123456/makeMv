@@ -16,9 +16,9 @@
 
 import { Workflow } from '../../../workflow-engine/index.js';
 import { ModifierContextSchema } from './steps/common.js';
-import { textModifierStep } from './steps/text.step.js';
-import { imageModifierStep } from './steps/image.step.js';
-import { videoModifierStep } from './steps/video.step.js';
+import { textModifierStep } from './steps/text/step.js';
+import { imageModifierStep } from './steps/image/step.js';
+import { videoModifierStep } from './steps/video/step.js';
 import { extractTargetSkill, type ModifierKind } from './spec.js';
 import { getModifierSpec } from './manifest.js';
 

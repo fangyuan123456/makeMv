@@ -1,5 +1,5 @@
 /**
- * agents/director/modifier/steps/text.step.ts
+ * agents/director/modifier/steps/text/step.ts
  * 文本内容修改 step（互斥分支 1/3）
  *
  * 覆盖 story-bible / scene-script / storyboard 三个工序——它们共用同一个修改器，
@@ -7,9 +7,9 @@
  */
 
 import { createStep } from '@mastra/core/workflows';
-import { ModifierContextSchema } from './common.js';
-import { runModifierPhases } from './run-phases.js';
-import { textModifierSpec } from './text/spec.js';
+import { ModifierContextSchema } from '../common.js';
+import { runModifierPhases } from '../run-phases.js';
+import { textModifierSpec } from './spec.js';
 
 export const textModifierStep = createStep({
   id: 'step-modify-text',

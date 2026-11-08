@@ -1,5 +1,5 @@
 /**
- * agents/director/modifier/steps/video.step.ts
+ * agents/director/modifier/steps/video/step.ts
  * 视频内容修改 step（互斥分支 3/3）
  *
  * 视频修改本质是「局部重生产」：要调渲染器、要等几十秒、可能失败重试。
@@ -7,9 +7,9 @@
  */
 
 import { createStep } from '@mastra/core/workflows';
-import { ModifierContextSchema } from './common.js';
-import { runModifierPhases } from './run-phases.js';
-import { videoProductionSpec } from './video/video-production/spec.js';
+import { ModifierContextSchema } from '../common.js';
+import { runModifierPhases } from '../run-phases.js';
+import { videoProductionSpec } from './video-production/spec.js';
 
 export const videoModifierStep = createStep({
   id: 'step-modify-video',
