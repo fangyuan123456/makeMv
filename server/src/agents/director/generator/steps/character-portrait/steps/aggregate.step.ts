@@ -69,7 +69,7 @@ export const portraitAggregateStep = createStep({
 
     if (sessionId) {
       const visualAnchorsSummary = orderedCharacters
-        .map((c) => `- ${c.name}: ${(c.appearance || '').slice(0, 40)}... (定妆Prompt: ${c.visualPrompt.slice(0, 60)}...)`)
+        .map((c) => `- ${c.name}: ${c.visualPrompt.slice(0, 80)}...`)
         .join('\n');
       store.updateScratchpad(projectId, sessionId, {
         characterVisualAnchors: visualAnchorsSummary,

@@ -54,13 +54,12 @@ export function pruneAssetForAudit(stage: string, rawAsset: any): any {
     }
     case 'character_design': {
       const list = Array.isArray(rawAsset.characters) ? rawAsset.characters : [];
+      // 角色事实已在 narrative_design 条目中完整呈现，这里只审视觉落地质量，避免重复喂同一份事实
       return {
         totalCharacters: rawAsset.totalCharacters || list.length,
         style: rawAsset.style,
         characters: list.map((c: any) => ({
           name: c.name,
-          role: c.role,
-          appearance: c.appearance,
           visualPrompt: c.visualPrompt,
           isRendered: Boolean(c.imageUrl),
         })),

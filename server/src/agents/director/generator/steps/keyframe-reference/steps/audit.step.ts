@@ -9,6 +9,7 @@ import path from 'path';
 import { WorkflowContextSchema, WorkflowContext } from '../../common.js';
 import { ProjectStore } from '../../../../../../project-store/ProjectStore.js';
 import { WorkflowStage } from '../../../../../../types/index.js';
+import { withCharacterFacts } from '../../../../character-facts.js';
 import type { KeyframeItem, KeyframeReferenceArtifact } from '../schema.js';
 
 export const keyframeAuditStep = createStep({
@@ -32,7 +33,10 @@ export const keyframeAuditStep = createStep({
     }
 
     const charArtifact = store.getArtifact<any>(projectId, WorkflowStage.CHARACTER_DESIGN);
-    const characterVisualSpecs = charArtifact?.characters || [];
+    // 定妆条目只持视觉结果；角色身份等事实按 name 从故事圣经现查（只读投影）
+    const characterVisualSpecs = (charArtifact?.characters || []).map((c: any) =>
+      c && typeof c.name === 'string' ? withCharacterFacts(project, c) : c
+    );
     const style = storyboardArtifact.style || project?.meta?.style || '电影质感，写实光影';
 
     const existingArtifact = store.getArtifact<KeyframeReferenceArtifact>(projectId, WorkflowStage.KEYFRAME_REFERENCE);

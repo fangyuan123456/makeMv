@@ -58,7 +58,7 @@ const SUMMARIZERS: Record<string, (art: any) => string> = {
     if (!Array.isArray(art.characters) || art.characters.length === 0) return '✅ 资产已落盘';
     const charItems = art.characters.map((c: any, idx: number) => {
       const status = c.imageUrl ? '✓已定妆' : '待渲染';
-      const visual = c.appearance || c.visualPrompt || '暂无详细描述';
+      const visual = c.visualPrompt || '暂无详细描述';
       const shortVisual = visual.length > 35 ? visual.slice(0, 35) + '...' : visual;
       return `    * [${idx + 1}] ${c.name} (${status}): ${shortVisual}`;
     });

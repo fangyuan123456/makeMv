@@ -7,6 +7,7 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import { ProjectStore, TaskStore } from '../../project-store/index.js';
 import { WorkflowStage, SessionStatus } from '../../types/index.js';
 import { CharacterRenderer } from '../../media/index.js';
+import { hydrateCharacterArtifact, hydratePortraitArtifact } from '../../agents/director/character-facts.js';
 import { readJsonBody, sendJson, sendError } from '../helpers.js';
 
 export async function handleProjectRoutes(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
@@ -105,7 +106,12 @@ export async function handleProjectRoutes(req: IncomingMessage, res: ServerRespo
       sendError(res, 404, '产物不存在');
       return true;
     }
-    sendJson(res, 200, { success: true, projectId, stage, artifact });
+    // 定妆产物只存视觉结果，展示前按 name 合并故事圣经事实（只读投影，不落盘）
+    const payload =
+      stage === WorkflowStage.CHARACTER_DESIGN
+        ? hydrateCharacterArtifact(projectStore.getProject(projectId), artifact)
+        : artifact;
+    sendJson(res, 200, { success: true, projectId, stage, artifact: payload });
     return true;
   }
 
@@ -127,6 +133,11 @@ export async function handleProjectRoutes(req: IncomingMessage, res: ServerRespo
 
     const projectWithHistory = {
       ...project,
+      stageArtifacts: {
+        ...project.stageArtifacts,
+        // 只读投影：定妆产物不持有角色事实，展示时从故事圣经按 name 补齐
+        character_design: hydratePortraitArtifact(project) ?? project.stageArtifacts?.[WorkflowStage.CHARACTER_DESIGN],
+      },
       history: messages,
       sessions,
     };

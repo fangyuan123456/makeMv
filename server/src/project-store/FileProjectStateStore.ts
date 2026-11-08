@@ -493,12 +493,13 @@ export class FileProjectStateStore implements IProjectStateStore {
       }
     }
 
-    // 角色视觉定妆锚点预热：继承已确立的发型、服饰与视觉锚点
+    // 角色视觉定妆锚点预热：只用定妆产物真正持有的视觉结果；
+    // 角色外貌/身份等事实在 charactersSummary 里已由故事圣经提供，不再从定妆条目复制一份
     const charArtifact = project?.stageArtifacts?.['character_design'];
     let characterVisualAnchors = '';
     if (charArtifact && Array.isArray(charArtifact.characters) && charArtifact.characters.length > 0) {
       characterVisualAnchors = charArtifact.characters
-        .map((c: any) => `* 【${c.name}】(${c.imageUrl ? '✓ 定妆已锁定' : '待生成'})${c.appearance ? ` | 外貌: ${c.appearance}` : ''}${c.visualPrompt ? ` | 标志性外观: ${c.visualPrompt}` : ''}`)
+        .map((c: any) => `* 【${c.name}】(${c.imageUrl ? '✓ 定妆已锁定' : '待生成'})${c.visualPrompt ? ` | 标志性外观: ${c.visualPrompt}` : ''}`)
         .join('\n');
     }
 

@@ -255,10 +255,24 @@ export class MemoryProjectStateStore implements IProjectStateStore {
         }
       }
 
+      // 3. 定妆产物以角色名为关联键（不是事实副本），改名必须同步更新键，否则事实查不到
+      const charArtifact = project.stageArtifacts?.['character_design'];
+      const modifiedFields: string[] = ['characters', 'characterNames', 'goldenSpine', 'storyGraph'];
+      if (charArtifact && Array.isArray(charArtifact.characters)) {
+        let renamed = false;
+        for (const c of charArtifact.characters) {
+          if (c.name === oldName) {
+            c.name = newName;
+            renamed = true;
+          }
+        }
+        if (renamed) modifiedFields.push('character_design.characters');
+      }
+
       this.saveProject(project);
       return {
         success: true,
-        modifiedFields: ['characters', 'characterNames', 'goldenSpine', 'storyGraph'],
+        modifiedFields,
         summary: `已将角色【${oldName}】就地修补更名为【${newName}】`,
       };
     }

@@ -13,6 +13,7 @@ import type {
 } from '../../../../../../artifacts/character-portrait.js';
 import type { ModifierSpec, PhaseReporter } from '../../../spec.js';
 import { extractUserFeedback } from '../../../spec.js';
+import { withCharacterFacts } from '../../../../character-facts.js';
 import {
   refineCharacterVisualPrompt,
   archiveHistoryAndPrepareRefine,
@@ -77,8 +78,11 @@ export const characterPortraitSpec: ModifierSpec<PortraitState, PortraitPlan, Ch
 
   plan: async (state: PortraitState, ctx: any, report: PhaseReporter): Promise<PortraitPlan> => {
     report(30, '推演视觉提示词…');
+    // 定妆条目只持视觉结果，重写提示词需要角色事实 → 按 name 从故事圣经现查并合并（只读）
+    const project = ProjectStore.getInstance().getProject(ctx.projectId);
+    const characterView = withCharacterFacts(project, state.target);
     const refinedPrompt = await refineCharacterVisualPrompt(ctx.llm, {
-      existingChar: state.target,
+      existingChar: characterView as any,
       userFeedback: extractUserFeedback(ctx),
       style: state.extra?.style,
       projectId: ctx.projectId,

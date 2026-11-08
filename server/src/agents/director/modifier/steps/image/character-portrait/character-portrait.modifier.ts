@@ -106,14 +106,9 @@ export async function renderModifiedCharacter(
     }
   );
 
+  // 只回写视觉派生结果，角色事实字段一律不带（唯一来源为故事圣经）
   return {
     name: char.name,
-    role: char.role || '主要角色',
-    gender: char.gender,
-    age: char.age,
-    appearance: char.appearance,
-    personality: char.personality,
-    motivation: char.motivation,
     visualPrompt,
     imageUrl: renderRes.url,
     referenceImageUrl: referenceImageUrl || renderRes.url,

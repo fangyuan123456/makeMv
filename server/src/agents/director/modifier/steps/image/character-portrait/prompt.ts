@@ -25,8 +25,9 @@ export function buildRefineCharacterPrompt(
   prompt += `【当前角色原始设定】：
 - 姓名：${character.name}
 - 身份定位：${character.role || '核心人物'}
+- 年龄/性别：${[character.age, character.gender].filter(Boolean).join(' / ') || '未设定'}
 - 既有外貌描写：${character.appearance || '暂无'}
-- 既有视觉提示词：${character.visualPrompt || '暂无'}
+${character.personality ? `- 性格气质（仅用于把握神情气质，禁止改设定）：${character.personality}\n` : ''}- 既有视觉提示词：${character.visualPrompt || '暂无'}
 
 【创作者微调精修指令】：
 ${userFeedback}

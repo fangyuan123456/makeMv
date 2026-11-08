@@ -74,14 +74,10 @@ export async function renderFreshCharacter(
     }
   );
 
+  // 只落视觉派生结果：角色客观事实（年龄/性别/性格/动机/外貌）一律不回写，
+  // 唯一来源是故事圣经，读取时按 name 现查（character-facts.ts）。
   return {
     name: char.name,
-    role: char.role || '主要角色',
-    gender: char.gender,
-    age: char.age,
-    appearance: char.appearance,
-    personality: char.personality,
-    motivation: char.motivation,
     visualPrompt,
     imageUrl: renderRes.url,
     referenceImageUrl: renderRes.url,
