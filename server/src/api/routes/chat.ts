@@ -147,13 +147,42 @@ async function resolveIntentToTask(
         currentStage,
         intent.skill || undefined
       );
+      const userInstruction = intent.content || userMessage;
 
-      // 刚性兜底：微调的前提是「目标工序已有落盘产物」。全新项目的第一句话极易被
-      // 意图模型误判为 modify（如“确定故事核心为主线为…”），此时修改轨 load 发现
-      // 无任何产物会直接抛错、提案 failed。这里在分流前拦截：产物未就绪时把微调
-      // 意图降级为该工序的生成提案（pending 待审），宁可多一次确认也不空转报错。
+      // 刚性兜底一：设定源优先。目标工序没有落盘产物时，微调无处落地。
+      // 若设定源 story-bible 已落盘且目标不是它本身，把微调改道 story-bible——
+      // 角色年龄/身份等诉求本质是设定事实，先修源头，story-bible 微调成功后
+      // onSuccess 会重新提议下游工序，用新设定再生成，诉求才真正落地。
+      // 直接降级成下游「生成提案」会让生成按旧设定跑，用户意见被静默丢弃
+      // （线上案例：「男一太老了吧」→ 转生成 character-portrait → 定妆仍是老设定）。
       const targetStageOfSkill = STAGE_OF_SKILL[targetSkill] || currentStage;
       const targetArtifact = projectStore.getArtifact(projectId, targetStageOfSkill);
+      if (!targetArtifact && targetSkill !== 'story-bible') {
+        const bibleArtifact = projectStore.getArtifact(projectId, WorkflowStage.NARRATIVE_DESIGN);
+        if (bibleArtifact) {
+          console.warn(
+            `[chat] 微调重定向: 工序 [${targetSkill}] 尚无产物且设定源 story-bible 已落盘，` +
+              `微调诉求改道 story-bible 先修设定源头`
+          );
+          const redirectRes = await engine.dispatch({
+            projectId,
+            sessionId,
+            workflowKey: 'story-bible',
+            actionType: 'TARGETED_REVISE',
+            reason: userInstruction || `微调设定源头（原目标工序 [${targetSkill}] 尚无产物）`,
+            userPrompt: userInstruction,
+            parameters: {
+              target: intent.target,
+              userFeedback: userInstruction,
+              redirectFrom: targetSkill,
+            },
+          });
+          return redirectRes.task;
+        }
+      }
+
+      // 刚性兜底二：连 story-bible 都没有产物（项目刚创建），微调彻底无处落地，
+      // 降级为该工序的生成提案（pending 待审），宁可多一次确认也不空转报错。
       if (!targetArtifact) {
         console.warn(
           `[chat] 拦截空转微调: 工序 [${targetSkill}] 尚无已落盘产物，modify 意图自动降级为生成提案`
@@ -164,13 +193,12 @@ async function resolveIntentToTask(
           workflowKey: targetSkill,
           actionType: 'PROCEED_STAGE',
           reason: `生成工序 [${targetSkill}]（微调请求因产物未就绪自动转为生成）`,
-          userPrompt: intent.content || userMessage,
+          userPrompt: userInstruction,
           requireConfirmation: true,
         });
         return downgradeRes.task;
       }
 
-      const userInstruction = intent.content || userMessage;
       const dispatchRes = await engine.dispatch({
         projectId,
         sessionId,

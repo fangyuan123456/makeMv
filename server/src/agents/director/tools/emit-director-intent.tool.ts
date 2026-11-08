@@ -55,6 +55,10 @@ export const emitDirectorIntentTool = createTool({
    - 故事设定事实（角色姓名/性别/年龄/身份/背景/人物关系、世界观、剧情走向、幕结构）→ story-bible；
    - 台词、场次内容、场面调度 → scene-script；镜头切分、运镜、构图 → storyboard；
    - 角色视觉形象（服装/发型/长相风格）→ character-portrait；画面参考 → keyframe-reference；成片动态 → video-production；
+   两可裁决规则：角色的客观属性（年龄/性别/姓名/身份/性格/动机/人物关系）永远归属 story-bible，
+   即使创作者用外观口吻表达（如“男一太老了吧”“让他看起来年轻点”——观感偏老多源于年龄与形象设定，
+   应修改 story-bible 的角色设定，下游定妆会跟随新设定）；只有纯视觉样式诉求（服装配色/发型/妆容）
+   且定妆已生成时才选 character-portrait；
    即使诉求听起来在谈后续工序（如"主角改成女的"是在聊角色形象），只要改动的是已落盘的设定事实，也必须选 modify；
    skill 判断不准时，务必把 target 填成具体实体名（角色名/场次名/镜头号），系统会反查黑板真实产物自动定位工序；
    前提硬约束：modify 只能作用于已经生成落盘的资产。若所涉工序从未执行（例如项目刚创建、首条消息就在描述创作构想），禁止选 modify，必须选 next 推进生成；
