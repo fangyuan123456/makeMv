@@ -93,13 +93,54 @@ console.log('场景 4：端到端原子提交（磁盘读写 + JSON 语法守卫
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
-console.log('场景 5：多次出现时全部替换（全局替换语义不变）');
+console.log('场景 5：默认 unique 拒绝多处命中，显式 all 才允许全替换');
 {
   const repeated = `第一行提到杰克，后面还有。
 "name": "杰克", "role": "男主角"
 再提一次杰克。`;
-  const res = applyStringPatches(repeated, [{ search: '杰克', replace: '杰姬' }]);
-  assert(res.success && res.resultText.split('杰克').length === 1, '短补丁全局替换');
+
+  // 5a 默认 unique：命中 3 次必须拒绝，且原文不得被改写
+  const uniqueRes = applyStringPatches(repeated, [{ search: '杰克', replace: '杰姬' }]);
+  assert(!uniqueRes.success, '默认 unique 下多处命中必须拒绝');
+  assert(
+    uniqueRes.errors.some((e) => e.includes('不唯一')),
+    '错误信息须说明命中次数与补救方式'
+  );
+  assert(uniqueRes.resultText === repeated, '被拒绝时原文不得被改写');
+
+  // 5b 显式 all：允许全替换（改名场景）
+  const allRes = applyStringPatches(repeated, [
+    { search: '杰克', replace: '杰姬', scope: 'all' },
+  ]);
+  assert(allRes.success && allRes.resultText.split('杰克').length === 1, '显式 all 可全局改名');
+
+  // 5c 单字 all：永远拒绝
+  const single = applyStringPatches('"gender": "男"\n"role": "男"', [
+    { search: '男', replace: '女', scope: 'all' },
+  ]);
+  assert(!single.success, '单字全局替换必须拒绝');
+}
+
+console.log('场景 6：真实事故回归——「男→女」不得一次污染全部角色');
+{
+  const bible = `{
+  "characters": [
+    { "name": "李明", "gender": "男", "role": "男主角" },
+    { "name": "李明的妻子", "gender": "男", "role": "女主角" },
+    { "name": "李明的儿子", "gender": "男", "role": "关键角色" }
+  ]
+}`;
+  const bad = applyStringPatches(bible, [{ search: '男', replace: '女', scope: 'all' }]);
+  assert(!bad.success, '短补丁「男→女」必须被拦下');
+
+  const good = applyStringPatches(bible, [
+    { search: '"name": "李明", "gender": "男"', replace: '"name": "李明", "gender": "女"' },
+  ]);
+  assert(good.success, '带上下文的精确补丁可正常修改');
+  const parsed = JSON.parse(good.resultText);
+  assert(parsed.characters[0].gender === '女', '目标角色已改为女性');
+  assert(parsed.characters[1].gender === '男', '配偶角色未被污染');
+  assert(parsed.characters[2].gender === '男', '儿子未被污染');
 }
 
 console.log(`\n结果: ${pass} 过, ${fail} 挂`);

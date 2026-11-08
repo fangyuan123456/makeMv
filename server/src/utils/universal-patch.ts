@@ -38,6 +38,13 @@ export const UniversalPatchSchema = z.object({
           .min(1, 'search 目标字符串不能为空')
           .describe('原文件中需要被替换的原文字符串（包含足够的上下文以保证唯一定位）'),
         replace: z.string().describe('替换后的新文本内容'),
+        scope: z
+          .enum(['unique', 'all'])
+          .optional()
+          .describe(
+            '替换范围。unique（默认）= search 必须在文件中只出现一次，改字段值/台词时必须用它；' +
+              'all = 全文件统一替换，仅限改名与统一术语，禁止用于枚举值'
+          ),
       })
     )
     .min(1, '至少包含一条有效替换补丁'),
@@ -46,11 +53,15 @@ export const UniversalPatchSchema = z.object({
 
 export type UniversalPatchOutput = z.infer<typeof UniversalPatchSchema>;
 
+/** 补丁替换范围：unique = 必须唯一命中；all = 全文件统一替换（改名/术语） */
+export type PatchScope = 'unique' | 'all';
+
 /** 单条补丁（file 可选，兼容单文件模式） */
 export interface PlannedPatch {
   file?: string;
   search: string;
   replace: string;
+  scope?: PatchScope;
 }
 
 export const UNIVERSAL_STRING_PATCH_SYSTEM_PROMPT = `你是一位严谨的电影工业软件系统架构师与剧本修补专家。
@@ -73,10 +84,13 @@ export const MULTI_FILE_PATCH_SYSTEM_PROMPT = `${UNIVERSAL_STRING_PATCH_SYSTEM_P
    禁止借机改写未被要求的内容，未被涉及的文件不要输出补丁；
 8. search 必须是原文中的逐字连续片段，禁止改写、缩写、补全或意译。
    若无法确定整句原文，就缩短 search（取其中最确定的一小段），绝不凭印象写整句；
-9. 全局替换（改名、改称谓、统一术语）：每个文件只需输出一条短补丁，
-   search 就是被替换的原文片段本身（如「李娜」），不要逐句罗列「…李娜…」的整句补丁。
-   **此条优先于第 2、8 条**：凡是同一处替换在文件中反复出现，就用短补丁一次覆盖，
-   不要为每一处出现单独造补丁。整单补丁通常 1~5 条，超过 8 条基本可以断定你在逐句罗列。`.trim();
+9. 替换范围必须用 scope 显式声明，默认 unique：
+   - unique（改字段值、改台词、改描述——绝大多数情况）：search 必须在文件中只出现一次。
+     若你判断它会命中多处，说明上下文不足，请补足上下文（带上字段名或前后一句），
+     **绝不允许改用 scope=all 绕过**。
+   - all（仅限改名、改称谓、统一术语）：search 是需要全文件统一替掉的短片段（如人名「李娜」）。
+     **枚举值永远不允许用 all**（男/女、特写/近景/中景/全景/大远景、固定/推/拉/摇/移/跟）。
+   search 少于 2 个字符时禁止使用 all——单字全替换会污染整份产物。`.trim();
 
 /**
  * 构建单文件补丁推演 Prompt（保留给单体调用路径；文本轨已统一走多文件构建器）
@@ -168,6 +182,61 @@ function buildWhitespaceFlexibleRegex(search: string): RegExp | null {
   return new RegExp(tokens.map(escapeRegExp).join('\\s+'), 'g');
 }
 
+/** 统计 target 在 text 中出现的次数（非重叠计数） */
+function countOccurrences(text: string, target: string): number {
+  if (!target) return 0;
+  let count = 0;
+  let from = 0;
+  while (true) {
+    const idx = text.indexOf(target, from);
+    if (idx === -1) break;
+    count++;
+    from = idx + target.length;
+  }
+  return count;
+}
+
+/**
+ * 按 scope 执行替换，并在替换前做命中数裁决。
+ *
+ * 这里是「短补丁全局替换」事故的唯一收口点：
+ *   - scope=unique（默认）：命中必须恰好 1 次，多处命中直接拒绝并给出可操作的错误，
+ *     逼模型补足上下文，而不是用一条短串把整份产物的同名字段全洗掉；
+ *   - scope=all（仅改名/术语）：允许全替换，但拒绝单字替换——
+ *     「男」→「女」这类单字全局替换正是把 6 个角色一次改成女性的原因。
+ */
+function applyWithScope(
+  text: string,
+  target: string,
+  replacement: string,
+  scope: PatchScope
+): { text: string; hits: number; rejected?: string } {
+  const hits = countOccurrences(text, target);
+  if (hits === 0) return { text, hits };
+
+  if (scope === 'unique' && hits > 1) {
+    return {
+      text,
+      hits,
+      rejected:
+        `补丁目标不唯一：search 在文件中命中 ${hits} 次。` +
+        `请补足上下文（带上字段名或前后一句）使其唯一；若确为改名/统一术语，请显式声明 scope=all`,
+    };
+  }
+
+  if (scope === 'all' && target.trim().length < 2) {
+    return {
+      text,
+      hits,
+      rejected: `禁止对单字执行全局替换 [${target}]：单字全替换会污染整份产物，请改用 scope=unique 并补齐上下文`,
+    };
+  }
+
+  const next =
+    hits === 1 ? text.replace(target, () => replacement) : text.split(target).join(replacement);
+  return { text: next, hits };
+}
+
 /**
  * 纯字符串补丁应用核心算法 (内存执行)
  *
@@ -183,7 +252,7 @@ function buildWhitespaceFlexibleRegex(search: string): RegExp | null {
  */
 export function applyStringPatches(
   originalText: string,
-  patches: Array<{ search: string; replace: string }>,
+  patches: Array<{ search: string; replace: string; scope?: PatchScope }>,
   options: { tolerateAlreadyApplied?: boolean } = {}
 ): {
   success: boolean;
@@ -195,38 +264,70 @@ export function applyStringPatches(
   let currentText = normalizeNewlines(originalText);
   const applied: Array<{ search: string; replace: string }> = [];
   const misses: Array<{ search: string; replace: string }> = [];
+  /** scope 裁决失败（目标不唯一 / 单字全局替换）：硬错误，不放行到归因阶段 */
+  const rejections: string[] = [];
 
   // 第一遍：尽力应用
-  for (const { search, replace } of patches) {
+  for (const patch of patches) {
+    const { search, replace, scope = 'unique' } = patch;
     const normSearch = normalizeNewlines(search);
     const normReplace = normalizeNewlines(replace);
 
-    if (currentText.includes(normSearch)) {
-      // 若出现多次（如改名），全部替换
-      currentText = currentText.split(normSearch).join(normReplace);
+    // 第 1 档：精确匹配
+    const exact = applyWithScope(currentText, normSearch, normReplace, scope);
+    if (exact.rejected) {
+      rejections.push(exact.rejected);
+      continue;
+    }
+    if (exact.hits > 0) {
+      currentText = exact.text;
       applied.push({ search: normSearch, replace: normReplace });
       continue;
     }
 
+    // 第 2 档：边缘空白容错
     const trimmedSearch = normSearch.trim();
-    if (trimmedSearch.length > 0 && currentText.includes(trimmedSearch)) {
-      currentText = currentText.split(trimmedSearch).join(normReplace.trim());
-      applied.push({ search: trimmedSearch, replace: normReplace.trim() });
-      continue;
+    if (trimmedSearch.length > 0) {
+      const trimmed = applyWithScope(currentText, trimmedSearch, normReplace.trim(), scope);
+      if (trimmed.rejected) {
+        rejections.push(trimmed.rejected);
+        continue;
+      }
+      if (trimmed.hits > 0) {
+        currentText = trimmed.text;
+        applied.push({ search: trimmedSearch, replace: normReplace.trim() });
+        continue;
+      }
     }
 
-    // 第三档：空白弹性匹配——内容 token 逐字一致、仅空白形态不符时放行。
+    // 第 3 档：空白弹性匹配——内容 token 逐字一致、仅空白形态不符时放行。
     // 替换值用模型的 replace 原样落入，最终由 JSON.parse 语法守卫兜底。
     const flexibleRegex = buildWhitespaceFlexibleRegex(trimmedSearch);
-    if (flexibleRegex && flexibleRegex.test(currentText)) {
-      flexibleRegex.lastIndex = 0;
-      const flexReplace = normReplace.trim();
-      currentText = currentText.replace(flexibleRegex, () => flexReplace);
-      applied.push({ search: trimmedSearch, replace: flexReplace });
-      console.log(
-        `[UniversalPatch] 空白弹性匹配生效: [${trimmedSearch.slice(0, 40)}${trimmedSearch.length > 40 ? '...' : ''}]`
-      );
-      continue;
+    if (flexibleRegex) {
+      const matches = currentText.match(flexibleRegex);
+      const hits = matches ? matches.length : 0;
+      if (hits > 0) {
+        if (scope === 'unique' && hits > 1) {
+          rejections.push(
+            `补丁目标不唯一：search 在文件中命中 ${hits} 次（空白弹性匹配）。` +
+              `请补足上下文使其唯一；若确为改名/统一术语，请显式声明 scope=all`
+          );
+          continue;
+        }
+        if (scope === 'all' && trimmedSearch.length < 2) {
+          rejections.push(
+            `禁止对单字执行全局替换 [${trimmedSearch}]：单字全替换会污染整份产物，请改用 scope=unique 并补齐上下文`
+          );
+          continue;
+        }
+        const flexReplace = normReplace.trim();
+        currentText = currentText.replace(flexibleRegex, () => flexReplace);
+        applied.push({ search: trimmedSearch, replace: flexReplace });
+        console.log(
+          `[UniversalPatch] 空白弹性匹配生效: [${trimmedSearch.slice(0, 40)}${trimmedSearch.length > 40 ? '...' : ''}]`
+        );
+        continue;
+      }
     }
 
     misses.push({ search: normSearch, replace: normReplace });
@@ -234,7 +335,7 @@ export function applyStringPatches(
 
   // 第二遍：未命中的补丁做确定性归因
   let benignCount = 0;
-  const errors: string[] = [];
+  const errors: string[] = [...rejections];
 
   for (const miss of misses) {
     const trimmedReplace = miss.replace.trim();
@@ -283,7 +384,7 @@ export function applyStringPatches(
  */
 export function applyJsonStringPatch(
   filePath: string,
-  patches: Array<{ search: string; replace: string }>
+  patches: Array<{ search: string; replace: string; scope?: PatchScope }>
 ): { success: boolean; updatedObject?: any; summary?: string; error?: string } {
   const res = applyJsonStringPatchesAtomic([
     { fileName: filePath, filePath, patches },
@@ -302,7 +403,7 @@ export function applyJsonStringPatch(
 export interface FilePatchGroup {
   fileName: string;
   filePath: string;
-  patches: Array<{ search: string; replace: string }>;
+  patches: Array<{ search: string; replace: string; scope?: PatchScope }>;
 }
 
 /** 多文件原子提交结果 */
