@@ -11,7 +11,7 @@ import { randomUUID } from 'crypto';
 import { config } from '../utils/config.js';
 import { atomicWriteJsonSync, trace } from '../utils/index.js';
 import { JsonSanitizer } from '../utils/JsonSanitizer.js';
-import { applyCharacterIdentity } from '../agents/director/character-identity.js';
+import { applyArtifactProvenance } from '../agents/director/provenance.js';
 import type { ProjectEntity, ChatSession, ChatMessage, ScratchpadMemory } from '../types/index.js';
 import type { IProjectStateStore } from './IProjectStateStore.js';
 import type { ProjectStateSnapshot } from './types.js';
@@ -241,9 +241,10 @@ export class FileProjectStateStore implements IProjectStateStore {
       };
     }
 
-    // 3. 角色稳定身份补齐：写产物是唯一口子，生成/微调/修补/导入都在这里统一补 id。
-    //    必须在 stageArtifacts[stage] 赋值之前做——定妆继承 id 要读「写入前」的故事圣经。
-    applyCharacterIdentity(project.stageArtifacts, stage, targetArtifact);
+    // 3. 来源信息统一补齐：角色稳定身份 + 资产输入指纹。
+    //    必须在 stageArtifacts[stage] 赋值之前做——定妆继承 id 要读「写入前」的故事圣经，
+    //    指纹也要用当时的上游版本（指纹记的是「生成时基于哪一版」，不是「写入时最新是哪版」）。
+    applyArtifactProvenance(project.stageArtifacts, prev, stage, targetArtifact);
 
     project.stageArtifacts[stage] = targetArtifact;
     project.updatedAt = now;

@@ -28,6 +28,11 @@ export const VideoClipItemSchema = z.object({
   keyPoses: z.array(KeyPoseItemSchema).optional().describe('动作姿态分解序列 (用于动作级精修与预演)'),
   renderMode: z.enum(['direct_i2v', 'pose_breakdown']).optional().describe('渲染模式：直接I2V或动作姿态分解预演'),
   characterPrompt: z.string().optional().describe('特定角色面貌提示词 (用于角色替换/微调)'),
+  /**
+   * 生成时上游内容的指纹（镜头 + 所用首帧图提示词）。
+   * 由 provenance.ts 在 setArtifact 边界统一补齐，模型不输出此字段。
+   */
+  inputFingerprint: z.string().optional(),
 });
 
 export type VideoClipItem = z.infer<typeof VideoClipItemSchema>;

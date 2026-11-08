@@ -30,6 +30,12 @@ export const KeyframeItemSchema = z.object({
   status: z.enum(['rendered', 'ready']),
   isDegraded: z.boolean().optional(),
   degradedReason: z.string().optional(),
+  /**
+   * 生成时上游内容的指纹（镜头画面字段 + 出镜角色视觉字段）。
+   * 由 provenance.ts 在 setArtifact 边界统一补齐，模型不输出此字段。
+   * 缺失表示老数据或上游不全，陈旧判定按 unknown 处理。
+   */
+  inputFingerprint: z.string().optional(),
 });
 
 export type KeyframeItem = z.infer<typeof KeyframeItemSchema>;

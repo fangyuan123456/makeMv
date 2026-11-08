@@ -4,7 +4,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { applyCharacterIdentity } from '../agents/director/character-identity.js';
+import { applyArtifactProvenance } from '../agents/director/provenance.js';
 import type { ProjectEntity, ChatSession, ChatMessage, ScratchpadMemory } from '../types/index.js';
 import type { IProjectStateStore } from './IProjectStateStore.js';
 import type { ProjectStateSnapshot } from './types.js';
@@ -53,8 +53,9 @@ export class MemoryProjectStateStore implements IProjectStateStore {
       throw new Error(`[MemoryProjectStateStore] setArtifact 失败: 未找到项目 [${projectId}]`);
     }
     if (!project.stageArtifacts) project.stageArtifacts = {};
-    // 与 File 实现保持同一口径：角色稳定身份在写入层统一补齐
-    applyCharacterIdentity(project.stageArtifacts, stage, artifact);
+    // 与 File 实现保持同一口径：身份与指纹在写入层统一补齐
+    const prev = project.stageArtifacts[stage];
+    applyArtifactProvenance(project.stageArtifacts, prev, stage, artifact);
     project.stageArtifacts[stage] = artifact;
     project.updatedAt = new Date().toISOString();
     this.projects.set(projectId, project);
