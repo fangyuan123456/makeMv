@@ -11,6 +11,7 @@ import { randomUUID } from 'crypto';
 import { config } from '../utils/config.js';
 import { atomicWriteJsonSync, trace } from '../utils/index.js';
 import { JsonSanitizer } from '../utils/JsonSanitizer.js';
+import { applyCharacterIdentity } from '../agents/director/character-identity.js';
 import type { ProjectEntity, ChatSession, ChatMessage, ScratchpadMemory } from '../types/index.js';
 import type { IProjectStateStore } from './IProjectStateStore.js';
 import type { ProjectStateSnapshot } from './types.js';
@@ -240,6 +241,10 @@ export class FileProjectStateStore implements IProjectStateStore {
       };
     }
 
+    // 3. 角色稳定身份补齐：写产物是唯一口子，生成/微调/修补/导入都在这里统一补 id。
+    //    必须在 stageArtifacts[stage] 赋值之前做——定妆继承 id 要读「写入前」的故事圣经。
+    applyCharacterIdentity(project.stageArtifacts, stage, targetArtifact);
+
     project.stageArtifacts[stage] = targetArtifact;
     project.updatedAt = now;
 
@@ -294,11 +299,13 @@ export class FileProjectStateStore implements IProjectStateStore {
       const modifiedFields: string[] = [];
 
       // 1. 替换故事圣经角色小传列表中的名字
+      const renamedIds: string[] = [];
       if (Array.isArray(bible.characters)) {
         let found = false;
         for (const c of bible.characters) {
           if (c.name === cleanOld) {
             c.name = cleanNew;
+            if (typeof c.characterId === 'string') renamedIds.push(c.characterId);
             found = true;
           }
         }
@@ -352,10 +359,13 @@ export class FileProjectStateStore implements IProjectStateStore {
       }
 
       // 4. 若已有定妆照资产，同步更新其中的角色名称
+      //    优先按稳定 id 认人：条目名可能因为历史原因已经和故事圣经不一致，
+      //    只认名字会漏改；只有老数据（无 id）才退回按名字匹配。
       const charArtifact = project.stageArtifacts?.['character_design'];
       if (charArtifact && Array.isArray(charArtifact.characters)) {
         for (const c of charArtifact.characters) {
-          if (c.name === cleanOld) c.name = cleanNew;
+          const sameIdentity = c.characterId && renamedIds.includes(c.characterId);
+          if (sameIdentity || c.name === cleanOld) c.name = cleanNew;
         }
         modifiedFields.push('character_design.characters');
       }

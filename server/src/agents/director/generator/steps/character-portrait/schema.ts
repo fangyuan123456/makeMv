@@ -29,12 +29,18 @@ export type PortraitHistoryRecord = z.infer<typeof PortraitHistoryRecordSchema>;
  * 单角色定妆条目 —— 只持有「视觉派生结果」，不持有角色客观事实。
  *
  * 明确禁止出现 role / gender / age / appearance / personality / motivation 等字段：
- * 这些事实的唯一来源是故事圣经 (narrative_design.characters)，需要时按 name 现查
- * （见 agents/director/character-facts.ts）。历史上这里整份复制过一遍角色属性，
- * 导致「改了设定下游不跟着变」，且任何修改裁决都无法分辨定义处与派生处。
+ * 这些事实的唯一来源是故事圣经 (narrative_design.characters)，需要时按 characterId
+ * （老数据按 name）现查（见 agents/director/character-facts.ts）。历史上这里整份复制过
+ * 一遍角色属性，导致「改了设定下游不跟着变」，且任何修改裁决都无法分辨定义处与派生处。
  */
 export const CharacterSheetItemSchema = z.object({
-  name: z.string().describe('角色姓名（关联故事圣经角色事实的唯一键）'),
+  /**
+   * 稳定身份：来自故事圣经的同名角色，写入层自动补齐（见 character-identity.ts）。
+   * 与 name 解耦——改名不动它，因此改名不会断开关联；同名角色靠它区分。
+   * 老数据可能没有，读取期回落按 name 匹配。
+   */
+  characterId: z.string().optional(),
+  name: z.string().describe('角色姓名（展示名；关联优先走 characterId）'),
   visualPrompt: z.string().describe('纯中文电影级特写定妆生图提示词（由角色事实派生）'),
   imageUrl: z.string().optional(),
   referenceImageUrl: z.string().optional().describe('当前参考底图 URL（修改逻辑下使用）'),

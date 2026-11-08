@@ -107,7 +107,9 @@ export async function renderModifiedCharacter(
   );
 
   // 只回写视觉派生结果，角色事实字段一律不带（唯一来源为故事圣经）
+  // 身份 id 必须原样带回，否则微调一次就退化成「按名字关联」，改名即断链
   return {
+    characterId: char.characterId,
     name: char.name,
     visualPrompt,
     imageUrl: renderRes.url,

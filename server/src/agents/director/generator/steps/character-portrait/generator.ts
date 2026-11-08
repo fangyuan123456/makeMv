@@ -75,8 +75,10 @@ export async function renderFreshCharacter(
   );
 
   // 只落视觉派生结果：角色客观事实（年龄/性别/性格/动机/外貌）一律不回写，
-  // 唯一来源是故事圣经，读取时按 name 现查（character-facts.ts）。
+  // 唯一来源是故事圣经，读取时按 characterId（老数据按 name）现查（character-facts.ts）。
+  // characterId 必须随条目带下来：角色同名时名字无法区分，只有身份 id 才能对上事实。
   return {
+    characterId: char.characterId,
     name: char.name,
     visualPrompt,
     imageUrl: renderRes.url,

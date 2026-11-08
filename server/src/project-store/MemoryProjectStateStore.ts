@@ -4,6 +4,7 @@
  */
 
 import { randomUUID } from 'crypto';
+import { applyCharacterIdentity } from '../agents/director/character-identity.js';
 import type { ProjectEntity, ChatSession, ChatMessage, ScratchpadMemory } from '../types/index.js';
 import type { IProjectStateStore } from './IProjectStateStore.js';
 import type { ProjectStateSnapshot } from './types.js';
@@ -52,6 +53,8 @@ export class MemoryProjectStateStore implements IProjectStateStore {
       throw new Error(`[MemoryProjectStateStore] setArtifact 失败: 未找到项目 [${projectId}]`);
     }
     if (!project.stageArtifacts) project.stageArtifacts = {};
+    // 与 File 实现保持同一口径：角色稳定身份在写入层统一补齐
+    applyCharacterIdentity(project.stageArtifacts, stage, artifact);
     project.stageArtifacts[stage] = artifact;
     project.updatedAt = new Date().toISOString();
     this.projects.set(projectId, project);
@@ -218,10 +221,14 @@ export class MemoryProjectStateStore implements IProjectStateStore {
         throw new Error('未找到故事圣经资产，无法执行角色重命名修补');
       }
 
-      // 1. 替换角色列表中的姓名
+      // 1. 替换角色列表中的姓名（记下稳定 id，供定妆条目按身份认人）
+      const renamedIds: string[] = [];
       if (Array.isArray(bible.characters)) {
         for (const c of bible.characters) {
-          if (c.name === oldName) c.name = newName;
+          if (c.name === oldName) {
+            c.name = newName;
+            if (typeof c.characterId === 'string') renamedIds.push(c.characterId);
+          }
         }
       }
       if (Array.isArray(bible.characterNames)) {
@@ -255,13 +262,15 @@ export class MemoryProjectStateStore implements IProjectStateStore {
         }
       }
 
-      // 3. 定妆产物以角色名为关联键（不是事实副本），改名必须同步更新键，否则事实查不到
+      // 3. 定妆条目的关联键：优先按稳定 id 认人（条目名可能与圣经已不一致），
+      //    老数据无 id 才退回按名字匹配。
       const charArtifact = project.stageArtifacts?.['character_design'];
       const modifiedFields: string[] = ['characters', 'characterNames', 'goldenSpine', 'storyGraph'];
       if (charArtifact && Array.isArray(charArtifact.characters)) {
         let renamed = false;
         for (const c of charArtifact.characters) {
-          if (c.name === oldName) {
+          const sameIdentity = c.characterId && renamedIds.includes(c.characterId);
+          if (sameIdentity || c.name === oldName) {
             c.name = newName;
             renamed = true;
           }

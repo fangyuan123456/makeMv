@@ -14,6 +14,8 @@
 
 /** 角色客观事实（来源：故事圣经 characters[]） */
 export interface CharacterFacts {
+  /** 稳定身份：与显示名解耦，改名不断链（老数据可能没有） */
+  characterId?: string;
   name: string;
   role?: string;
   gender?: string;
@@ -38,6 +40,7 @@ export function readCharacterFacts(project: ProjectLike | undefined | null): Cha
   return list
     .filter((c: any) => c && typeof c.name === 'string' && c.name.length > 0)
     .map((c: any) => ({
+      characterId: c.characterId,
       name: c.name,
       role: c.role,
       gender: c.gender,
@@ -49,29 +52,61 @@ export function readCharacterFacts(project: ProjectLike | undefined | null): Cha
     }));
 }
 
-/** 按角色名查单一角色事实（大小写不敏感，兼容「张明」与「张 明」等轻微差异） */
-export function findCharacterFacts(
-  project: ProjectLike | undefined | null,
-  name: string | undefined
-): CharacterFacts | undefined {
-  if (!name) return undefined;
-  const facts = readCharacterFacts(project);
-  const key = normalize(name);
-  return (
-    facts.find((f) => normalize(f.name) === key) ||
-    facts.find((f) => normalize(f.name).includes(key) || key.includes(normalize(f.name)))
-  );
+/** 角色引用：优先用稳定 id，老数据只有名字 */
+export interface CharacterRef {
+  characterId?: string;
+  name?: string;
+}
+
+function normalizeRef(ref: string | CharacterRef | undefined): CharacterRef {
+  if (!ref) return {};
+  return typeof ref === 'string' ? { name: ref } : ref;
 }
 
 /**
- * 把视觉条目与事实源按 name 合并，返回只读视图。
+ * 按角色查单一角色事实。
+ *
+ * 关联顺序：稳定 id → 精确同名 → 唯一包含匹配。
+ * 最后一步只在「有且仅有一个候选」时才认，绝不取第一个：
+ * 两个角色都被同一个片段命中时，猜错比查不到更糟——错的性别年龄会被写进下游。
+ */
+export function findCharacterFacts(
+  project: ProjectLike | undefined | null,
+  ref: string | CharacterRef | undefined
+): CharacterFacts | undefined {
+  const { characterId, name } = normalizeRef(ref);
+  if (!characterId && !name) return undefined;
+
+  const facts = readCharacterFacts(project);
+  if (characterId) {
+    const byId = facts.find((f) => f.characterId === characterId);
+    if (byId) return byId;
+  }
+  if (!name) return undefined;
+
+  const key = normalize(name);
+  const exact = facts.filter((f) => normalize(f.name) === key);
+  // 同名多份同样无解：同名角色只有 characterId 能区分，按名字取第一个等于随机分配事实
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) return undefined;
+
+  if (key.length < 2) return undefined;
+  const loose = facts.filter((f) => {
+    const n = normalize(f.name);
+    return n.includes(key) || key.includes(n);
+  });
+  return loose.length === 1 ? loose[0] : undefined;
+}
+
+/**
+ * 把视觉条目与事实源按 id（缺失时按 name）合并，返回只读视图。
  * 视觉字段（visualPrompt/imageUrl/history 等）永远以条目自身为准，事实字段永远以故事圣经为准。
  */
-export function withCharacterFacts<T extends { name: string }>(
+export function withCharacterFacts<T extends { name: string; characterId?: string }>(
   project: ProjectLike | undefined | null,
   sheet: T
 ): T & Partial<CharacterFacts> & { factsFrom?: string } {
-  const facts = findCharacterFacts(project, sheet.name);
+  const facts = findCharacterFacts(project, { characterId: sheet.characterId, name: sheet.name });
   if (!facts) return sheet;
   return { ...facts, ...sheet, factsFrom: CHARACTER_FACTS_SOURCE };
 }
