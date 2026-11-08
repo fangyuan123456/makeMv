@@ -66,9 +66,10 @@ console.log('场景 2：根节点悬空 + 全图无终局');
 console.log('场景 3：末幕悬空兜底到最后节点');
 {
   const g = makeGraph();
-  g.nodes[4].choices = [{ targetNodeId: 'node_ghost', text: '逃亡' }];
+  // 用「非终局」的末幕节点做样本：终局节点的出边会被新规则直接清空
+  g.nodes[3].choices = [{ targetNodeId: 'node_ghost', text: '逃亡' }];
   repairStoryGraphDanglingRefs(g);
-  assert(g.nodes[4].choices[0].targetNodeId === 'node_6', '末幕悬空兜底到最后节点');
+  assert(g.nodes[3].choices[0].targetNodeId === 'node_5', '末幕悬空兜底到下一幕首节点');
 }
 
 console.log('场景 4：结构真错误仍刚性拦截（自愈不背锅）');
@@ -92,6 +93,43 @@ console.log('场景 5：健康图谱零修复');
   g.nodes[1].choices[0].targetNodeId = 'node_3'; // 消除底图中的悬空引用
   const n = repairStoryGraphDanglingRefs(g);
   assert(n === 0, '健康图谱不做任何改动', `实际修复 ${n} 处`);
+}
+
+console.log('场景 6：结局节点自环（线上 node_15→node_15 客户端卡死案例）');
+{
+  const g = makeGraph();
+  g.nodes[1].choices[0].targetNodeId = 'node_3';
+  g.nodes[4].choices = [{ targetNodeId: 'node_5', text: '留在原地' }]; // node_5 是终局却带自环
+  const n = repairStoryGraphDanglingRefs(g);
+  assert(n === 1, '自环被剔除 1 处', `实际修复 ${n} 处`);
+  assert(g.nodes[4].choices.length === 0, '终局节点出边被清空');
+  let threw = false;
+  try { validateStoryGraph(g); } catch { threw = true; }
+  assert(!threw, '修复后通过契约校验（无自环）');
+}
+
+console.log('场景 7：非终局节点自环 → 仅剔除自环边，保留其它分支');
+{
+  const g = makeGraph();
+  g.nodes[1].choices[0].targetNodeId = 'node_3'; // 先消除底图悬空，隔离出自环这一处
+  g.nodes[0].choices = [
+    { targetNodeId: 'node_1', text: '原地打转' },
+    { targetNodeId: 'node_2', text: '继续潜入' },
+  ];
+  const n = repairStoryGraphDanglingRefs(g);
+  assert(n === 1, '剔除 1 条自环边', `实际修复 ${n} 处`);
+  assert(g.nodes[0].choices.length === 1, '保留合法分支', JSON.stringify(g.nodes[0].choices));
+  assert(g.nodes[0].choices[0].targetNodeId === 'node_2', '保留的是非自环分支');
+}
+
+console.log('场景 8：终局节点携带指向他人的出边 → 清空');
+{
+  const g = makeGraph();
+  g.nodes[1].choices[0].targetNodeId = 'node_3';
+  g.nodes[4].choices = [{ targetNodeId: 'node_1', text: '回到开头' }]; // 终局回头
+  const n = repairStoryGraphDanglingRefs(g);
+  assert(n === 1, '清洗 1 处终局出边', `实际修复 ${n} 处`);
+  assert(g.nodes[4].choices.length === 0, '终局分支被清空');
 }
 
 console.log(`\n结果: ${pass} 过, ${fail} 挂`);

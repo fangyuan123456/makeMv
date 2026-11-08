@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { computeDagRanks } from './dagLayout';
 
 export interface StoryNode {
   id: string;
@@ -77,30 +78,12 @@ export default function StoryGraphSvgDiagram({ graph, className = '', onClick }:
 
     const startId = graph?.rootNodeId ?? graph?.startNodeId ?? nodes[0].id;
 
-    // 建立出边表
-    const outgoing = new Map<string, string[]>();
-    nodes.forEach((n) => outgoing.set(n.id, []));
-    choices.forEach((c) => {
-      const list = outgoing.get(c.fromNodeId);
-      if (list && c.toNodeId) list.push(c.toNodeId);
-    });
-
-    // BFS 求每个节点的列（rank）
-    const rank = new Map<string, number>();
-    rank.set(startId, 0);
-    const queue = [startId];
-    while (queue.length > 0) {
-      const cur = queue.shift()!;
-      const r = rank.get(cur) ?? 0;
-      for (const nxt of outgoing.get(cur) ?? []) {
-        if (!rank.has(nxt) || rank.get(nxt)! < r + 1) {
-          rank.set(nxt, r + 1);
-          queue.push(nxt);
-        }
-      }
-    }
-    // 孤立节点放第 1 列
-    nodes.forEach((n) => { if (!rank.has(n.id)) rank.set(n.id, 1); });
+    // 拓扑序分层（自环/环安全）：旧的最长路径 BFS 遇自环会无限入队
+    const rank = computeDagRanks(
+      nodes.map((n) => n.id),
+      choices.map((c) => ({ from: c.fromNodeId, to: c.toNodeId })),
+      startId
+    );
 
     // 按列分组
     const cols = new Map<number, StoryNode[]>();

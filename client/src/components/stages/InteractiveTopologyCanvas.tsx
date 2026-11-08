@@ -15,6 +15,7 @@ import {
   Briefcase,
   X,
 } from 'lucide-react';
+import { computeDagRanks } from './dagLayout';
 
 export interface StoryNode {
   id: string;
@@ -117,40 +118,13 @@ export default function InteractiveTopologyCanvas({
     if (!nodes.length) return { layoutNodes: [], width: 1200, height: 600, nodeMap: new Map<string, LayoutNode>() };
 
     const startId = graph?.startNodeId || (graph as any)?.rootNodeId || nodes[0]?.id;
-    const outgoing = new Map<string, string[]>();
-    const incoming = new Map<string, string[]>();
-    nodes.forEach((n) => {
-      outgoing.set(n.id, []);
-      incoming.set(n.id, []);
-    });
-    choices.forEach((c) => {
-      if (outgoing.has(c.fromNodeId)) outgoing.get(c.fromNodeId)!.push(c.toNodeId);
-      if (incoming.has(c.toNodeId)) incoming.get(c.toNodeId)!.push(c.fromNodeId);
-    });
 
-    const rankMap = new Map<string, number>();
-    rankMap.set(startId, 0);
-
-    const queue = [startId];
-    while (queue.length > 0) {
-      const curr = queue.shift()!;
-      const currRank = rankMap.get(curr) || 0;
-      const neighbors = outgoing.get(curr) || [];
-      for (const nxt of neighbors) {
-        const existing = rankMap.get(nxt);
-        const newRank = currRank + 1;
-        if (existing === undefined || newRank > existing) {
-          rankMap.set(nxt, newRank);
-          queue.push(nxt);
-        }
-      }
-    }
-
-    nodes.forEach((n) => {
-      if (!rankMap.has(n.id)) {
-        rankMap.set(n.id, 1);
-      }
-    });
+    // 拓扑序分层（自环/环安全）：旧的最长路径 BFS 遇自环 node→node 会无限入队，锁死主线程
+    const rankMap = computeDagRanks(
+      nodes.map((n) => n.id),
+      choices.map((c) => ({ from: c.fromNodeId, to: c.toNodeId })),
+      startId
+    );
 
     const columns: Map<number, StoryNode[]> = new Map();
     nodes.forEach((n) => {

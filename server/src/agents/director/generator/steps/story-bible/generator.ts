@@ -128,7 +128,9 @@ export async function generateStoryGraph(
  * 1. 分支目标悬空 → 重映射到「当前节点之后下一幕的首个节点」（剧情向后推进的语义），
  *    已是末幕则兜底到最后一个节点；
  * 2. 根节点悬空 → 重映射到首个节点；
- * 3. 全图无终局 → 把最后一个节点标记为终局。
+ * 3. 全图无终局 → 把最后一个节点标记为终局；
+ * 4. 终局节点携带出边 → 清空（终局不应继续分支）；
+ * 5. 自环边（node → node）→ 剔除（剧情原地打转，且会让拓扑分层陷入环）。
  * 每处修复都 console.warn 留痕，绝不静默改写。
  */
 export function repairStoryGraphDanglingRefs(graph: StoryGraphOutput): number {
@@ -146,8 +148,27 @@ export function repairStoryGraphDanglingRefs(graph: StoryGraphOutput): number {
   }
 
   for (const node of graph.nodes as any[]) {
-    if (!Array.isArray(node.choices)) continue;
+    if (!Array.isArray(node.choices) || node.choices.length === 0) continue;
+
+    // 终局节点不应再有出边：模型偶发给结局挂分支（含自环），
+    // 会让下游拓扑图的分层算法陷入环，曾导致客户端主线程锁死。
+    if (node.isEnding) {
+      console.warn(
+        `[StoryGraph] 结局节点 [${node.id}] 携带 ${node.choices.length} 条出边，自愈清空分支`
+      );
+      node.choices = [];
+      repaired++;
+      continue;
+    }
+
+    const keptChoices: any[] = [];
     for (const choice of node.choices) {
+      // 自环（node → node）：剧情原地打转，无法推进，直接剔除
+      if (choice.targetNodeId === node.id) {
+        console.warn(`[StoryGraph] 节点 [${node.id}] 的分支指向自身（自环），自愈剔除该分支`);
+        repaired++;
+        continue;
+      }
       if (choice.targetNodeId && !nodeIds.has(choice.targetNodeId)) {
         const currentIdx = graph.nodes.findIndex((m: any) => m.id === node.id);
         const nextActNode =
@@ -161,7 +182,9 @@ export function repairStoryGraphDanglingRefs(graph: StoryGraphOutput): number {
         choice.targetNodeId = nextActNode.id;
         repaired++;
       }
+      keptChoices.push(choice);
     }
+    node.choices = keptChoices;
   }
 
   // 终局缺失 → 标记最后一个节点
@@ -202,6 +225,9 @@ export function validateStoryGraph(graph: StoryGraphOutput | null | undefined): 
   for (const n of graph.nodes) {
     if (Array.isArray(n.choices)) {
       for (const choice of n.choices) {
+        if (choice.targetNodeId && choice.targetNodeId === n.id) {
+          throw new Error(`节点 [${n.id}] 的分支指向自身（自环），拓扑必须为有向无环图`);
+        }
         if (choice.targetNodeId && !nodeIds.has(choice.targetNodeId)) {
           throw new Error(`节点 [${n.id}] 的分支选项指向了不存在的悬空目标节点: [${choice.targetNodeId}]`);
         }

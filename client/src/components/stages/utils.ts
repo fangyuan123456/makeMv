@@ -6,6 +6,9 @@
 
 import { MASTRA_SERVER_URL } from '../../lib/mastra';
 
+export { computeDagRanks } from './dagLayout';
+export type { DagEdge } from './dagLayout';
+
 /** 将后端本地文件路径转换为浏览器可访问的 URL */
 export function assetUrl(path: string): string {
   if (!path) return '';

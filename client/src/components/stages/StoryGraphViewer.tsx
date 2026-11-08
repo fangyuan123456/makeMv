@@ -7,6 +7,7 @@ import {
   ZoomOut,
   RotateCcw,
 } from 'lucide-react';
+import { computeDagRanks } from './dagLayout';
 
 export interface StoryNode {
   id: string;
@@ -136,35 +137,13 @@ export default function StoryGraphViewer({
     }
 
     const startId = (graph as any)?.rootNodeId || graph?.startNodeId || nodes[0]?.id;
-    const outgoing = new Map<string, string[]>();
-    nodes.forEach((n) => outgoing.set(n.id, []));
-    choices.forEach((c) => {
-      if (outgoing.has(c.fromNodeId) && c.toNodeId) {
-        outgoing.get(c.fromNodeId)!.push(c.toNodeId);
-      }
-    });
 
-    const rankMap = new Map<string, number>();
-    rankMap.set(startId, 0);
-
-    const queue = [startId];
-    while (queue.length > 0) {
-      const curr = queue.shift()!;
-      const currRank = rankMap.get(curr) || 0;
-      const neighbors = outgoing.get(curr) || [];
-      for (const nxt of neighbors) {
-        const existing = rankMap.get(nxt);
-        const newRank = currRank + 1;
-        if (existing === undefined || newRank > existing) {
-          rankMap.set(nxt, newRank);
-          queue.push(nxt);
-        }
-      }
-    }
-
-    nodes.forEach((n) => {
-      if (!rankMap.has(n.id)) rankMap.set(n.id, 1);
-    });
+    // 分层统一走 computeDagRanks：拓扑序推进，自环/环不会造成无限循环
+    const rankMap = computeDagRanks(
+      nodes.map((n) => n.id),
+      choices.map((c) => ({ from: c.fromNodeId, to: c.toNodeId })),
+      startId
+    );
 
     const columns: Map<number, StoryNode[]> = new Map();
     nodes.forEach((n) => {
