@@ -7,6 +7,7 @@
 import { createStep } from '@mastra/core/workflows';
 import { WorkflowContextSchema, WorkflowContext, shouldSkipUnchangedStep } from '../common.js';
 import { ProjectStore } from '../../../../../project-store/ProjectStore.js';
+import { latestAssistantDigest } from '../../../../../project-store/conversation.js';
 import { WorkflowStage } from '../../../../../types/index.js';
 import { LLMRegistry } from '../../../../../llm/LLMRegistry.js';
 import { generateStoryBible } from './generator.js';
@@ -32,23 +33,7 @@ export async function executeStoryBible(context: WorkflowContext): Promise<Workf
   const project = store.getProject(projectId);
 
   // 提取总导演吸收创作者所有修改后总结输出的最新剧本方案 (拿最后一个对话，信噪比最高且无历史噪音)
-  let dialogueHistory = '';
-  const sessionId = context.sessionId || store.listSessions(projectId)[0]?.sessionId;
-  if (sessionId) {
-    const rawMessages = store.getMessages(projectId, sessionId) || [];
-    const validAssistantMsgs = rawMessages.filter(
-      (m: any) =>
-        m &&
-        m.role === 'assistant' &&
-        typeof m.content === 'string' &&
-        m.content.trim().length > 0 &&
-        !m.content.startsWith('🎬【系统工序通知】')
-    );
-    const latestSummary = validAssistantMsgs[validAssistantMsgs.length - 1];
-    if (latestSummary && latestSummary.content.trim()) {
-      dialogueHistory = latestSummary.content.trim();
-    }
-  }
+  const dialogueHistory = latestAssistantDigest(projectId, context.sessionId);
 
   // 2. 顺向初稿推演生成
   const resultBible = await generateStoryBible(llm, {

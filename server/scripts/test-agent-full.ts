@@ -1,10 +1,9 @@
 const { createDirectorAgent } = await import('../src/agents/director/director.agent.js');
-const { ChatMemoryManager } = await import('../src/agents/director/memory/chat-memory-manager.js');
+const { getWorkingTurns } = await import('../src/project-store/conversation.js');
 const projectId = process.argv[2] || 'proj_1793978592398_aslk';
 const sessionId = process.argv[3] || 'chat_1793978592400_6c7698';
 const agent = createDirectorAgent(projectId, sessionId);
-const memory = ChatMemoryManager.getInstance();
-const turns = memory.getWorkingTurns(projectId, sessionId, 10);
+const turns = getWorkingTurns(projectId, sessionId, 10);
 const input = [...turns, { role: 'user', content: '好，开始生成故事圣经吧' }];
 console.log('记忆轮数:', turns.length);
 for (let i = 1; i <= 4; i++) {

@@ -7,6 +7,7 @@ import { createStep } from '@mastra/core/workflows';
 import { z } from 'zod';
 import { WorkflowContextSchema, shouldSkipUnchangedStep } from '../../common.js';
 import { ProjectStore } from '../../../../../../project-store/ProjectStore.js';
+import { latestAssistantDigest } from '../../../../../../project-store/conversation.js';
 import { WorkflowStage } from '../../../../../../types/index.js';
 import { LLMRegistry } from '../../../../../../llm/LLMRegistry.js';
 import { generateStorySpine } from '../generator.js';
@@ -51,23 +52,7 @@ export const storySpineStep = createStep({
     const project = store.getProject(projectId);
 
     // 提取总导演最新剧本沟通沉淀
-    let dialogueHistory = '';
-    const sessionId = inputData.sessionId || store.listSessions(projectId)[0]?.sessionId;
-    if (sessionId) {
-      const rawMessages = store.getMessages(projectId, sessionId) || [];
-      const validAssistantMsgs = rawMessages.filter(
-        (m: any) =>
-          m &&
-          m.role === 'assistant' &&
-          typeof m.content === 'string' &&
-          m.content.trim().length > 0 &&
-          !m.content.startsWith('🎬【系统工序通知】')
-      );
-      const latestSummary = validAssistantMsgs[validAssistantMsgs.length - 1];
-      if (latestSummary && latestSummary.content.trim()) {
-        dialogueHistory = latestSummary.content.trim();
-      }
-    }
+    const dialogueHistory = latestAssistantDigest(projectId, inputData.sessionId);
 
     const spine = await generateStorySpine(llm, {
       projectId,

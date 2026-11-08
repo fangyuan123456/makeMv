@@ -1,11 +1,16 @@
 /**
  * tests/mastra/DirectorMemoryAndParserUpgrade.test.ts
- * AI 视听总导演微观工作记忆 (ChatMemoryManager)、流式解析鲁棒性与 SOP 挂载升级验证
+ * 会话投影 (conversation.ts)、流式解析鲁棒性与 SOP 挂载升级验证
  */
 
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { ChatMemoryManager } from '../../src/agents/director/memory/index.js';
+import {
+  getWorkingTurns,
+  recentUserInstructions,
+  latestAssistantDigest,
+  appendAssistantMessage,
+} from '../../src/project-store/conversation.js';
 import { ProjectStore } from '../../src/project-store/ProjectStore.js';
 import { StreamTagParser } from '../../src/utils/StreamTagParser.js';
 import { ContextAssembler } from '../../src/project-store/context-assembler.js';
@@ -14,7 +19,6 @@ import { resolveModifySource } from '../../src/agents/director/modifier/index.js
 
 test('Director Upgrade - 微观工作记忆与流式解析加固测试', async (t) => {
   const store = ProjectStore.getInstance();
-  const memoryManager = ChatMemoryManager.getInstance();
   const testPid = `test_upgrade_${Date.now()}`;
   const testSid = `sess_${Date.now()}`;
 
@@ -37,7 +41,7 @@ test('Director Upgrade - 微观工作记忆与流式解析加固测试', async (
   });
   store.createSession(testPid, '测试会话');
 
-  await t.test('1. ChatMemoryManager 严格保障首条消息必为 user（修剪开头的 assistant 消息）', () => {
+  await t.test('1. 工作记忆严格保障首条消息必为 user（修剪开头的 assistant 消息）', () => {
     // 注入一条 assistant 消息与一条 user 消息
     store.appendMessage(testPid, testSid, {
       role: 'assistant',
@@ -55,13 +59,13 @@ test('Director Upgrade - 微观工作记忆与流式解析加固测试', async (
       timestamp: new Date().toISOString(),
     } as any);
 
-    const turns = memoryManager.getWorkingTurns(testPid, testSid, 10);
+    const turns = getWorkingTurns(testPid, testSid, 10);
     assert.strictEqual(turns[0].role, 'user', '首条消息必须被修剪并保证为 user');
     assert.strictEqual(turns[0].content, '第一句用户指令');
     assert.strictEqual(turns.length, 2);
   });
 
-  await t.test('2. ChatMemoryManager 严格保障相邻同角色连续消息自动合并折叠', () => {
+  await t.test('2. 工作记忆严格保障相邻同角色连续消息自动合并折叠', () => {
     // 连续追加两条 user 消息
     store.appendMessage(testPid, testSid, {
       role: 'user',
@@ -74,7 +78,7 @@ test('Director Upgrade - 微观工作记忆与流式解析加固测试', async (
       timestamp: new Date().toISOString(),
     } as any);
 
-    const turns = memoryManager.getWorkingTurns(testPid, testSid, 10);
+    const turns = getWorkingTurns(testPid, testSid, 10);
     // 预期：最后的两条 user 被平滑合并为一条 user
     const lastTurn = turns[turns.length - 1];
     assert.strictEqual(lastTurn.role, 'user');
@@ -86,12 +90,46 @@ test('Director Upgrade - 微观工作记忆与流式解析加固测试', async (
     }
   });
 
-  await t.test('3. ChatMemoryManager 异常中断占位补录功能正常', () => {
-    memoryManager.recordAssistantFallback(testPid, testSid, '网络超时测试');
+  await t.test('3. 异常中断占位补录功能正常（文案由调用方给）', () => {
+    appendAssistantMessage(testPid, testSid, '[导演思考被中断: 网络超时测试，请重试或继续下发指令]');
     const msgs = store.getMessages(testPid, testSid);
     const lastMsg = msgs[msgs.length - 1];
     assert.strictEqual(lastMsg.role, 'assistant');
     assert.ok(lastMsg.content.includes('网络超时测试'));
+  });
+
+  await t.test('3.1 导演沉淀跳过系统插话，不把系统通知当最后一句', () => {
+    store.appendMessage(testPid, testSid, {
+      role: 'assistant',
+      content: '这是导演真正的方案总结',
+      timestamp: new Date().toISOString(),
+    } as any);
+    store.appendMessage(testPid, testSid, {
+      role: 'assistant',
+      content: '🎬【系统工序通知】故事圣经已完成',
+      timestamp: new Date().toISOString(),
+    } as any);
+
+    assert.strictEqual(latestAssistantDigest(testPid, testSid), '这是导演真正的方案总结');
+  });
+
+  await t.test('3.2 最近诉求剔除本轮，避免把同一句话当历史', () => {
+    const sid = `${testSid}_hist`;
+    for (const text of ['第一句诉求', '第二句诉求']) {
+      store.appendMessage(testPid, sid, {
+        role: 'user',
+        content: text,
+        timestamp: new Date().toISOString(),
+      } as any);
+    }
+    store.appendMessage(testPid, sid, {
+      role: 'user',
+      content: '本轮诉求',
+      timestamp: new Date().toISOString(),
+    } as any);
+
+    const history = recentUserInstructions(testPid, sid, '本轮诉求');
+    assert.deepStrictEqual(history, ['第一句诉求', '第二句诉求']);
   });
 
   await t.test('4. emitDirectorIntentTool 强类型结构化意图校验：支持实体与微调参数', async () => {

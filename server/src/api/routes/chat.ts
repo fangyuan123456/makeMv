@@ -12,7 +12,12 @@
 
 import type { IncomingMessage, ServerResponse } from 'http';
 import { ProjectStore, TaskStore } from '../../project-store/index.js';
-import { createDirectorAgent, ChatMemoryManager, extractDirectorIntent, type AgentIntentSignal } from '../../agents/director/index.js';
+import {
+  getWorkingTurns,
+  recentUserInstructions,
+  appendAssistantMessage,
+} from '../../project-store/conversation.js';
+import { createDirectorAgent, extractDirectorIntent, type AgentIntentSignal } from '../../agents/director/index.js';
 import { resolveModifySource } from '../../agents/director/modifier/index.js';
 import { previewModifyImpact } from '../../agents/director/modifier/impact.js';
 import { WorkflowStage, SessionStatus, STAGE_SEQUENCE, type Task } from '../../types/index.js';
@@ -32,36 +37,6 @@ import { readJsonBody, sendJson, sendError } from '../helpers.js';
  * 职责：纯业务领域逻辑。接收大模型 Tool Call 意图信号，结合项目黑板状态与门禁，
  *       产出唯一状态载体 Task（proposed 待确认 / queued 待执行 / 直接 running）。
  * ══════════════════════════════════════════════════════════════════════════════ */
-
-/**
- * 取本会话里最近几条用户诉求（时间正序，不含本轮）。
- *
- * 用途：修改裁决器要解析「再短一点」「太老了」这类省略句，只靠本轮文本无法知道
- * 短的是什么、老的是谁。这些短句恰恰最容易落 unknown、最需要模型补判，也恰恰
- * 最缺信息——所以把上一轮原话一并给出去。
- *
- * 注意：本轮用户消息在调用前已落库（appendMessage），必须剔除末尾那条，
- * 否则「最近诉求」里会出现一遍和本轮一模一样的内容。
- */
-function readPriorUserInstructions(
-  projectId: string,
-  sessionId: string,
-  currentText: string
-): string[] {
-  try {
-    const messages = ProjectStore.getInstance().getMessages(projectId, sessionId) || [];
-    const texts = messages
-      .filter((m: any) => m?.role === 'user')
-      .map((m: any) => String(m?.content || '').trim())
-      .filter(Boolean);
-    const current = (currentText || '').trim();
-    if (texts.length > 0 && texts[texts.length - 1] === current) texts.pop();
-    return texts.slice(-3);
-  } catch (err: any) {
-    console.warn(`[chat] 读取历史诉求失败（不影响本轮裁决）: ${err?.message || err}`);
-    return [];
-  }
-}
 
 async function resolveIntentToTask(
   projectId: string,
@@ -186,7 +161,7 @@ async function resolveIntentToTask(
         content: userInstruction,
         currentStage,
         skillHint: intent.skill,
-        history: readPriorUserInstructions(projectId, sessionId, userInstruction),
+        history: recentUserInstructions(projectId, sessionId, userInstruction),
       });
 
       if (intent.skill && intent.skill !== plan.sourceSkill) {
@@ -367,7 +342,6 @@ async function runSseStreamPipeline(params: SsePipelineParams): Promise<void> {
 
   const projectStore = ProjectStore.getInstance();
   const taskStore = TaskStore.getInstance();
-  const memoryManager = ChatMemoryManager.getInstance();
 
   // 1. 初始化 SSE 管道连接与抗缓冲头部
   req.socket?.setNoDelay(true);
@@ -479,7 +453,11 @@ async function runSseStreamPipeline(params: SsePipelineParams): Promise<void> {
 
     // Turns 角色严格交替防御：流式中断时补录占位消息
     if (!fullReply.trim()) {
-      memoryManager.recordAssistantFallback(projectId, sessionId, streamErr?.message || '流式连接异常');
+      appendAssistantMessage(
+        projectId,
+        sessionId,
+        `[导演思考被中断: ${streamErr?.message || '流式连接异常'}，请重试或继续下发指令]`
+      );
     }
   } finally {
     req.off('close', onClose);
@@ -595,8 +573,7 @@ export async function handleChatRoute(
     );
 
     // 5. 组装微观工作记忆 Turns（严格保障 user 首发与角色交替）
-    const memoryManager = ChatMemoryManager.getInstance();
-    const agentDialogueInput = memoryManager.getWorkingTurns(
+    const agentDialogueInput = getWorkingTurns(
       effectiveProjectId,
       effectiveSessionId,
       10,

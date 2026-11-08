@@ -24,10 +24,9 @@ async function main() {
 
   console.log('\n== stream() 首帧计时 ==');
   const mode = process.argv[3] || 'prepare';
-  // 与路由一致：从 ChatMemoryManager 取工作记忆 turns
-  const { ChatMemoryManager } = await import('../src/agents/director/memory/chat-memory-manager.js');
-  const memoryManager = ChatMemoryManager.getInstance();
-  const agentDialogueInput: any = memoryManager.getWorkingTurns(projectId, sessionId, 10, '简单介绍一下你的导演构思，两句话即可');
+  // 与路由一致：从会话投影取工作记忆 turns
+  const { getWorkingTurns } = await import('../src/project-store/conversation.js');
+  const agentDialogueInput: any = getWorkingTurns(projectId, sessionId, 10, '简单介绍一下你的导演构思，两句话即可');
   if (agentDialogueInput.length === 0 || agentDialogueInput[agentDialogueInput.length - 1].role !== 'user') {
     agentDialogueInput.push({ role: 'user', content: '简单介绍一下你的导演构思，两句话即可' });
   }

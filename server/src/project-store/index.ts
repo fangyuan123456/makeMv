@@ -9,3 +9,4 @@ export * from './MemoryProjectStateStore.js';
 export * from './ProjectStore.js';
 export * from './TaskStore.js';
 export * from './context-assembler.js';
+export * from './conversation.js';
