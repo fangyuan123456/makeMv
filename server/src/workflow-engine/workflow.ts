@@ -313,7 +313,22 @@ export class WorkflowItem<TInput = any, TOutput = any> {
 export class Workflow {
   private static instance?: Workflow;
   private registrations = new Map<string, WorkflowRegistration>();
+  /** 正在执行的 taskId → 执行 Promise（仅执行中，不含排队中） */
   private activeTasks = new Map<string, Promise<ExecuteTaskResult>>();
+  /**
+   * 每项目一条串行执行链（链尾 Promise）。
+   *
+   * 同一项目的两个任务并发执行会互相覆盖：两支微调在 load 段各读一份旧底稿，
+   * commit 段后写覆盖前写，两条任务都标 succeeded，用户改的第一处被静默吃掉。
+   * 因此同一项目同时只跑一个任务，后来的排队等待。
+   */
+  private projectChains = new Map<string, Promise<void>>();
+  /** 项目当前真正占着执行位的 taskId（排队中的不算） */
+  private projectActiveTask = new Map<string, string>();
+  /** 已排入执行链的 taskId，用于 startTask 幂等（重复批准不得重复入队） */
+  private scheduledTasks = new Set<string>();
+  /** 已排入执行链任务的最终执行 Promise（等待方据此拿到真实结果，而不是排队快照） */
+  private scheduledPromises = new Map<string, Promise<ExecuteTaskResult>>();
 
   public static getInstance(): Workflow {
     if (!Workflow.instance) {
@@ -362,6 +377,16 @@ export class Workflow {
 
   public getHandler(key: string): any {
     return this.registrations.get(key)?.execute;
+  }
+
+  /** 该项目是否有任务在执行或排队（判定「现在启动会不会撞车」） */
+  public isProjectBusy(projectId: string): boolean {
+    return this.projectChains.has(projectId) || this.projectActiveTask.has(projectId);
+  }
+
+  /** 项目当前真正在跑的 taskId（排队中的不返回，用于取消拦截判定） */
+  public getProjectActiveTask(projectId: string): string | undefined {
+    return this.projectActiveTask.get(projectId);
   }
 
   /**
@@ -493,12 +518,14 @@ export class Workflow {
     // 若不兜底，任务会永久卡在 queued，客户端对 queued 持续轮询形成死循环。
     try {
       const startRes = await this.startTask({ projectId, taskId: task.taskId });
+      // 项目内有任务正在跑时，本任务只会进入排队，文案不能说「已启动」
+      const waiting = startRes.task?.status === 'queued';
       return {
         success: true,
         taskId: task.taskId,
         task: startRes.task,
-        summary: `已启动工序: ${finalTitle}`,
-        autoStarted: true,
+        summary: waiting ? `已排入执行队列: ${finalTitle}` : `已启动工序: ${finalTitle}`,
+        autoStarted: !waiting,
       };
     } catch (err: any) {
       taskStore.setStatus(projectId, task.taskId, 'failed', {
@@ -531,7 +558,8 @@ export class Workflow {
         throw new Error(`[Workflow] 未找到任务: ${taskId}`);
       }
 
-      if (task.status === 'running' || this.activeTasks.has(taskId)) {
+      // 重复批准幂等：已在执行或已排入执行链的任务不再二次入队
+      if (task.status === 'running' || this.activeTasks.has(taskId) || this.scheduledTasks.has(taskId)) {
         return { accepted: true, task };
       }
 
@@ -563,48 +591,158 @@ export class Workflow {
         }
       }
 
-      // 批准即记账，状态推进到 running 并初始化 10%（单一事实进度契约）
-      const runningTask = taskStore.patchTask(projectId, taskId, {
+      // 同一项目同时只允许一个任务占执行位：后来的进入 queued 排队，而不是并发跑。
+      // 排队而不是拒绝，是因为用户连续下两条修改指令时，两条都应该落地（按序）。
+      const busy = this.isProjectBusy(projectId);
+      const now = new Date().toISOString();
+      const acceptedTask = taskStore.patchTask(projectId, taskId, {
+        status: busy ? 'queued' : 'running',
+        startedAt: busy ? undefined : now,
+        approval: { required: task.approval?.required ?? true, approvedAt: now },
+        progress: busy
+          ? undefined
+          : { current: 0, total: 1, percent: 10, note: '任务已启动，正在准备执行' },
+      });
+
+      if (!busy) {
+        // 空闲：直接预占执行位，避免「置了 running 却没人执行」的空窗
+        this.projectActiveTask.set(projectId, taskId);
+        const project = projectStore.getProject(projectId);
+        if (project) {
+          project.status = SessionStatus.RUNNING;
+          project.updatedAt = now;
+          projectStore.saveProject(project);
+        }
+      }
+
+      // 异步后台触发执行，绝不阻塞当前 HTTP 请求。
+      // 排队任务在真正轮到它时才置 running（见 beginScheduledTask），
+      // 所以客户端看到的 queued 是「确实在排队」，running 才是「确实在跑」。
+      this.scheduleProjectTask(projectId, taskId, reg, overrideParameters);
+
+      return {
+        accepted: true,
+        task: acceptedTask || task,
+      };
+    });
+  }
+
+  /**
+   * 把任务挂到项目执行链尾部（FIFO）。返回链上这一节的 Promise，调用方可选择等待。
+   */
+  private scheduleProjectTask(
+    projectId: string,
+    taskId: string,
+    registration: WorkflowRegistration | undefined,
+    overrideParameters?: Record<string, any>
+  ): Promise<ExecuteTaskResult> {
+    const taskStore = TaskStore.getInstance();
+
+    if (this.scheduledTasks.has(taskId)) {
+      const tracked = this.scheduledPromises.get(taskId);
+      if (tracked) return tracked;
+      const existing = taskStore.getTask(projectId, taskId);
+      if (existing) {
+        return Promise.resolve({ success: true, task: existing });
+      }
+    }
+    this.scheduledTasks.add(taskId);
+
+    const tail = this.projectChains.get(projectId) || Promise.resolve();
+    const runner = tail
+      // 前序任务失败/异常不得阻断后续排队任务
+      .catch(() => undefined)
+      .then(() => this.beginScheduledTask(projectId, taskId, registration, overrideParameters))
+      .catch((err: any): ExecuteTaskResult => {
+        console.error(`[Workflow] 排队任务 [${taskId}] 执行未捕获异常:`, err);
+        const latest = taskStore.getTask(projectId, taskId);
+        // 只救「还没结算」的任务，已被驳回的不能改写成 failed
+        if (latest && (latest.status === 'running' || latest.status === 'queued')) {
+          const failedTask = taskStore.setStatus(projectId, taskId, 'failed', {
+            error: err?.message || '后台执行异常',
+          });
+          if (failedTask) return { success: false, task: failedTask, error: err?.message };
+        }
+        return { success: false, task: latest as Task, error: err?.message };
+      });
+
+    // 链尾只存「已结束」信号，绝不携带 rejection，否则一次失败会让后续任务全部短路
+    const chainTail = runner.then(
+      () => undefined,
+      () => undefined
+    );
+    this.projectChains.set(projectId, chainTail);
+    this.scheduledPromises.set(taskId, runner);
+    chainTail.then(() => {
+      this.scheduledTasks.delete(taskId);
+      this.scheduledPromises.delete(taskId);
+      // 只有自己仍是链尾时才回收项目执行位，避免误清后来者的锁
+      if (this.projectChains.get(projectId) === chainTail) {
+        this.projectChains.delete(projectId);
+        this.projectActiveTask.delete(projectId);
+      }
+    });
+
+    return runner;
+  }
+
+  /**
+   * 排队任务轮到自己时的开场：二次校验状态 → 置 running → 真正执行。
+   */
+  private async beginScheduledTask(
+    projectId: string,
+    taskId: string,
+    registration: WorkflowRegistration | undefined,
+    overrideParameters?: Record<string, any>
+  ): Promise<ExecuteTaskResult> {
+    const projectStore = ProjectStore.getInstance();
+    const taskStore = TaskStore.getInstance();
+
+    const pending = taskStore.getTask(projectId, taskId);
+    if (!pending) {
+      throw new Error(`[Workflow] 排队任务 [${taskId}] 不存在，无法执行`);
+    }
+
+    // 空闲起步的任务在入队时已把自己标成 running 并预占执行位，
+    // 这里不能把它当作「状态已变」跳过，否则任务会永久幽灵 running。
+    const reserved = this.projectActiveTask.get(projectId) === taskId;
+    const startable =
+      pending.status === 'queued' ||
+      pending.status === 'proposed' ||
+      (reserved && pending.status === 'running');
+    if (!startable) {
+      console.log(`[Workflow] 排队任务 [${taskId}] 已变为 [${pending.status}]，跳过执行`);
+      return {
+        success: false,
+        task: pending,
+        error: `任务已被修改为 [${pending.status}]，不再执行`,
+      };
+    }
+
+    const now = new Date().toISOString();
+    if (!reserved) {
+      this.projectActiveTask.set(projectId, taskId);
+      taskStore.patchTask(projectId, taskId, {
         status: 'running',
-        startedAt: new Date().toISOString(),
-        approval: { required: task.approval?.required ?? true, approvedAt: new Date().toISOString() },
+        startedAt: now,
         progress: { current: 0, total: 1, percent: 10, note: '任务已启动，正在准备执行' },
       });
 
       const project = projectStore.getProject(projectId);
       if (project) {
         project.status = SessionStatus.RUNNING;
-        project.updatedAt = new Date().toISOString();
+        project.updatedAt = now;
         projectStore.saveProject(project);
       }
+    }
 
-      // 异步后台触发执行，绝不阻塞当前 HTTP 请求。
-      // runTask 顶部的前置校验在 try 之外，直接 throw 会变成未捕获 rejection，
-      // 任务卡死在 running 永不结算 → 客户端死轮询。这里兜底拉回 failed。
-      const taskPromise = this.runTask(projectId, taskId, reg, overrideParameters).catch(
-        (err: any): ExecuteTaskResult => {
-          console.error(`[Workflow] 任务 [${taskId}] 后台执行未捕获异常:`, err);
-          const latest = taskStore.getTask(projectId, taskId);
-          if (latest && latest.status === 'running') {
-            const failedTask = taskStore.setStatus(projectId, taskId, 'failed', {
-              error: err?.message || '后台执行异常',
-            });
-            if (failedTask) return { success: false, task: failedTask, error: err?.message };
-          }
-          return { success: false, task: latest || task, error: err?.message };
-        }
-      );
-      this.activeTasks.set(taskId, taskPromise);
-
-      taskPromise.finally(() => {
-        this.activeTasks.delete(taskId);
-      });
-
-      return {
-        accepted: true,
-        task: runningTask || task,
-      };
-    });
+    const execution = this.runTask(projectId, taskId, registration, overrideParameters);
+    this.activeTasks.set(taskId, execution);
+    try {
+      return await execution;
+    } finally {
+      this.activeTasks.delete(taskId);
+    }
   }
 
   /**
@@ -818,9 +956,11 @@ export class Workflow {
   public async executeTask(options: ExecuteTaskOptions): Promise<ExecuteTaskResult> {
     const { taskId } = options;
     await this.startTask(options);
-    const runningTask = this.activeTasks.get(taskId);
-    if (runningTask) {
-      return await runningTask;
+    // 排队中的任务也可能还没拿到执行位，必须等它在链上的真实结果，
+    // 否则调用方拿到的是「queued」快照并误判为失败
+    const pending = this.scheduledPromises.get(taskId) || this.activeTasks.get(taskId);
+    if (pending) {
+      return await pending;
     }
     const current = TaskStore.getInstance().getTask(options.projectId, taskId);
     return {
@@ -869,6 +1009,11 @@ export class Workflow {
 
   /**
    * 孤儿任务自愈扫描
+   *
+   * 执行队列只存在于内存，进程重启后没人会来消费，因此两种状态都必须收口：
+   * - running：执行到一半进程没了，置 failed 并提示重试；
+   * - queued：批过了但还没轮到就被重启打断，同样永远等不到执行，
+   *   若留在 queued，客户端会按「排队中」无限轮询（这条以前是漏的）。
    */
   public recoverOrphanTasks(): void {
     try {
@@ -877,11 +1022,19 @@ export class Workflow {
       const projects = projectStore.listProjects();
 
       for (const p of projects) {
-        const runningList = taskStore.listTasks(p.projectId, { status: 'running' });
-        for (const orphan of runningList) {
-          console.warn(`[Workflow] 检测到中断的孤儿任务 [${orphan.taskId}]，自动恢复为 failed...`);
+        const orphans = [
+          ...taskStore.listTasks(p.projectId, { status: 'running' }),
+          ...taskStore.listTasks(p.projectId, { status: 'queued' }),
+        ];
+        for (const orphan of orphans) {
+          const wasRunning = orphan.status === 'running';
+          console.warn(
+            `[Workflow] 检测到中断的孤儿任务 [${orphan.taskId}](${orphan.status})，自动恢复为 failed...`
+          );
           taskStore.setStatus(p.projectId, orphan.taskId, 'failed', {
-            error: '系统进程异常重启，任务已自动置为失败',
+            error: wasRunning
+              ? '系统进程异常重启，任务已自动置为失败'
+              : '系统进程异常重启，排队中的任务未能执行，请重试',
           });
         }
       }
