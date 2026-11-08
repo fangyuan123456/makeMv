@@ -758,9 +758,12 @@ export class Workflow {
         currentProject.updatedAt = new Date().toISOString();
         projectStore.saveProject(currentProject);
       }
+      // 必须在收尾之后再读一次：latestTask 是置 failed 之前的快照，
+      // 直接返回它会让调用方拿到 status='running' 的幽灵状态（客户端据此继续轮询永不结束）。
+      const settledTask = taskStore.getTask(projectId, taskId) || latestTask || task;
       return {
         success: false,
-        task: latestTask || task,
+        task: settledTask,
         error: err.message,
       };
     }

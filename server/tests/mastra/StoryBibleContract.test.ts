@@ -14,7 +14,7 @@ import {
   StoryBibleArtifactSchema,
   exportStoryBibleToDisk,
 } from '../../src/agents/director/generator/steps/story-bible/index.js';
-import { modifyStoryBible } from '../../src/agents/director/modifier/index.js';
+import { modifierWorkflow } from '../../src/agents/director/modifier/index.js';
 import { ProjectStore } from '../../src/project-store/ProjectStore.js';
 import { LLMRegistry } from '../../src/llm/LLMRegistry.js';
 import { MockLLMService } from '../../src/llm/MockLLMService.js';
@@ -129,15 +129,59 @@ describe('StoryBibleContract - 故事圣经工序契约与正常推演套件', (
     const artifact = store.getArtifact(testProjectId, WorkflowStage.NARRATIVE_DESIGN);
     assert.ok(artifact, '状态黑板必须正确存入 narrative_design 产物');
 
-    // 触发 Modifier 精修增量更新
-    const modRes = await modifyStoryBible({
-      projectId: testProjectId,
-      userFeedback: '微调主角动机，增加怀表的神秘副作用',
-      llm: mockLLM,
+    // 文本轨通过一次跨文件补丁推演完成修改。MockLLM 默认不产出
+    // text_multi_file_patch 的补丁体，这里注入一个「只改主命中文件 logline」的确定性 handler：
+    // 补丁必须自带合法 file 归属，且 search 逐字取自原文（含缩进与行尾逗号），
+    // 才能验证 apply 阶段的原子替换确实生效，而不是被容错逻辑兜过。
+    mockLLM.setStageHandler('text_multi_file_patch', (prompt: string) => {
+      const blocks = [...prompt.matchAll(/<<<FILE: (.+?)>>>\n([\s\S]*?)<<<END FILE>>>/g)];
+      for (const block of blocks) {
+        const fileName = block[1].trim();
+        const line = block[2].match(/^(\s*)"logline":\s*"((?:[^"\\]|\\.)*)"(,?)$/m);
+        if (!line) continue;
+        return {
+          patches: [
+            {
+              file: fileName,
+              search: line[0],
+              replace: `${line[1]}"logline": "${line[2]}（怀表另有神秘副作用）"${line[3]}`,
+            },
+          ],
+          summary: '微调主角动机，补强怀表副作用',
+        };
+      }
+      throw new Error('测试桩未在提示词中找到 logline 锚点');
     });
-    assert.equal(modRes.success, true);
-    assert.ok(modRes.data);
-    assert.ok(modRes.summary?.includes('故事圣经修改完成'));
+
+    // 触发 Modifier 精修增量更新（唯一入口：按 targetSkill 命中 text 分支）
+    const modRes: any = await modifierWorkflow.execute({
+      inputData: {
+        projectId: testProjectId,
+        sessionId: testSessionId,
+        targetSkill: 'story-bible',
+        actionType: 'TARGETED_REVISE',
+        userFeedback: '微调主角动机，增加怀表的神秘副作用',
+      },
+    });
+
+    assert.ok(modRes, '微调工作流必须返回结果');
+    assert.match(modRes.lastSummary, /文本修改完成/, '必须汇报文本修改完成');
+    assert.deepEqual(
+      modRes.toolResult.changedStages,
+      [WorkflowStage.NARRATIVE_DESIGN],
+      '本次只改了故事圣经一份产物，changedStages 必须精确'
+    );
+
+    // 真实落地断言：磁盘底稿内容确实被改写（不是只在内存里标记成功）
+    const jsonPath = path.join(store.getProjectDir(testProjectId), 'narrative', 'story_bible.json');
+    const onDisk = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+    assert.match(onDisk.logline, /怀表另有神秘副作用/, '磁盘底稿必须被真实改写');
+
+    // 聚合根同步断言：读模型与磁盘不能分叉
+    const refreshed = store.getArtifact<any>(testProjectId, WorkflowStage.NARRATIVE_DESIGN);
+    assert.match(refreshed.logline, /怀表另有神秘副作用/, '聚合根必须与磁盘底稿同步');
+
+    mockLLM.resetCustomHandlers();
   });
 
   it('1.5 本地工程 narrative/ 目录物理文件导出验证', () => {

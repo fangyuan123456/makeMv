@@ -9,7 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { ProjectStore } from '../../src/project-store/index.js';
 import { videoProductionSubWorkflow } from '../../src/agents/director/generator/steps/video-production/index.js';
-import { modifyVideoClip } from '../../src/agents/director/modifier/index.js';
+import { modifierWorkflow } from '../../src/agents/director/modifier/index.js';
 import { WorkflowStage, SessionStatus } from '../../src/types/index.js';
 
 describe('VideoProductionSubWorkflow 微观子工作流断点恢复与定向精修套件', () => {
@@ -112,23 +112,37 @@ describe('VideoProductionSubWorkflow 微观子工作流断点恢复与定向精�
     assert.equal(subwf.id, 'subwf-video-production');
   });
 
-  it('4. 精修智能体修改器：modifyVideoClip 支持动作姿态时序解构与角色提示词穿透', async () => {
-    const clip = await modifyVideoClip({
-      projectId: testProjectId,
-      kf: { shotId: 'shot_002', imageUrl: 'https://mock.image/shot_2.png' },
-      sbShot: { shotId: 'shot_002', durationSec: 4, cameraMovement: 'zoom_in', subjectMotion: '反手拔刀' },
-      actionRevision: true,
-      userFeedback: '主角迅速反手拔出腰间光刃，在空中挽出刀花定格',
-      characterPrompt: '银色短发赛博义体女侦探，身着暗色防弹大衣',
-      isMock: true,
+  it('4. 精修智能体修改器：视频轨支持动作姿态时序解构与角色提示词穿透', async () => {
+    // 唯一入口：按 targetSkill 命中 video 分支。
+    // 关键帧与分镜不再由调用方手工传入——修改器自己从 KEYFRAME_REFERENCE / STORYBOARD
+    // 产物里按 shotId 取，避免调用方传错一份与产物不一致的上下文。
+    const res: any = await modifierWorkflow.execute({
+      inputData: {
+        projectId: testProjectId,
+        targetSkill: 'video-production',
+        actionType: 'TARGETED_REVISE',
+        target: 'shot_002',
+        userFeedback: '主角迅速反手拔出腰间光刃，在空中挽出刀花定格',
+        payload: {
+          isMock: true,
+          actionRevision: true,
+          targetShotId: 'shot_002',
+          characterPrompt: '银色短发赛博义体女侦探，身着暗色防弹大衣',
+        },
+      },
     });
 
-    assert.ok(clip);
-    assert.equal(clip.shotId, 'shot_002');
-    assert.equal(clip.renderMode, 'pose_breakdown');
-    assert.equal(clip.characterPrompt, '银色短发赛博义体女侦探，身着暗色防弹大衣');
+    assert.ok(res?.toolResult?.clips, '视频轨必须返回更新后的完整切片聚合根');
+    const clip = res.toolResult.clips.find((c: any) => c.shotId === 'shot_002');
+    assert.ok(clip, '必须定位到目标镜头');
+    assert.equal(clip.renderMode, 'pose_breakdown', '动作诉求必须走姿态解构轨');
+    assert.equal(clip.characterPrompt, '银色短发赛博义体女侦探，身着暗色防弹大衣', '角色提示词必须穿透到切片');
     assert.ok(Array.isArray(clip.keyPoses));
     assert.ok(clip.keyPoses.length >= 2, '动作解构应生成至少 2 个关键动作姿态卡点');
     assert.ok(clip.keyPoses[0].poseName);
+
+    // 局部精修不伤及旁镜：其余两个切片必须原样保留
+    assert.equal(res.toolResult.clips.length, 3, '不得因局部精修丢失其它切片');
+    assert.match(res.lastSummary, /其余 2 个视频切片 100% 保持原状/);
   });
 });
