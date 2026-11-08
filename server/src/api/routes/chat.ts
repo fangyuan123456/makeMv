@@ -32,6 +32,36 @@ import { readJsonBody, sendJson, sendError } from '../helpers.js';
  *       产出唯一状态载体 Task（proposed 待确认 / queued 待执行 / 直接 running）。
  * ══════════════════════════════════════════════════════════════════════════════ */
 
+/**
+ * 取本会话里最近几条用户诉求（时间正序，不含本轮）。
+ *
+ * 用途：修改裁决器要解析「再短一点」「太老了」这类省略句，只靠本轮文本无法知道
+ * 短的是什么、老的是谁。这些短句恰恰最容易落 unknown、最需要模型补判，也恰恰
+ * 最缺信息——所以把上一轮原话一并给出去。
+ *
+ * 注意：本轮用户消息在调用前已落库（appendMessage），必须剔除末尾那条，
+ * 否则「最近诉求」里会出现一遍和本轮一模一样的内容。
+ */
+function readPriorUserInstructions(
+  projectId: string,
+  sessionId: string,
+  currentText: string
+): string[] {
+  try {
+    const messages = ProjectStore.getInstance().getMessages(projectId, sessionId) || [];
+    const texts = messages
+      .filter((m: any) => m?.role === 'user')
+      .map((m: any) => String(m?.content || '').trim())
+      .filter(Boolean);
+    const current = (currentText || '').trim();
+    if (texts.length > 0 && texts[texts.length - 1] === current) texts.pop();
+    return texts.slice(-3);
+  } catch (err: any) {
+    console.warn(`[chat] 读取历史诉求失败（不影响本轮裁决）: ${err?.message || err}`);
+    return [];
+  }
+}
+
 async function resolveIntentToTask(
   projectId: string,
   sessionId: string,
@@ -155,6 +185,7 @@ async function resolveIntentToTask(
         content: userInstruction,
         currentStage,
         skillHint: intent.skill,
+        history: readPriorUserInstructions(projectId, sessionId, userInstruction),
       });
 
       if (intent.skill && intent.skill !== plan.sourceSkill) {

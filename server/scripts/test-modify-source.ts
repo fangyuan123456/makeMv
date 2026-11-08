@@ -328,6 +328,48 @@ async function main() {
       classify: async () => undefined as any,
     });
     check('补判无结果 → 回落当前工作面', nulled.sourceSkill === 'keyframe-reference', nulled.sourceSkill);
+
+    // 弃权：模型明确说判不出来（「这个不行，换一个」这类无信息输入）
+    const abstained = await resolveModifySource(FULL, {
+      target: '',
+      content: '这个不行，换一个',
+      currentStage: WorkflowStage.KEYFRAME_REFERENCE,
+      classify: async () => ({ attribute: 'unknown', confidence: 0.9 }),
+    });
+    check('模型弃权 → 不得当成媒体轨改图', abstained.sourceSkill === 'keyframe-reference', abstained.sourceSkill);
+    check('模型弃权 → 属性仍是 unknown', abstained.attribute === 'unknown', abstained.attribute);
+
+    // 0.5 恰好等于「猜」：旧实现用 < 0.5 放行了它，实测三条无信息输入全落在这个水位
+    const borderline = await resolveModifySource(FULL, {
+      target: '',
+      content: '把它改回来',
+      currentStage: WorkflowStage.KEYFRAME_REFERENCE,
+      classify: async () => ({ attribute: 'media', confidence: 0.5 }),
+    });
+    check('置信度 0.5（自认在猜）不采信', borderline.sourceSkill === 'keyframe-reference', borderline.sourceSkill);
+
+    // 0.6 以上才采纳
+    const justAbove = await resolveModifySource(FULL, {
+      target: '张明',
+      content: unknownLine,
+      currentStage: WorkflowStage.KEYFRAME_REFERENCE,
+      classify: async () => ({ attribute: 'appearance', confidence: 0.6 }),
+    });
+    check('置信度 0.6 采信 → 回故事圣经', justAbove.sourceSkill === 'story-bible', justAbove.sourceSkill);
+
+    // 历史诉求必须透传给补判器（省略句解析依赖它）
+    let seenHistory: string[] | undefined;
+    await resolveModifySource(FULL, {
+      target: '',
+      content: '再短一点',
+      currentStage: WorkflowStage.KEYFRAME_REFERENCE,
+      history: ['第二场的台词太长了', '收一收'],
+      classify: async (req) => {
+        seenHistory = req.history;
+        return { attribute: 'dialogue', confidence: 0.8 };
+      },
+    });
+    check('历史诉求透传给补判器', JSON.stringify(seenHistory) === JSON.stringify(['第二场的台词太长了', '收一收']), JSON.stringify(seenHistory));
   }
 
   /* ── 12. 8 个真实场景命中率（规则 + 补判，补判用注入桩，不联网） ── */

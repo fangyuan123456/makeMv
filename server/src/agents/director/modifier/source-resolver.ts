@@ -22,7 +22,9 @@
  * 6. 画面呈现（光影/色调/质感/画风…）→ 媒体轨
  * 7. 媒体对象直指（定妆照/关键帧/这段视频）+ 该资产已落盘 → 对应媒体工序
  * 8. 属性词一个都没命中（unknown）→ 交给 attribute-classifier 补判一次类别
- *    （词表是闭集、创作者表达是开集，unknown 只说明词表没收录，不说明没有属性）
+ *    （词表是闭集、创作者表达是开集，unknown 只说明词表没收录，不说明没有属性；
+ *     但模型同样有权弃权——「这个不行，换一个」这类无信息输入必须判 unknown，
+ *     不允许它硬猜一个类别，否则一句抱怨就会变成媒体轨重新生成）
  * 9. 仍未命中 → 用 WHO 在黑板的文本产物里定位条目
  * 10. 仍判不出 → 当前阶段主责工序（绝不是「最早的文本源」）
  * 11. 无任何文本产物 → no-source，由调用方降级为生成提案
@@ -37,21 +39,16 @@ import { SKILL_OF_STAGE } from '../generator/constants.js';
 import {
   classifyModifyAttribute,
   isAttributeClassifierEnabled,
+  isClassifiable,
   type AttributeClassification,
   type AttributeClassifier,
 } from './attribute-classifier.js';
+import { ATTRIBUTE_LABELS, type ModifyAttribute } from './modify-attributes.js';
 
 export type ModifySourceBasis = 'text-source' | 'media-asset' | 'no-source';
 
-/** 诉求触及的属性类别，用于日志复盘与测试断言 */
-export type ModifyAttribute =
-  | 'setting'
-  | 'appearance'
-  | 'dialogue'
-  | 'shot'
-  | 'visual'
-  | 'media'
-  | 'unknown';
+/** 诉求触及的属性类别（唯一定义在 modify-attributes.ts，此处仅转出） */
+export type { ModifyAttribute } from './modify-attributes.js';
 
 
 export interface ModifyPlan {
@@ -82,6 +79,13 @@ export interface ModifySourceInput {
   currentStage: WorkflowStage;
   /** 大模型给出的工序建议，仅作参考，不具裁决权 */
   skillHint?: string;
+  /**
+   * 最近几条用户诉求（时间正序，末条最近，不含本轮）。
+   * 创作者大量使用省略句——「再短一点」「太老了」——只靠本轮文本无法知道
+   * 短的是什么、老的是谁；这些恰恰是最容易落 unknown、最需要补判的输入，
+   * 也恰恰是最缺信息的输入。所以把上一轮原话一并给出。
+   */
+  history?: string[];
   /**
    * 属性补判开关（仅测试/特殊调用方用）：
    *   不传 → 走默认实现（受 isAttributeClassifierEnabled 控制）
@@ -512,31 +516,97 @@ const defaultClassifier: AttributeClassifier = async (req) => {
   return classifyModifyAttribute(req);
 };
 
+/** 低于等于该置信度视为「模型自己在猜」，一律不采纳（0.5 恰好等于猜，不能放行） */
+const MIN_ADOPT_CONFIDENCE = 0.5;
+
+/** 补判的结构化留痕：线上复盘「补判到底帮了多少、误判多少」的唯一依据 */
+interface ClassifyTrace {
+  content: string;
+  target?: string;
+  historySize: number;
+  attribute?: ModifyAttribute;
+  confidence?: number;
+  reason?: string;
+  latencyMs: number;
+  outcome: 'adopted' | 'abstained' | 'low-confidence' | 'empty' | 'error' | 'disabled';
+  error?: string;
+}
+
+function logClassifyTrace(trace: ClassifyTrace): void {
+  const payload = {
+    evt: 'modify.attribute_classify',
+    ...trace,
+    attributeLabel: trace.attribute ? ATTRIBUTE_LABELS[trace.attribute] : undefined,
+    content: trace.content.slice(0, 80),
+  };
+  // 单行 JSON：便于 grep 与后续接日志采集，不需要改动任何日志基础设施
+  console.log(`[Modifier] ${JSON.stringify(payload)}`);
+}
+
 /**
  * 取一次模型补判结果。任何异常都吞掉并返回 undefined——补判只能加分，
  * 不允许因为它挂了就把原本能走通的修改卡死。
+ *
+ * 采纳条件缺一不可：模型给出可落地类别（不是弃权）、置信度高于「猜」的水位。
+ * 两者都不满足时必须回落规则兜底，交给 WHO / 当前工作面定位——静默按错的方向
+ * 改一份产物，比明确不动更糟。
  */
 async function classifyByModel(
   input: ModifySourceInput,
   content: string
 ): Promise<ModifyAttribute | undefined> {
-  if (input.classify === null) return undefined;
+  if (input.classify === null) {
+    logClassifyTrace({
+      content,
+      target: input.target,
+      historySize: (input.history || []).length,
+      latencyMs: 0,
+      outcome: 'disabled',
+    });
+    return undefined;
+  }
   const classifier = input.classify ?? defaultClassifier;
+  const trace: ClassifyTrace = {
+    content,
+    target: input.target,
+    historySize: (input.history || []).length,
+    latencyMs: 0,
+    outcome: 'empty',
+  };
+  const startedAt = Date.now();
   try {
     const res: AttributeClassification | undefined = await classifier({
       content: input.content || content,
       target: input.target,
+      history: input.history,
     });
-    if (!res) return undefined;
-    if (res.attribute === 'unknown') return undefined;
-    if (Number.isFinite(res.confidence) && res.confidence < 0.5) {
-      console.warn(`[Modifier] 属性补判置信度过低（${res.confidence}），回落规则兜底`);
+    trace.latencyMs = Date.now() - startedAt;
+    if (!res) {
+      logClassifyTrace(trace);
       return undefined;
     }
-    console.log(`[Modifier] 规则未收录该诉求，模型补判为 [${res.attribute}]：${content}`);
+    trace.attribute = res.attribute;
+    trace.confidence = res.confidence;
+    trace.reason = res.reason;
+
+    if (!isClassifiable(res.attribute)) {
+      trace.outcome = 'abstained';
+      logClassifyTrace(trace);
+      return undefined;
+    }
+    if (!Number.isFinite(res.confidence) || res.confidence <= MIN_ADOPT_CONFIDENCE) {
+      trace.outcome = 'low-confidence';
+      logClassifyTrace(trace);
+      return undefined;
+    }
+    trace.outcome = 'adopted';
+    logClassifyTrace(trace);
     return res.attribute;
   } catch (err: any) {
-    console.warn(`[Modifier] 属性补判异常，回落规则兜底: ${err?.message || err}`);
+    trace.latencyMs = Date.now() - startedAt;
+    trace.outcome = 'error';
+    trace.error = err?.message || String(err);
+    logClassifyTrace(trace);
     return undefined;
   }
 }
