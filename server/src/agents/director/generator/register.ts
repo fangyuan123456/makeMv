@@ -23,6 +23,7 @@ import { modifierWorkflow } from '../modifier/modifier.workflow.js';
 import { getModifierSpec } from '../modifier/manifest.js';
 import { scheduleFollowUpAsks } from '../modifier/follow-up.js';
 import { peekStageDirectives, clearStageDirectives } from '../modifier/stage-directives.js';
+import { decideRecompute, createIncrementalRecomputeExecutor } from '../recompute-executor.js';
 
 export {
   STEP_MANIFESTS,
@@ -124,6 +125,8 @@ function createPipelineSuccessHandler(skillKey: string) {
       !isTargetedRevise;
 
     if (!isCriticSkill && criticGate !== 'FAIL') {
+      // 精确重算模式下产物一份不删、阶段不回退，不能再按状态机提「下一工序」
+      let preciseMode = false;
       if (isRollback && skillStage) {
         // 【时空回退与因果链路重修】：安全回退项目阶段
         project.currentStage = skillStage;
@@ -143,53 +146,120 @@ function createPipelineSuccessHandler(skillKey: string) {
         projectStore.saveProject(project);
         console.log(`[WorkflowEngine] 项目 [${ctx.projectId}] 成功执行时空回退至工序阶段: ${skillStage}，已级联清理所有下游过时资产`);
       } else if (isTargetedRevise) {
-        // 【定向微调因果链路自愈】：按「本次真实改动的阶段集合」清理下游过时资产与审查门禁
-        //
-        // 文本轨一次可能同步改掉故事圣经 + 剧本 + 分镜，若仍按单一 skillStage 推下游，
-        // 会把刚刚同步好的产物当成过期资产删掉。因此以修改轨上报的 changedStages 为准，
-        // 取其最大阶段序作为清理起点；未上报时回落旧的单工序口径。
-        const reportedStages: string[] = Array.isArray(ctx.result?.changedStages)
-          ? ctx.result.changedStages
-          : [];
-        const changedOrders = (reportedStages.length
-          ? reportedStages
-          : skillStage
-            ? [skillStage as string]
-            : []
-        )
-          .map((s) => STAGE_SEQUENCE.indexOf(s as WorkflowStage))
-          .filter((i) => i >= 0);
+        /*
+         * 【精确增量重算 vs 整段清退】
+         * 老口径按 STAGE_SEQUENCE 把改动点之后的产物整段删掉，逼创作者重走全流水线：
+         * 改一个角色名也要把全剧图片视频重渲一遍。数据可靠时改为「一份产物都不删、
+         * 阶段不回退」，只把血缘图 ∩ 内容指纹算出的镜头挂成一张待确认的重算卡；
+         * 现有 keyframe/video 子工作流自带 targetShotIds 精确重渲 + 断点复用。
+         *
+         * decideRecompute 判不准时（老数据无指纹、影响面只能按节点粗算、同句还有
+         * 追加诉求、已有资产却算出空清单）一律回退整段清退。漏渲比多渲危险。
+         */
+        const decision = decideRecompute(
+          project.stageArtifacts,
+          String(ctx.payload?.userPrompt || ctx.payload?.reason || ''),
+          {
+            hasFollowUpAsks:
+              Array.isArray(ctx.payload?.followUpAsks) && ctx.payload.followUpAsks.length > 0,
+          }
+        );
 
-        if (changedOrders.length > 0) {
-          const latestOrder = Math.max(...changedOrders);
-          let cleanedDownstreamCount = 0;
-          for (let i = latestOrder + 1; i < STAGE_SEQUENCE.length; i++) {
-            const downstreamStage = STAGE_SEQUENCE[i];
-            if (project.stageArtifacts) {
-              if (project.stageArtifacts[downstreamStage]) {
-                delete project.stageArtifacts[downstreamStage];
-                cleanedDownstreamCount++;
-              }
-              if (project.stageArtifacts[`critic_review_${downstreamStage}`]) {
-                delete project.stageArtifacts[`critic_review_${downstreamStage}`];
+        if (decision.mode === 'precise') {
+          preciseMode = true;
+          /*
+           * 审查结论是元数据，不是产物：剧本改了，旧的 PASS/FAIL 必须作废；
+           * 但文本产物与媒体资产一份都不删 —— 精确重渲全靠它们做断点复用。
+           */
+          if (project.stageArtifacts) {
+            delete project.stageArtifacts['criticReports'];
+            for (const key of Object.keys(project.stageArtifacts)) {
+              if (key.startsWith('critic_review_')) delete project.stageArtifacts[key];
+            }
+            project.updatedAt = new Date().toISOString();
+            projectStore.saveProject(project);
+          }
+          console.log(
+            `[WorkflowEngine] 项目 [${ctx.projectId}] 走精确增量重算：${decision.waves.summary}；` +
+              `下游产物保持完整，等待人工确认后重渲`
+          );
+          try {
+            const dispatchRes = await Workflow.getInstance().dispatch({
+              projectId: ctx.projectId,
+              sessionId: ctx.sessionId,
+              workflowKey: 'incremental-recompute',
+              actionType: 'INCREMENTAL_RECOMPUTE',
+              title: `增量重算：${decision.waves.summary}`,
+              reason: `改动对象【${decision.targets.join('、')}】影响 ${decision.plan.items.length} 项已生成资产，确认后按镜头重渲`,
+              requireConfirmation: true,
+              parameters: {
+                recomputePlan: decision.plan,
+                wavePlan: decision.waves,
+                targets: decision.targets,
+              },
+            });
+            if (dispatchRes.task && ctx.sessionId) {
+              projectStore.appendToLastTaskMessage(
+                ctx.projectId,
+                ctx.sessionId,
+                ctx.taskId,
+                `【${SKILL_TITLES[skillKey] || skillKey}】已完成 ✅ 已列出 ${decision.plan.items.length} 项需跟随重做的资产（${decision.waves.summary}），请在输入框旁确认后再执行；这一步会产生真实渲染费用。`
+              );
+            }
+          } catch (err: any) {
+            console.warn(`[WorkflowEngine] 精确重算卡派发失败（不影响本次修改）:`, err?.message || err);
+          }
+        } else {
+          console.log(`[WorkflowEngine] 精确重算回退（${decision.reason}），沿用整段清退下游`);
+
+          // 【定向微调因果链路自愈】：按「本次真实改动的阶段集合」清理下游过时资产与审查门禁
+          //
+          // 文本轨一次可能同步改掉故事圣经 + 剧本 + 分镜，若仍按单一 skillStage 推下游，
+          // 会把刚刚同步好的产物当成过期资产删掉。因此以修改轨上报的 changedStages 为准，
+          // 取其最大阶段序作为清理起点；未上报时回落旧的单工序口径。
+          const reportedStages: string[] = Array.isArray(ctx.result?.changedStages)
+            ? ctx.result.changedStages
+            : [];
+          const changedOrders = (reportedStages.length
+            ? reportedStages
+            : skillStage
+              ? [skillStage as string]
+              : []
+          )
+            .map((s) => STAGE_SEQUENCE.indexOf(s as WorkflowStage))
+            .filter((i) => i >= 0);
+
+          if (changedOrders.length > 0) {
+            const latestOrder = Math.max(...changedOrders);
+            let cleanedDownstreamCount = 0;
+            for (let i = latestOrder + 1; i < STAGE_SEQUENCE.length; i++) {
+              const downstreamStage = STAGE_SEQUENCE[i];
+              if (project.stageArtifacts) {
+                if (project.stageArtifacts[downstreamStage]) {
+                  delete project.stageArtifacts[downstreamStage];
+                  cleanedDownstreamCount++;
+                }
+                if (project.stageArtifacts[`critic_review_${downstreamStage}`]) {
+                  delete project.stageArtifacts[`critic_review_${downstreamStage}`];
+                }
               }
             }
-          }
-          if (project.stageArtifacts && project.stageArtifacts['criticReports']) {
-            delete project.stageArtifacts['criticReports'];
-          }
+            if (project.stageArtifacts && project.stageArtifacts['criticReports']) {
+              delete project.stageArtifacts['criticReports'];
+            }
 
-          // 阶段回退到「本次改动的最后一份产物」所在阶段：它才是当前最新的有效起点
-          if (latestOrder < currentOrder) {
-            project.currentStage = STAGE_SEQUENCE[latestOrder];
-          }
+            // 阶段回退到「本次改动的最后一份产物」所在阶段：它才是当前最新的有效起点
+            if (latestOrder < currentOrder) {
+              project.currentStage = STAGE_SEQUENCE[latestOrder];
+            }
 
-          project.updatedAt = new Date().toISOString();
-          projectStore.saveProject(project);
-          console.log(
-            `[WorkflowEngine] 项目 [${ctx.projectId}] 定向微调工序 [${skillKey}] 完成 ` +
-              `(改动阶段: ${STAGE_SEQUENCE[latestOrder]}，清理下游过时资产: ${cleanedDownstreamCount})`
-          );
+            project.updatedAt = new Date().toISOString();
+            projectStore.saveProject(project);
+            console.log(
+              `[WorkflowEngine] 项目 [${ctx.projectId}] 定向微调工序 [${skillKey}] 完成 ` +
+                `(改动阶段: ${STAGE_SEQUENCE[latestOrder]}，清理下游过时资产: ${cleanedDownstreamCount})`
+            );
+          }
         }
       } else {
         if (!skillStage || skillStage === project.currentStage) {
@@ -210,7 +280,7 @@ function createPipelineSuccessHandler(skillKey: string) {
 
       // 判定是否有下一待执行工序，自动就绪 pending 推进提案（人在回路，无缝衔接）
       let nextSkillToPropose: string | undefined;
-      if (!isRollback && project.currentStage && project.currentStage !== WorkflowStage.COMPLETED) {
+      if (!isRollback && !preciseMode && project.currentStage && project.currentStage !== WorkflowStage.COMPLETED) {
         if (isTargetedRevise) {
           // 定向微调落盘后，当前阶段的主责工序即被重做的那个工序，已是最新。
           // 下一工序必须指向「后续阶段」的主责技能；若仍取 SKILL_OF_STAGE[currentStage]，
@@ -367,6 +437,19 @@ export function registerPipelineWorkflows(): void {
       onSuccess: createPipelineSuccessHandler(key),
     });
   }
+
+  /*
+   * 增量重算：不是第 8 道工序，而是「修改完成后的资产对齐」执行体。
+   * 故意不挂 validateGate / onSuccess —— 它不推进阶段、不该被质检门禁拦，
+   * 也绝不能触发「下一工序」提案（产物本来就都还在）。
+   * requireConfirmation 恒 true，且执行体还要再验一次 confirmed，双门禁防误花钱。
+   */
+  engine.registerWorkflow({
+    key: 'incremental-recompute',
+    execute: createIncrementalRecomputeExecutor(),
+    title: '增量重算（按镜头重渲）',
+    requireConfirmation: true,
+  });
 
   // 微观子工作流（subwf-*）不在此注册：它们由各工序内部直接持有对象执行
   // （见 generator/manifest.ts 的 step 装配）。单独注册只会多出一个绕过门禁与

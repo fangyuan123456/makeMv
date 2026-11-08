@@ -372,13 +372,133 @@ function ImpactNotice({ impact }: { impact: TaskImpactPreview }) {
   );
 }
 
+/* ─── 待确认卡片：增量重算清单（会花真钱，默认展开） ───
+ * 数据来自后端 Task.payload.recomputePlan（血缘图 ∩ 内容指纹算出来的）。
+ * 这里只展示，执行权在右侧确认按钮：approve 时带上 confirmed: true，
+ * 执行体还要再验一次，双重门禁防止误触发渲染。
+ */
+interface RecomputeItemView {
+  kind: 'keyframe' | 'clip';
+  id: string;
+  shotId: string;
+  wave: 1 | 2;
+  reasonText: string;
+  chain: string[];
+  durationSec?: number;
+  estimatedCost?: number;
+}
+
+interface TaskRecomputePlan {
+  items: RecomputeItemView[];
+  otherStale: RecomputeItemView[];
+  unknown: RecomputeItemView[];
+  counts: { keyframes: number; clips: number; otherStale: number; unknown: number };
+  estimate: {
+    keyframeUnits: number;
+    clipUnits: number;
+    videoSeconds: number;
+    costConfigured: boolean;
+    currency: string;
+    cost?: number;
+    note: string;
+  };
+  warnings: string[];
+  summary: string;
+  usedGranularity: 'shot' | 'node' | 'none';
+}
+
+function readTaskRecompute(task?: TaskItem): TaskRecomputePlan | null {
+  const raw = task?.payload?.recomputePlan;
+  if (!raw || typeof raw !== 'object') return null;
+  if (typeof raw.summary !== 'string' || !Array.isArray(raw.items)) return null;
+  return raw as TaskRecomputePlan;
+}
+
+function RecomputeNotice({ plan }: { plan: TaskRecomputePlan }) {
+  const [open, setOpen] = useState(true);
+  const groups = [
+    { wave: 1, label: 'W1 首帧图', items: plan.items.filter((i) => i.wave === 1) },
+    { wave: 2, label: 'W2 视频', items: plan.items.filter((i) => i.wave === 2) },
+  ];
+  const cost =
+    plan.estimate?.costConfigured && typeof plan.estimate.cost === 'number'
+      ? ` · 预估 ${plan.estimate.currency}${plan.estimate.cost.toFixed(2)}`
+      : '';
+
+  return (
+    <div className="mb-2 rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-rose-100/90">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 text-left cursor-pointer"
+      >
+        <AlertTriangle className="w-3.5 h-3.5 text-rose-300 shrink-0" />
+        <span className="flex-1 text-[11px] leading-relaxed">
+          重算清单（未执行）· {plan.summary}
+          {cost}
+        </span>
+        <ChevronDown
+          className={`w-3.5 h-3.5 shrink-0 opacity-60 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {open && (
+        <div className="mt-2 pt-2 border-t border-rose-500/20 space-y-2">
+          {groups.map(
+            (g) =>
+              g.items.length > 0 && (
+                <div key={g.wave}>
+                  <div className="text-[10px] font-bold text-rose-200/80 mb-1">
+                    [{g.label}] {g.items.length} 项
+                  </div>
+                  <div className="space-y-0.5">
+                    {g.items.map((item) => (
+                      <div
+                        key={`${item.kind}_${item.id}`}
+                        className="text-[10px] font-mono text-rose-100/70 truncate"
+                        title={item.chain?.join(' ← ')}
+                      >
+                        <span className="text-rose-50">{item.id}</span>
+                        <span className="opacity-70"> · {item.reasonText}</span>
+                        {item.durationSec !== undefined && ` · ${item.durationSec}s`}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+          )}
+
+          {(plan.unknown?.length || 0) > 0 && (
+            <p className="text-[10px] text-amber-200/80">
+              {plan.unknown.length} 项命中影响面但无历史指纹，需人工确认，未纳入本次执行。
+            </p>
+          )}
+          {(plan.otherStale?.length || 0) > 0 && (
+            <p className="text-[10px] text-slate-400">
+              另有 {plan.otherStale.length} 项历史遗留陈旧，未纳入本次执行。
+            </p>
+          )}
+          {(plan.warnings?.length || 0) > 0 && (
+            <p className="text-[10px] text-amber-200/80">⚠ {plan.warnings.join('；')}</p>
+          )}
+
+          <p className="text-[10px] text-rose-200/70 leading-relaxed">
+            依据产物血缘图与内容指纹推算。点右侧「确认重算」后才会真实调用渲染并产生费用；
+            不确认则现有产物保持原样。{plan.estimate?.note}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface ChatInputBarProps {
   inputText: string;
   setInputText: (val: string) => void;
   onSubmit: (e: React.FormEvent) => void;
   isGenerating: boolean;
   pendingTask?: TaskItem;
-  onApproveTask: (taskId: string) => void;
+  onApproveTask: (taskId: string, overrides?: Record<string, any>) => void;
 }
 
 function ChatInputBar({
@@ -390,9 +510,11 @@ function ChatInputBar({
   onApproveTask,
 }: ChatInputBarProps) {
   const impact = readTaskImpact(pendingTask);
+  const recompute = readTaskRecompute(pendingTask);
   return (
     <div className="p-4 border-t border-slate-800 bg-slate-900 shrink-0">
       {impact && <ImpactNotice impact={impact} />}
+      {recompute && <RecomputeNotice plan={recompute} />}
       <form onSubmit={onSubmit} className="flex items-center gap-2">
         <input
           type="text"
@@ -409,12 +531,14 @@ function ChatInputBar({
         {pendingTask && (
           <button
             type="button"
-            onClick={() => onApproveTask(pendingTask.taskId)}
+            onClick={() => onApproveTask(pendingTask.taskId, recompute ? { confirmed: true } : undefined)}
             disabled={isGenerating}
             className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 animate-pulse active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Play className="w-3.5 h-3.5 fill-current" />
-            <span className="max-w-[220px] truncate">{pendingTask.title || '批准并启动'}</span>
+            <span className="max-w-[220px] truncate">
+              {recompute ? '确认重算（将产生费用）' : pendingTask.title || '批准并启动'}
+            </span>
           </button>
         )}
 
@@ -649,7 +773,9 @@ export default function ChatPanel({
         onSubmit={handleSubmit}
         isGenerating={isGenerating}
         pendingTask={pendingTask}
-        onApproveTask={(taskId) => onApproveTask(taskId, cinematicOverrides[taskId])}
+        onApproveTask={(taskId, extra) =>
+          onApproveTask(taskId, { ...(cinematicOverrides[taskId] || {}), ...(extra || {}) })
+        }
       />
     </div>
   );

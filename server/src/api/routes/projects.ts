@@ -8,6 +8,8 @@ import { ProjectStore, TaskStore } from '../../project-store/index.js';
 import { WorkflowStage, SessionStatus } from '../../types/index.js';
 import { CharacterRenderer } from '../../media/index.js';
 import { hydrateCharacterArtifact, hydratePortraitArtifact } from '../../agents/director/character-facts.js';
+import { buildRecomputePlan, formatRecomputePlan } from '../../agents/director/recompute-plan.js';
+import { decideRecompute } from '../../agents/director/recompute-executor.js';
 import { readJsonBody, sendJson, sendError } from '../helpers.js';
 
 export async function handleProjectRoutes(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
@@ -47,6 +49,41 @@ export async function handleProjectRoutes(req: IncomingMessage, res: ServerRespo
 
     projectStore.saveProject(entity);
     sendJson(res, 200, { success: true, project: entity });
+    return true;
+  }
+
+  /*
+   * 2.5 增量重算清单（只读 dry-run）: GET /api/projects/:projectId/recompute-plan
+   *
+   * 给人和脚本一个不花钱的核查口：当前哪些资产陈旧、按什么波次重做、费用口径。
+   * 本端点绝不写盘、绝不触发渲染；真正的执行只走审批卡 approve → startTask。
+   * 带 ?instruction= 时附带「精确 / 回退」决策，便于排查为何某次修改没走精确重算。
+   */
+  const recomputeMatch = pathname.match(/^\/api\/projects\/([^\/]+)\/recompute-plan$/);
+  if (recomputeMatch && req.method === 'GET') {
+    const projectId = decodeURIComponent(recomputeMatch[1]);
+    const project = projectStore.getProject(projectId);
+    if (!project) {
+      sendError(res, 404, '项目不存在');
+      return true;
+    }
+    try {
+      const instruction =
+        new URL(req.url || '', 'http://localhost').searchParams.get('instruction') || '';
+      const plan = buildRecomputePlan(project.stageArtifacts);
+      sendJson(res, 200, {
+        success: true,
+        projectId,
+        plan,
+        formatted: formatRecomputePlan(plan),
+        ...(instruction
+          ? { decision: decideRecompute(project.stageArtifacts, instruction) }
+          : {}),
+        notice: '只读 dry-run：本端点不触发任何渲染，也不修改产物',
+      });
+    } catch (err: any) {
+      sendError(res, 400, err?.message || '重算清单计算失败');
+    }
     return true;
   }
 

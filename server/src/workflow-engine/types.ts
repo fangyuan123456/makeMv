@@ -53,7 +53,7 @@ export interface DispatchWorkflowOptions {
   projectId: string;
   sessionId?: string;
   workflowKey: string;
-  actionType?: 'PROCEED_STAGE' | 'TARGETED_REVISE' | 'RETRY_STAGE' | 'CRITIC_AUDIT' | 'STAGE_ROLLBACK';
+  actionType?: 'PROCEED_STAGE' | 'TARGETED_REVISE' | 'RETRY_STAGE' | 'CRITIC_AUDIT' | 'STAGE_ROLLBACK' | 'INCREMENTAL_RECOMPUTE';
   title?: string;
   reason: string;
   userPrompt?: string;
