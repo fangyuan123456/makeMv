@@ -218,12 +218,35 @@ async function resolveIntentToTask(
         return downgradeRes.task;
       }
 
+      /*
+       * 同一句话里落在其他源头的诉求（「台词压短，镜头换中景」）。
+       *
+       * 为什么不在这一轮一起执行：改上游必然让下游产物过期，两个源头同批改会互相
+       * 清退，谁先谁后决定最后留下哪一份；而且修完台词再改分镜，分镜那单拿到的还是
+       * 旧台词的上下文。所以这里**记录而不擅自执行**——把它写进任务说明与 payload，
+       * 由创作者看完这单结果再决定要不要开第二单。
+       *
+       * 也不自动立一张待确认任务：approve 意图取的是「最后一张 proposed」，
+       * 凭空多出来的卡片会被下一句「开始」误启动。
+       */
+      const additional = plan.additionalAsks || [];
+      if (additional.length > 0) {
+        const detail = additional.map((a) => `「${a.clause}」→ ${a.sourceSkill}`).join('、');
+        console.log(
+          `[chat] 同一句话还包含另一个源头诉求: ${detail}（本轮只改 ${plan.sourceSkill}，其余待创作者确认）`
+        );
+      }
+
       const dispatchRes = await engine.dispatch({
         projectId,
         sessionId,
         workflowKey: plan.sourceSkill,
         actionType: 'TARGETED_REVISE',
-        reason: userInstruction || `定向微调 [${plan.sourceSkill}]（${plan.reason}）`,
+        reason:
+          (userInstruction || `定向微调 [${plan.sourceSkill}]（${plan.reason}）`) +
+          (additional.length > 0
+            ? `；同句另含：${additional.map((a) => `「${a.clause}」→ ${a.sourceSkill}`).join('、')}（未在本轮执行）`
+            : ''),
         userPrompt: userInstruction,
         parameters: {
           target: intent.target,
@@ -231,8 +254,10 @@ async function resolveIntentToTask(
           sourceBasis: plan.basis,
           sourceAttribute: plan.attribute,
           cascadeStages: plan.cascadeStages,
+          additionalAsks: additional,
         },
       });
+
       return dispatchRes.task;
     }
 

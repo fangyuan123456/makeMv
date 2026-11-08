@@ -404,6 +404,106 @@ async function main() {
     check(`规则档命中 ${hit}/8`, hit === 8, `${hit}/8`);
   }
 
+  /* ── 13. 媒体轨二次校验：花真钱之前再确认一次 ── */
+  console.log('\n[13] 派发媒体轨前的复核');
+  {
+    let called = 0;
+    // 13.1 点名了媒体资产 → 不复核
+    const named = await resolveModifySource(FULL, {
+      target: '张明',
+      content: '这张定妆照的光影再柔一点',
+      currentStage: WorkflowStage.CHARACTER_DESIGN,
+      classify: async () => {
+        called++;
+        return { attribute: 'appearance', confidence: 0.99 };
+      },
+    });
+    check('点名资产时不复核', called === 0, `called=${called}`);
+    check('仍走定妆媒体轨', named.sourceSkill === 'character-portrait', named.sourceSkill);
+
+    // 13.2 模糊观感词 + 模型高置信度指向外观 → 改判文本源头
+    const overridden = await resolveModifySource(FULL, {
+      target: '张明',
+      content: '她看着有点憔悴',
+      currentStage: WorkflowStage.CHARACTER_DESIGN,
+      classify: async () => ({ attribute: 'appearance', confidence: 0.85 }),
+    });
+    check('复核改判到故事圣经', overridden.sourceSkill === 'story-bible', overridden.sourceSkill);
+    check('属性改成 appearance', overridden.attribute === 'appearance', overridden.attribute);
+    check('理由写明复核改判', overridden.reason.includes('媒体轨复核改判'), overridden.reason);
+
+    // 13.3 复核同意画面诉求 → 保持媒体轨
+    const agreed = await resolveModifySource(FULL, {
+      target: '张明',
+      content: '她看着有点憔悴',
+      currentStage: WorkflowStage.CHARACTER_DESIGN,
+      classify: async () => ({ attribute: 'visual', confidence: 0.9 }),
+    });
+    check('复核同意时保持定妆媒体轨', agreed.sourceSkill === 'character-portrait', agreed.sourceSkill);
+
+    // 13.4 置信度 0.7 不足以改判（门槛高于补判 unknown 的 0.5）
+    const borderline = await resolveModifySource(FULL, {
+      target: '张明',
+      content: '她看着有点憔悴',
+      currentStage: WorkflowStage.CHARACTER_DESIGN,
+      classify: async () => ({ attribute: 'appearance', confidence: 0.7 }),
+    });
+    check('0.7 不改判', borderline.sourceSkill === 'character-portrait', borderline.sourceSkill);
+
+    // 13.5 复核抛错只降级
+    const brokenCheck = await resolveModifySource(FULL, {
+      target: '张明',
+      content: '她看着有点憔悴',
+      currentStage: WorkflowStage.CHARACTER_DESIGN,
+      classify: async () => {
+        throw new Error('模型超时');
+      },
+    });
+    check('复核抛错不影响裁决', brokenCheck.sourceSkill === 'character-portrait', brokenCheck.sourceSkill);
+  }
+
+  /* ── 14. 跨源头双诉求：主裁决之外，第二个源头必须记录 ── */
+  console.log('\n[14] 一句话两个源头');
+  {
+    const two = await resolveModifySource(FULL, {
+      target: '',
+      content: '台词压短，镜头换中景',
+      currentStage: WorkflowStage.SCENE_SCRIPT,
+      classify: null,
+    });
+    check('主裁决改台词', two.sourceSkill === 'scene-script', two.sourceSkill);
+    check('记录的第二个源头是分镜', two.additionalAsks?.[0]?.sourceSkill === 'storyboard', JSON.stringify(two.additionalAsks));
+    check('第二个源头带原文分句', (two.additionalAsks?.[0]?.clause || '').includes('镜头'), two.additionalAsks?.[0]?.clause);
+
+    const mixed = await resolveModifySource(FULL, {
+      target: '张明',
+      content: '台词再压短些，另外这张定妆照的光影调暗一点',
+      currentStage: WorkflowStage.KEYFRAME_REFERENCE,
+      classify: null,
+    });
+    check(
+      '媒体诉求排在第二句也不会被吞',
+      (mixed.additionalAsks || []).some((a) => a.sourceSkill === 'character-portrait'),
+      JSON.stringify(mixed.additionalAsks)
+    );
+
+    const single = await resolveModifySource(FULL, {
+      target: '张明',
+      content: '把张明在第二场的台词改得凶狠一点',
+      currentStage: WorkflowStage.SCENE_SCRIPT,
+      classify: null,
+    });
+    check('单句不产生附加源头', (single.additionalAsks || []).length === 0, JSON.stringify(single.additionalAsks));
+
+    const negated = await resolveModifySource(FULL, {
+      target: '张明',
+      content: '这张定妆照的光影调暗一点，别改设定',
+      currentStage: WorkflowStage.CHARACTER_DESIGN,
+      classify: null,
+    });
+    check('否定从句不算诉求', (negated.additionalAsks || []).length === 0, JSON.stringify(negated.additionalAsks));
+  }
+
   console.log(`\n总计 ${pass} 通过 / ${fail} 失败`);
   if (fail > 0) process.exit(1);
 }
