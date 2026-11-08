@@ -12,6 +12,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'http';
 import { ProjectStore, TaskStore } from '../../project-store/index.js';
+import { readStageGate } from '../../project-store/critic-report.js';
 import {
   getWorkingTurns,
   recentUserInstructions,
@@ -24,6 +25,19 @@ import { WorkflowStage, SessionStatus, STAGE_SEQUENCE, type Task } from '../../t
 import { Workflow } from '../../workflow-engine/index.js';
 import { STAGE_TRANSITION_MAP, SKILL_OF_STAGE, STAGE_OF_SKILL } from '../../agents/director/constants.js';
 import { readJsonBody, sendJson, sendError } from '../helpers.js';
+
+/**
+ * 阶段 → 工序映射。缺映射时返回 undefined 并告警，绝不静默回落到 'story-bible'：
+ * 过去三处 `|| 'story-bible'` 会在 COMPLETED / 未知阶段下偷偷重跑叙事架构，
+ * 且不留任何痕迹。调用方必须显式处理 undefined。
+ */
+function skillForStage(stage: string): string | undefined {
+  const skill = SKILL_OF_STAGE[stage];
+  if (!skill) {
+    console.warn(`[chat] 阶段 [${stage}] 在 SKILL_OF_STAGE 中无映射，拒绝静默回落到 story-bible`);
+  }
+  return skill;
+}
 
 /* ══════════════════════════════════════════════════════════════════════════════
  * 模块 0：上游空响应重试包装
@@ -56,12 +70,10 @@ async function resolveIntentToTask(
     return undefined;
   }
 
-  // 2. 审查门禁 FAIL 阻断守则（法典 2.5）：若当前阶段审计门禁处于 FAIL，坚决拦截推进类提案向后带病推进
-  const reviewArtifact =
-    projectStore.getArtifact<any>(projectId, `critic_review_${currentStage}`) ||
-    projectStore.getArtifact<any>(projectId, 'criticReports') ||
-    projectStore.getArtifact<any>(projectId, 'critic_review');
-  const gateStatus = reviewArtifact?.gateStatus || reviewArtifact?.gateDecision;
+  // 2. 审查门禁 FAIL 阻断守则（法典 2.5）：只读当前阶段的门禁报告。
+  // 不回落到 criticReports 总报告——它不区分阶段，拿别阶段的 PASS 顶替会让
+  // 本阶段的刚性 FAIL 阻断静默失效。无报告即 UNKNOWN，不拦截也不伪装成通过。
+  const gateStatus = readStageGate(projectId, currentStage);
   if (intent.action === 'next' && gateStatus === 'FAIL') {
     console.warn(`[chat] 拦截带病推进请求: 当前阶段 [${currentStage}] 审查门禁处于 [FAIL]，禁止生成推进提案`);
     return undefined;
@@ -82,10 +94,11 @@ async function resolveIntentToTask(
     case 'next': {
       let targetSkill = intent.skill;
       const currentArtifact = projectStore.getArtifact(projectId, currentStage);
-      const defaultNextStage = STAGE_TRANSITION_MAP[SKILL_OF_STAGE[currentStage] || ''] || currentStage;
+      const currentSkill = skillForStage(currentStage);
+      const defaultNextStage = STAGE_TRANSITION_MAP[currentSkill || ''] || currentStage;
       const standardNextSkill = currentArtifact
-        ? (SKILL_OF_STAGE[defaultNextStage] || SKILL_OF_STAGE[currentStage])
-        : (SKILL_OF_STAGE[currentStage] || 'story-bible');
+        ? (SKILL_OF_STAGE[defaultNextStage] || currentSkill)
+        : currentSkill;
 
       if (!targetSkill) {
         targetSkill = standardNextSkill;
@@ -132,7 +145,8 @@ async function resolveIntentToTask(
         return startResult.task;
       }
 
-      const targetSkill = SKILL_OF_STAGE[currentStage] || 'story-bible';
+      const targetSkill = skillForStage(currentStage);
+      if (!targetSkill) return undefined;
       const dispatchRes = await engine.dispatch({
         projectId,
         sessionId,
@@ -290,7 +304,8 @@ async function resolveIntentToTask(
     }
 
     case 'rollback': {
-      const targetSkill = intent.skill || SKILL_OF_STAGE[currentStage] || 'story-bible';
+      const targetSkill = intent.skill || skillForStage(currentStage);
+      if (!targetSkill) return undefined;
       const dispatchRes = await engine.dispatch({
         projectId,
         sessionId,

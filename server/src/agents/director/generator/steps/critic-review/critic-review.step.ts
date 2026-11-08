@@ -6,6 +6,8 @@
 import { createStep } from '@mastra/core/workflows';
 import { WorkflowContextSchema, WorkflowContext, shouldSkipUnchangedStep } from '../common.js';
 import { ProjectStore } from '../../../../../project-store/ProjectStore.js';
+import { stageCriticReportKey, CRITIC_ARCHIVE_KEY } from '../../../../../project-store/critic-report.js';
+import type { WorkflowStage } from '../../../../../types/index.js';
 import { LLMRegistry } from '../../../../../llm/LLMRegistry.js';
 import { buildPanoramicAuditPrompt, CRITIC_REVIEWER_SYSTEM_PROMPT } from './prompt.js';
 import { evaluateCriticAudit } from './evaluator.js';
@@ -14,9 +16,34 @@ import { CriticAuditReportSchema, type CriticAuditReportOutput } from './schema.
 export async function executeCriticReview(context: WorkflowContext): Promise<WorkflowContext> {
   const { projectId, activeStage, feedback, payload, overrideParams } = context;
   const store = ProjectStore.getInstance();
+  const project = store.getProject(projectId);
 
-  // 1. 检查是否跳过
-  const skipCheck = shouldSkipUnchangedStep(projectId, 'criticReports' as any, 'criticReviewStep', context);
+  // 先定被审查阶段。过去末位兜底硬编码 'storyboard'，猜错时报告会写进
+  // critic_review_storyboard，而门禁读的是 critic_review_${currentStage}，
+  // 全靠读取侧的总报告回落兜着才没出事。现在拿不到就明确失败，绝不猜。
+  const targetStage: string | undefined =
+    payload?.stage ||
+    payload?.targetStage ||
+    overrideParams?.stage ||
+    overrideParams?.targetStage ||
+    activeStage ||
+    project?.currentStage;
+
+  if (!targetStage) {
+    throw new Error(
+      `[CriticReview] 项目 [${projectId}] 无法确定被审查阶段：` +
+        'payload/overrideParams/activeStage/currentStage 均为空，拒绝猜测默认阶段写入报告'
+    );
+  }
+
+  // 1. 检查是否跳过：用真实阶段判时空超前，用阶段报告键查既有资产
+  const skipCheck = shouldSkipUnchangedStep(
+    projectId,
+    targetStage as WorkflowStage,
+    'criticReviewStep',
+    context,
+    stageCriticReportKey(targetStage)
+  );
   if (skipCheck.shouldSkip) {
     return {
       ...context,
@@ -26,15 +53,6 @@ export async function executeCriticReview(context: WorkflowContext): Promise<Wor
   }
 
   // 2. 组装待质检工程资产与全景快照
-  const project = store.getProject(projectId);
-  const targetStage =
-    payload?.stage ||
-    payload?.targetStage ||
-    overrideParams?.stage ||
-    overrideParams?.targetStage ||
-    activeStage ||
-    project?.currentStage ||
-    'storyboard';
   const snapshot = store.getSnapshot(projectId);
   const panoramicAssets = snapshot?.project?.stageArtifacts || {};
   const projectName = project?.title || '未命名互动影游';
@@ -66,9 +84,11 @@ export async function executeCriticReview(context: WorkflowContext): Promise<Wor
     activeStage: targetStage,
   });
 
-  // 4. 写入黑板 (同时归档总报告与阶段隔离审查报告)
-  store.setArtifact(projectId, 'criticReports', evaluated.finalReport);
-  store.setArtifact(projectId, `critic_review_${targetStage}`, evaluated.finalReport);
+  // 4. 写入黑板：阶段报告是唯一门禁真相；总报告只是不区分阶段的历史归档副本，
+  //    保留写入是因为既有消费方依赖它，但读取判定一律走 critic-report.ts，
+  //    绝不把归档当成当前阶段的门禁结论。
+  store.setArtifact(projectId, CRITIC_ARCHIVE_KEY, evaluated.finalReport);
+  store.setArtifact(projectId, stageCriticReportKey(targetStage), evaluated.finalReport);
 
   return {
     ...context,

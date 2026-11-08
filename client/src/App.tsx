@@ -1,3 +1,4 @@
+import { STAGE } from './lib/stages';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   mastraStudioApi,
@@ -34,7 +35,7 @@ export function App() {
   const [projectId, setProjectId] = useState<string>('');
   const [projectTitle, setProjectTitle] = useState<string>('新建互动影游');
   const [projectStatus, setProjectStatus] = useState<string>('idle');
-  const [currentStage, setCurrentStage] = useState<string>('narrative_design');
+  const [currentStage, setCurrentStage] = useState<string>(STAGE.NARRATIVE_DESIGN);
   const [activeMilestoneId, setActiveMilestoneId] = useState<MilestoneId | 'live_monitor'>('live_monitor');
   const [artifacts, setArtifacts] = useState<Record<string, any>>({});
   // 任务仓库快照：唯一状态来源（对话只保存 taskId 引用）
@@ -209,7 +210,7 @@ export function App() {
     setProjectId('');
     setProjectTitle('新建互动影游');
     setProjectStatus('idle');
-    setCurrentStage('narrative_design');
+    setCurrentStage(STAGE.NARRATIVE_DESIGN);
     setActiveMilestoneId('live_monitor');
     setArtifacts({});
     applyTasks({});
@@ -643,30 +644,30 @@ export function App() {
             />
           ) : activeMilestoneId === 'milestone_1' ? (
             <NarrativeViewer
-              artifact={artifacts['narrative_design']}
+              artifact={artifacts[STAGE.NARRATIVE_DESIGN]}
               isRunning={isRunning}
             />
           ) : activeMilestoneId === 'milestone_2' ? (
             <AssetProductionViewer
-              characterArtifact={artifacts['character_design']}
-              scriptArtifact={artifacts['scene_script']}
+              characterArtifact={artifacts[STAGE.CHARACTER_DESIGN]}
+              scriptArtifact={artifacts[STAGE.SCENE_SCRIPT]}
               sessionId={projectId}
               onRefreshArtifacts={() => fetchProjectData(projectId)}
             />
           ) : activeMilestoneId === 'milestone_3' ? (
             <PrevisViewer
-              storyboardArtifact={artifacts['storyboard']}
-              referenceArtifact={artifacts['keyframe_reference']}
+              storyboardArtifact={artifacts[STAGE.STORYBOARD]}
+              referenceArtifact={artifacts[STAGE.KEYFRAME_REFERENCE]}
               isRunning={isRunning}
             />
           ) : activeMilestoneId === 'milestone_4' ? (
             <VideoProductionViewer
-              videoArtifact={artifacts['video_production']}
+              videoArtifact={artifacts[STAGE.VIDEO_PRODUCTION]}
               isRunning={isRunning}
             />
           ) : (
             <FMVPlaygroundViewer
-              packagerArtifact={artifacts['fmv_packaging']}
+              packagerArtifact={artifacts[STAGE.FMV_PACKAGING]}
               sessionId={projectId}
             />
           )}

@@ -5,6 +5,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'http';
 import { ProjectStore, TaskStore } from '../../project-store/index.js';
+import { readStageGate } from '../../project-store/critic-report.js';
 import { WorkflowStage, SessionStatus } from '../../types/index.js';
 import { CharacterRenderer } from '../../media/index.js';
 import { hydrateCharacterArtifact, hydratePortraitArtifact } from '../../agents/director/character-facts.js';
@@ -118,7 +119,8 @@ export async function handleProjectRoutes(req: IncomingMessage, res: ServerRespo
       };
     });
 
-    const criticReport = projectStore.getArtifact<any>(projectId, `critic_review_${project.currentStage}`) || projectStore.getArtifact<any>(projectId, 'critic_review');
+    // 与 chat.ts / ContextAssembler 走同一个门禁入口：只读当前阶段报告，不借总报告。
+    const gate = readStageGate(projectId, project.currentStage);
     const pendingTasks = taskStore.listTasks(projectId, { status: 'proposed' });
 
     sendJson(res, 200, {
@@ -127,7 +129,8 @@ export async function handleProjectRoutes(req: IncomingMessage, res: ServerRespo
       title: project.title,
       currentStage: project.currentStage,
       nodes,
-      criticGate: criticReport?.gateStatus || 'NONE',
+      // 'NONE' 是既有 API 契约（无有效报告），不要改成新枚举值以免前端误判
+      criticGate: gate === 'UNKNOWN' ? 'NONE' : gate,
       pendingTasksCount: pendingTasks.length,
     });
     return true;

@@ -24,16 +24,22 @@ export type WorkflowContext = z.infer<typeof WorkflowContextSchema>;
 
 /**
  * 辅助函数：根据受影响工序清单与当前业务阶段判定当前工序是否可以安全跳过并复用既有资产
+ *
+ * artifactKey 把「用哪个阶段判时空超前」与「用哪个键查既有资产」解耦：
+ * 绝大多数工序两者相同；审查工序的资产键是 `critic_review_${stage}`，
+ * 过去靠 `as any` 把 'criticReports' 当 stage 传，既绕开类型，
+ * 又让 STAGE_SEQUENCE.indexOf 恒为 -1、时空超前门禁静默失效。
  */
 export function shouldSkipUnchangedStep(
   projectId: string,
   stage: WorkflowStage,
   stepKey: string,
-  inputData: any
+  inputData: any,
+  artifactKey?: string
 ): { shouldSkip: boolean; existingArtifact?: any; reason?: string } {
   const store = ProjectStore.getInstance();
   const project = store.getProject(projectId);
-  const existingArtifact = store.getArtifact(projectId, stage) as any;
+  const existingArtifact = store.getArtifact(projectId, artifactKey ?? stage) as any;
 
   const normalizeKey = (k?: string) =>
     (k || '').replace(/Step$/, '').replace(/[-_]/g, '').toLowerCase();

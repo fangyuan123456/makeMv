@@ -1,3 +1,4 @@
+import { STAGE } from '../../lib/stages';
 import { useState } from 'react';
 import {
   Gamepad2,
@@ -21,9 +22,9 @@ export default function GameDisplayPanel({
 }: GameDisplayPanelProps) {
   const [selectedClipIdx, setSelectedClipIdx] = useState(0);
 
-  const packagerArtifact = artifacts['fmv_packaging'];
-  const videoArtifact = artifacts['video_production'];
-  const referenceArtifact = artifacts['keyframe_reference'];
+  const packagerArtifact = artifacts[STAGE.FMV_PACKAGING];
+  const videoArtifact = artifacts[STAGE.VIDEO_PRODUCTION];
+  const referenceArtifact = artifacts[STAGE.KEYFRAME_REFERENCE];
 
   const manifest = packagerArtifact?.fmvManifest;
   const clips = videoArtifact?.renderedClips || videoArtifact?.clips || [];

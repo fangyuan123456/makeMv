@@ -14,6 +14,7 @@
 
 import { Workflow, type WorkflowHookContext } from '../../../workflow-engine/index.js';
 import { ProjectStore } from '../../../project-store/index.js';
+import { readStageGate, CRITIC_ARCHIVE_KEY, stageCriticReportKey, isCriticReportKey } from '../../../project-store/critic-report.js';
 import { WorkflowStage, SessionStatus, STAGE_SEQUENCE } from '../../../types/index.js';
 import { STEP_MANIFESTS, getStepManifest } from '../generator/constants.js';
 import {
@@ -58,10 +59,8 @@ function createPipelineGateValidator(skillKey: string) {
     const project = projectStore.getProject(ctx.projectId);
     if (!project) return { pass: true };
 
-    const stageGate = projectStore.getArtifact<{ gateStatus?: string }>(
-      ctx.projectId,
-      `critic_review_${project.currentStage}`
-    );
+    // 门禁判定统一走 critic-report.ts：只读当前阶段报告，绝不借不区分阶段的总报告
+    const stageGate = readStageGate(ctx.projectId, project.currentStage);
 
     const skillStage = STAGE_OF_SKILL[skillKey];
     const targetOrder = STAGE_SEQUENCE.indexOf(skillStage as WorkflowStage);
@@ -84,7 +83,7 @@ function createPipelineGateValidator(skillKey: string) {
       isRollback ||
       (Boolean(skillStage) && skillStage === project.currentStage);
 
-    if (stageGate?.gateStatus === 'FAIL' && !isSelfHealing) {
+    if (stageGate === 'FAIL' && !isSelfHealing) {
       return {
         pass: false,
         reason: `当前阶段 ${project.currentStage} 审查未通过 (FAIL)，禁止跨工序推进执行 ${skillKey}！请先优化当前阶段。`,
@@ -105,7 +104,8 @@ function createPipelineSuccessHandler(skillKey: string) {
     if (!project) return;
 
     const isCriticSkill = skillKey === 'critic-review';
-    const criticGate = ctx.result?.criticGateStatus || ctx.result?.report?.gateStatus;
+    // 审查 step 只回传 criticGateStatus；ctx.result.report 从无写入方，是死别名
+    const criticGate = ctx.result?.criticGateStatus;
 
     const isTargetedRevise = ctx.actionType === 'TARGETED_REVISE' || ctx.payload?.actionType === 'TARGETED_REVISE';
     const skillStage = STAGE_OF_SKILL[skillKey];
@@ -131,11 +131,11 @@ function createPipelineSuccessHandler(skillKey: string) {
           const downstreamStage = STAGE_SEQUENCE[i];
           if (project.stageArtifacts) {
             delete project.stageArtifacts[downstreamStage];
-            delete project.stageArtifacts[`critic_review_${downstreamStage}`];
+            delete project.stageArtifacts[stageCriticReportKey(downstreamStage)];
           }
         }
-        if (project.stageArtifacts && project.stageArtifacts['criticReports']) {
-          delete project.stageArtifacts['criticReports'];
+        if (project.stageArtifacts && project.stageArtifacts[CRITIC_ARCHIVE_KEY]) {
+          delete project.stageArtifacts[CRITIC_ARCHIVE_KEY];
         }
         projectStore.saveProject(project);
         console.log(`[WorkflowEngine] 项目 [${ctx.projectId}] 成功执行时空回退至工序阶段: ${skillStage}，已级联清理所有下游过时资产`);
@@ -166,9 +166,9 @@ function createPipelineSuccessHandler(skillKey: string) {
            * 但文本产物与媒体资产一份都不删 —— 精确重渲全靠它们做断点复用。
            */
           if (project.stageArtifacts) {
-            delete project.stageArtifacts['criticReports'];
+            delete project.stageArtifacts[CRITIC_ARCHIVE_KEY];
             for (const key of Object.keys(project.stageArtifacts)) {
-              if (key.startsWith('critic_review_')) delete project.stageArtifacts[key];
+              if (isCriticReportKey(key)) delete project.stageArtifacts[key];
             }
             project.updatedAt = new Date().toISOString();
             projectStore.saveProject(project);
@@ -233,13 +233,13 @@ function createPipelineSuccessHandler(skillKey: string) {
                   delete project.stageArtifacts[downstreamStage];
                   cleanedDownstreamCount++;
                 }
-                if (project.stageArtifacts[`critic_review_${downstreamStage}`]) {
-                  delete project.stageArtifacts[`critic_review_${downstreamStage}`];
+                if (project.stageArtifacts[stageCriticReportKey(downstreamStage)]) {
+                  delete project.stageArtifacts[stageCriticReportKey(downstreamStage)];
                 }
               }
             }
-            if (project.stageArtifacts && project.stageArtifacts['criticReports']) {
-              delete project.stageArtifacts['criticReports'];
+            if (project.stageArtifacts && project.stageArtifacts[CRITIC_ARCHIVE_KEY]) {
+              delete project.stageArtifacts[CRITIC_ARCHIVE_KEY];
             }
 
             // 阶段回退到「本次改动的最后一份产物」所在阶段：它才是当前最新的有效起点

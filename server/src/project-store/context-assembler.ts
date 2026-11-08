@@ -9,6 +9,7 @@
  */
 
 import { ProjectStore } from './ProjectStore.js';
+import { readStageCriticReport } from './critic-report.js';
 import { WorkflowStage } from '../types/index.js';
 // 唯一一处「中立层 → 生成轨」的合法穿透：黑板摘要需要各工序的
 // summarizeArtifact 投影器，而它挂在生成轨 StepManifest 上、属于执行体字段。
@@ -79,44 +80,32 @@ export class ContextAssembler {
       }
     }
 
-    // 2. 抽取审查官门禁判定与最新缺陷备忘 (SSOT: 对齐当前阶段审计报告与总报告)
+    // 2. 抽取当前阶段门禁判定与缺陷备忘。
+    // 只认 critic_review_${stage}，不回落到不区分阶段的总报告，也不认
+    // gateDecision / 顶层 overallScore / suggestions / blockingIssues 这些
+    // 全仓无写入方的字段别名；报告非法时按「暂无审查」处理，不伪装成 WARN。
     const gatesLines: string[] = [];
-    const reviewArtifact =
-      store.getArtifact<any>(projectId, `critic_review_${project.currentStage}`) ||
-      store.getArtifact<any>(projectId, 'criticReports') ||
-      store.getArtifact<any>(projectId, 'critic_review');
+    const criticReport = readStageCriticReport(projectId, project.currentStage);
 
-    if (!reviewArtifact) {
+    if (!criticReport) {
       gatesLines.push('- 最新质检门禁: 暂无审查记录 (创作者推进工序时可适时提议审查)');
     } else {
-      const decision = reviewArtifact.gateStatus || reviewArtifact.gateDecision || 'WARN';
-      const score = reviewArtifact.scores?.overallScore ?? reviewArtifact.overallScore ?? '未评分';
-      gatesLines.push(`- 最新质检门禁: [${decision}] (综合得分: ${score}/100)`);
+      const score = criticReport.overallScore ?? '未评分';
+      gatesLines.push(`- 最新质检门禁: [${criticReport.gateStatus}] (综合得分: ${score}/100)`);
 
-      // 提取致命与阻断性瑕疵
-      const criticalFlaws = Array.isArray(reviewArtifact.criticalFlaws)
-        ? reviewArtifact.criticalFlaws
-            .filter((f: any) => f.severity === 'CRITICAL' || f.severity === 'MAJOR')
-            .map((f: any) => `[${f.severity}][${f.location || f.dimension}] ${f.description || ''}`)
-        : Array.isArray(reviewArtifact.blockingIssues)
-        ? reviewArtifact.blockingIssues
-        : [];
+      const criticalFlaws = criticReport.criticalFlaws
+        .filter((f) => f.severity === 'CRITICAL' || f.severity === 'MAJOR')
+        .map((f) => `[${f.severity}][${f.location || f.dimension}] ${f.description || ''}`);
       if (criticalFlaws.length > 0) {
         gatesLines.push(`  * 刚性阻断缺陷: ${criticalFlaws.join('；')}`);
       }
 
-      // 提取自愈与润色建议
-      const suggestions = Array.isArray(reviewArtifact.polishSuggestions)
-        ? reviewArtifact.polishSuggestions
-        : Array.isArray(reviewArtifact.suggestions)
-        ? reviewArtifact.suggestions
-        : [];
-      if (suggestions.length > 0) {
-        gatesLines.push(`  * 剧本医生自愈建议: ${suggestions.join('；')}`);
+      if (criticReport.polishSuggestions.length > 0) {
+        gatesLines.push(`  * 剧本医生自愈建议: ${criticReport.polishSuggestions.join('；')}`);
       }
 
-      if (reviewArtifact.verdict) {
-        gatesLines.push(`  * 终审定性评语: ${reviewArtifact.verdict}`);
+      if (criticReport.verdict) {
+        gatesLines.push(`  * 终审定性评语: ${criticReport.verdict}`);
       }
     }
 

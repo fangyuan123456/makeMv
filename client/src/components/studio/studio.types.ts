@@ -1,3 +1,5 @@
+import { STAGE } from '../../lib/stages';
+
 export interface TaskProgress {
   current: number; // 当前已完成切片数 (如 3)
   total: number;   // 总切片数 (如 12)
@@ -72,8 +74,8 @@ export const MILESTONES: MilestoneInfo[] = [
     shortName: '叙事架构',
     tagline: '故事大纲与分支拓扑',
     description: '生成网状故事大纲、核心看点与互动分支拓扑图谱',
-    primaryStage: 'narrative_design',
-    stages: ['narrative_design'],
+    primaryStage: STAGE.NARRATIVE_DESIGN,
+    stages: [STAGE.NARRATIVE_DESIGN],
   },
   {
     id: 'milestone_2',
@@ -82,8 +84,8 @@ export const MILESTONES: MilestoneInfo[] = [
     shortName: '剧本角色',
     tagline: '双轨并发生产',
     description: '节点互动剧本详写与角色视觉定妆双轨并发推进',
-    primaryStage: 'character_design',
-    stages: ['character_design', 'scene_script'],
+    primaryStage: STAGE.CHARACTER_DESIGN,
+    stages: [STAGE.CHARACTER_DESIGN, STAGE.SCENE_SCRIPT],
   },
   {
     id: 'milestone_3',
@@ -92,8 +94,8 @@ export const MILESTONES: MilestoneInfo[] = [
     shortName: '分镜关键帧',
     tagline: '分镜切分与视觉质检',
     description: '镜头切分、运镜视听语言与高清关键帧图 (含 Doctor 质检)',
-    primaryStage: 'storyboard',
-    stages: ['storyboard', 'keyframe_reference'],
+    primaryStage: STAGE.STORYBOARD,
+    stages: [STAGE.STORYBOARD, STAGE.KEYFRAME_REFERENCE],
   },
   {
     id: 'milestone_4',
@@ -102,8 +104,8 @@ export const MILESTONES: MilestoneInfo[] = [
     shortName: '视频生成',
     tagline: '动态渲染与音频对齐',
     description: '各节点独立视频切片 (.mp4) 与 TTS 对白声画合流',
-    primaryStage: 'video_production',
-    stages: ['video_production'],
+    primaryStage: STAGE.VIDEO_PRODUCTION,
+    stages: [STAGE.VIDEO_PRODUCTION],
   },
   {
     id: 'milestone_5',
@@ -112,8 +114,8 @@ export const MILESTONES: MilestoneInfo[] = [
     shortName: '影游装配',
     tagline: '决策微循环与可玩游戏',
     description: '提取决策等待呼吸帧，装配 manifest.json 与交付交互播放器',
-    primaryStage: 'fmv_packaging',
-    stages: ['fmv_packaging'],
+    primaryStage: STAGE.FMV_PACKAGING,
+    stages: [STAGE.FMV_PACKAGING],
   },
 ];
 

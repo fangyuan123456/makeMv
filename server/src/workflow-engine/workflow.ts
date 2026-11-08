@@ -12,6 +12,7 @@
 import { randomUUID } from 'crypto';
 import { createWorkflow as mastraCreateWorkflow } from '@mastra/core/workflows';
 import { ProjectStore } from '../project-store/ProjectStore.js';
+import { isCriticReportKey } from '../project-store/critic-report.js';
 import { TaskStore } from '../project-store/TaskStore.js';
 import { ProjectLockManager } from '../utils/projectLock.js';
 import { SessionStatus, type Task, type TaskArtifact } from '../types/index.js';
@@ -938,7 +939,7 @@ export class Workflow {
    * 1. 本次执行新增的工序产物（首次落盘）；
    * 2. 修改轨上报 changedStages 命中的既有产物（覆盖写）；
    * 3. 任务显式涉及的工序（stages 命中已有产物键位时）。
-   * 质检报告类键位（critic_review_*）不进入产物清单。
+   * 质检报告类键位（critic_review_* 与 criticReports）不进入产物清单。
    */
   private collectTaskArtifacts(
     projectId: string,
@@ -950,7 +951,7 @@ export class Workflow {
     const project = ProjectStore.getInstance().getProject(projectId);
     const artifacts = project?.stageArtifacts || {};
     const keys = Object.keys(artifacts).filter(
-      (k) => artifacts[k] && !k.startsWith('critic_review')
+      (k) => artifacts[k] && !isCriticReportKey(k)
     );
 
     const produced = new Set<string>();
