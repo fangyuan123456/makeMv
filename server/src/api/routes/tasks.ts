@@ -11,9 +11,6 @@
  * - POST /api/tasks/:taskId/approve       批准并启动（未开始 → 执行中）
  * - POST /api/tasks/:taskId/reject        取消（仅未开始态）
  * - POST /api/tasks/:taskId/retry         失败后重试（复用同一任务实体）
- *
- * 兼容：保留 /api/proposals/:id/approve|reject 旧路径，内部转译为任务调用，
- * 避免旧前端在灰度期 404。
  */
 
 import type { IncomingMessage, ServerResponse } from 'http';
@@ -147,45 +144,6 @@ export async function handleTaskRoutes(
         }
       } catch {}
       sendError(res, err?.statusCode || 500, err.message || '重试任务异常，请稍后重试');
-    }
-    return true;
-  }
-
-  /* ── 旧路径兼容：/api/proposals/:id/approve|reject 内部转译 ── */
-  const legacyApprove = pathname.match(/^\/api\/proposals\/([^\/]+)\/approve$/);
-  if (legacyApprove && req.method === 'POST') {
-    try {
-      const taskId = decodeURIComponent(legacyApprove[1]);
-      const body = await readJsonBody(req);
-      if (!body.projectId) {
-        sendError(res, 400, '缺少 projectId 参数');
-        return true;
-      }
-      const startResult = await engine.startTask({
-        projectId: body.projectId,
-        taskId,
-        overrideParameters: body.overrideParameters || body.overrides,
-      });
-      sendJson(res, 200, { success: true, accepted: startResult.accepted, task: startResult.task });
-    } catch (err: any) {
-      sendError(res, err?.statusCode || 500, err.message || '启动任务异常');
-    }
-    return true;
-  }
-
-  const legacyReject = pathname.match(/^\/api\/proposals\/([^\/]+)\/reject$/);
-  if (legacyReject && req.method === 'POST') {
-    try {
-      const taskId = decodeURIComponent(legacyReject[1]);
-      const body = await readJsonBody(req);
-      if (!body.projectId) {
-        sendError(res, 400, '缺少 projectId 参数');
-        return true;
-      }
-      const task = await engine.cancelTask(body.projectId, taskId, body.reason || '创作者主动驳回');
-      sendJson(res, 200, { success: true, task });
-    } catch (err: any) {
-      sendError(res, err?.statusCode || 500, err.message || '取消任务异常');
     }
     return true;
   }

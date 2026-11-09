@@ -33,7 +33,7 @@ async function bootstrap() {
     console.log(`📡 提供核心接口:`);
     console.log(`   - POST http://localhost:${PORT}/api/chat (自由对话、SSE流式打字机与双轨记忆落盘)`);
     console.log(`   - POST http://localhost:${PORT}/api/tasks/:id/approve (安全互斥批准任务)`);
-    console.log(`   - POST http://localhost:${PORT}/api/proposals/:id/reject  (驳回提案)`);
+    console.log(`   - POST http://localhost:${PORT}/api/tasks/:id/reject (取消/驳回任务)`);
     console.log(`   - GET  http://localhost:${PORT}/api/projects/:id/graph (状态图全景拓扑与阶段隔离门禁)`);
     console.log(`   - GET  http://localhost:${PORT}/api/projects (项目列表)`);
     console.log(`   - GET  http://localhost:${PORT}/media/:projectId/* (安全防穿越媒体切片托管)`);
