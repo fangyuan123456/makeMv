@@ -3,9 +3,9 @@
  * ComfyUI 纯通用云机/本地渲染执行端基础设施 (ComfyUI Provider SSOT)
  *
  * 核心机制（领域解耦与微内核化）：
- * 1. 彻底剥离上层工序 (如角色、三视图、换装等) 业务逻辑与专属模板；
- * 2. 仅提供通用的文生图 (t2i)、图生视频 (i2v) 以及通用工作流编排执行 (executeWorkflow)；
- * 3. 统一使用 MediaResolver 解析本地媒体文件，防路径逃逸；
+ * 1. 彻底剥离上层业务逻辑，专注于工作流 DAG 拓扑参数注入与调度；
+ * 2. 提供角色文生图 (character_t2i)、角色参考生图 (character_ref2i)、通用文生图 (t2i)、图生视频 (i2v)；
+ * 3. 统一使用 MediaResolver 解析本地媒体文件，防路径穿越；
  * 4. 拓扑自适应注入辅助工具类 (ComfyUITopologyInjector) 保持纯正交可用。
  */
 
@@ -15,7 +15,7 @@ import { fileURLToPath } from 'url';
 import type { IImageProvider, ImageGenerationOptions } from './ImageProvider.js';
 import type { IVideoProvider, VideoGenerationOptions } from './VideoProvider.js';
 import { config } from '../../utils/config.js';
-import { ensureApiPromptFormat } from '../workflows/comfyui-converter.js';
+import { ensureApiPromptFormat } from '../comfyui/comfyui-converter.js';
 import { MediaResolver } from '../MediaResolver.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -91,7 +91,7 @@ export class ComfyUITopologyInjector {
       return true;
     }
 
-    // 4. 视频生成等包含单体 prompt 属性的节点
+    // 4. 包含单体 prompt 属性的节点
     for (const node of Object.values(workflow)) {
       if (node?.inputs && 'prompt' in node.inputs && typeof node.inputs.prompt === 'string') {
         node.inputs.prompt = prompt;
@@ -175,43 +175,50 @@ export interface ComfyUIExecuteOptions {
 export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
   public readonly name = 'comfyui';
   private baseUrl: string;
-  private t2iTemplatePath: string;
-  private i2vTemplatePath: string;
 
   constructor(customBaseUrl?: string) {
     this.baseUrl = (customBaseUrl || config.comfyui.baseUrl).replace(/\/+$/, '');
-    this.t2iTemplatePath = this.resolveTemplatePath('comfyui_t2i.json');
-    this.i2vTemplatePath = this.resolveTemplatePath('comfyui_i2v.json');
   }
 
-  private resolveTemplatePath(...filenames: string[]): string {
+  public resolveTemplatePath(filename: string): string {
     const candidateDirs = [
-      path.resolve(__dirname, '../workflows'),
-      path.resolve(config.paths.root, 'src/media/workflows'),
-      path.resolve(config.paths.root, 'dist/media/workflows'),
+      path.resolve(__dirname, '../comfyui/workflows'),
+      path.resolve(config.paths.root, 'src/media/comfyui/workflows'),
+      path.resolve(config.paths.root, 'dist/media/comfyui/workflows'),
       path.resolve(config.paths.root, 'workflows'),
     ];
 
     for (const dir of candidateDirs) {
-      for (const name of filenames) {
-        const fullPath = path.join(dir, name);
-        if (fs.existsSync(fullPath)) {
-          return fullPath;
-        }
+      const fullPath = path.join(dir, filename);
+      if (fs.existsSync(fullPath)) {
+        return fullPath;
       }
     }
-    return path.join(candidateDirs[0], filenames[0]);
+    return path.join(candidateDirs[0], filename);
   }
 
   /**
-   * 通用文生图
+   * 通用与角色文生图
    */
   public async generateImage(prompt: string, options?: ImageGenerationOptions): Promise<string> {
-    if (!fs.existsSync(this.t2iTemplatePath)) {
-      throw new Error(`[ComfyUIMediaProvider] 未找到通用生图工作流模板: ${this.t2iTemplatePath}`);
+    let templateFile = 'comfyui_t2i.json';
+
+    if (options?.mode === 'character_ref2i' || options?.referenceImageUrl) {
+      templateFile = 'comfyui_character_ref2i.json';
+    } else if (options?.mode === 'character_t2i') {
+      templateFile = 'comfyui_character_t2i.json';
+    } else if (options?.mode === 'character_pose_outfit') {
+      templateFile = 'comfyui_character_pose_outfit.json';
+    } else if (options?.mode === 'character_three_view') {
+      templateFile = 'comfyui_character_three_view.json';
     }
 
-    const templateRaw = fs.readFileSync(this.t2iTemplatePath, 'utf-8');
+    const templatePath = this.resolveTemplatePath(templateFile);
+    if (!fs.existsSync(templatePath)) {
+      throw new Error(`[ComfyUIMediaProvider] 未找到生图工作流模板: ${templatePath}`);
+    }
+
+    const templateRaw = fs.readFileSync(templatePath, 'utf-8');
     const workflow = ensureApiPromptFormat(JSON.parse(templateRaw));
 
     return this.executeWorkflow(workflow, 'image', {
@@ -228,17 +235,18 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
    * 通用图生视频
    */
   public async generateVideo(prompt: string, options?: VideoGenerationOptions): Promise<string> {
-    if (!fs.existsSync(this.i2vTemplatePath)) {
-      throw new Error(`[ComfyUIMediaProvider] 未找到通用生视频工作流模板: ${this.i2vTemplatePath}`);
+    const templatePath = this.resolveTemplatePath('comfyui_i2v.json');
+    if (!fs.existsSync(templatePath)) {
+      throw new Error(`[ComfyUIMediaProvider] 未找到通用生视频工作流模板: ${templatePath}`);
     }
 
-    const templateRaw = fs.readFileSync(this.i2vTemplatePath, 'utf-8');
+    const templateRaw = fs.readFileSync(templatePath, 'utf-8');
     const workflow = ensureApiPromptFormat(JSON.parse(templateRaw));
 
     let refImageUrl = options?.referenceImageUrl;
     if (!refImageUrl) {
       console.log(`[ComfyUIMediaProvider] 未传入首帧图，正在自动生成首帧基准画面...`);
-      refImageUrl = await this.generateImage(`电影分镜基准帧，${prompt}，高保真电影特写，16:9`, {
+      refImageUrl = await this.generateImage(`互动影游电影分镜基准帧，${prompt}，高保真特写，16:9`, {
         size: '1280*720',
         abortSignal: options?.abortSignal,
       });
@@ -252,7 +260,7 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
   }
 
   /**
-   * 执行任意通用或技能私有的 ComfyUI 工作流 (Microkernel Workflow Execution Engine)
+   * 执行任意通用或技能私有的 ComfyUI 工作流
    */
   public async executeWorkflow(
     workflow: any,
@@ -289,7 +297,7 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
   }
 
   /**
-   * 上传本地/远程媒体文件至 ComfyUI 云机/本地服务
+   * 上传本地/远程媒体文件至 ComfyUI 服务
    */
   public async uploadImage(imageUrlOrPath: string): Promise<string> {
     let fileBuffer: Buffer;
@@ -353,10 +361,15 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
       throw new Error('[ComfyUIMediaProvider] ComfyUI 未返回合法的 prompt_id');
     }
 
-    console.log(`[ComfyUIMediaProvider] ${mediaType === 'video' ? '视频' : '图像'}任务提交成功, prompt_id: ${promptId}, 正在轮询等待渲染...`);
+    console.log(
+      `[ComfyUIMediaProvider] ${mediaType === 'video' ? '视频' : '图像'}任务提交成功, prompt_id: ${promptId}, 正在轮询等待渲染...`
+    );
 
     const startTime = Date.now();
-    const timeoutMs = mediaType === 'video' ? (config.comfyui.timeoutMs || 180000) * 2 : (config.comfyui.timeoutMs || 180000);
+    const timeoutMs =
+      mediaType === 'video'
+        ? (config.comfyui.timeoutMs || 180000) * 2
+        : config.comfyui.timeoutMs || 180000;
 
     while (Date.now() - startTime < timeoutMs) {
       if (abortSignal?.aborted) {
@@ -394,8 +407,12 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
               const subfolder = file.subfolder || (mediaType === 'video' ? 'video' : '');
               const type = file.type || 'output';
 
-              const mediaUrl = `${this.baseUrl}/view?filename=${encodeURIComponent(filename)}&subfolder=${encodeURIComponent(subfolder)}&type=${encodeURIComponent(type)}`;
-              console.log(`[ComfyUIMediaProvider] ${mediaType === 'video' ? '视频' : '图像'}生成完成! 产物 URL: ${mediaUrl}`);
+              const mediaUrl = `${this.baseUrl}/view?filename=${encodeURIComponent(
+                filename
+              )}&subfolder=${encodeURIComponent(subfolder)}&type=${encodeURIComponent(type)}`;
+              console.log(
+                `[ComfyUIMediaProvider] ${mediaType === 'video' ? '视频' : '图像'}生成完成! 产物 URL: ${mediaUrl}`
+              );
               return mediaUrl;
             }
           }

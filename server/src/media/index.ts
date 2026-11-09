@@ -1,19 +1,14 @@
 /**
  * media/index.ts
- * 纯净多媒体视听基础设施统一门面 (SSOT)
+ * 媒体算力引擎统一总装出口
  */
 
 export * from './MediaResolver.js';
-export * from './ffmpeg.js';
 export * from './MediaDownloader.js';
+export * from './comfyui/comfyui-converter.js';
 export * from './providers/ImageProvider.js';
 export * from './providers/VideoProvider.js';
-export * from './providers/DashScopeMediaProvider.js';
-export * from './providers/MediaProviderFactory.js';
 export * from './providers/ComfyUIMediaProvider.js';
-export * from './workflows/comfyui-converter.js';
-export * from './CharacterRenderer.js';
-export * from './KeyframeRenderer.js';
-export * from './VideoRenderer.js';
-export * from './VoiceRenderer.js';
-export * from './motion-engine.js';
+export * from './providers/MockImageProvider.js';
+export * from './providers/MediaProviderFactory.js';
+export * from './svg/StoryGraphSvgRenderer.js';

@@ -1,17 +1,10 @@
 /**
  * media/MediaResolver.ts
  * 全局媒体路径映射、安全沙箱防穿越与格式解析统一中枢 (Media Resolver SSOT)
- *
- * 核心机制：
- * 1. 单一事实来源 (SSOT)：规范 /media/:projectId/:subfolder/:filename 路由契约；
- * 2. 刚性安全沙箱防御：严格校验防路径穿越 (..) 与防跨项目越权逃逸；
- * 3. 真实视听闭环：支持将本地 /media/... 本地路径自动转换为可供公网 API 消费的 Data URI (Base64)；
- * 4. 统一 MIME 映射：完整覆盖 mp4, png, jpg, jpeg, webp, mp3, wav, json。
  */
 
 import fs from 'fs';
 import path from 'path';
-import { config } from '../utils/config.js';
 import { ProjectStore } from '../project-store/ProjectStore.js';
 
 export interface ResolvedMediaDiskPath {
@@ -24,7 +17,7 @@ export interface ResolvedMediaDiskPath {
 export class MediaResolver {
   /**
    * 生成标准本地媒体 URL
-   * @example /media/my_proj/characters/hero_portrait.jpg
+   * @example /media/my_proj/keyframes/hero_portrait.png
    */
   public static toMediaUrl(projectId: string, subfolder: string, filename: string): string {
     const cleanSub = subfolder.replace(/^\/+|\/+$/g, '');
@@ -108,7 +101,6 @@ export class MediaResolver {
 
   /**
    * 将本地图片文件转换为 Base64 Data URI
-   * 若原本就是 http/https/data: 开头则直接返回原 URL
    */
   public static toDataUri(mediaUrlOrPath: string, defaultProjectId?: string): string {
     if (!mediaUrlOrPath || typeof mediaUrlOrPath !== 'string') {
@@ -164,6 +156,8 @@ export class MediaResolver {
         return 'audio/wav';
       case '.json':
         return 'application/json';
+      case '.svg':
+        return 'image/svg+xml';
       default:
         return 'application/octet-stream';
     }

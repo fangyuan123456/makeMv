@@ -18,10 +18,10 @@ export interface IImageProvider {
   readonly name: string;
 
   /**
-   * 根据纯中文专业影视提示词生成高清图像
-   * @param prompt 纯中文提示词
+   * 根据纯中文/英文专业影视提示词生成高清图像
+   * @param prompt 提示词
    * @param options 生图参数
-   * @returns 生成图像的临时 URL (由 MediaDownloader 负责下载持久化)
+   * @returns 生成图像的临时或本地 URL (由 MediaDownloader 负责持久化)
    */
   generateImage(prompt: string, options?: ImageGenerationOptions): Promise<string>;
 }

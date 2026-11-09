@@ -4,29 +4,28 @@
  */
 
 import fs from 'fs';
-import type { ServerResponse } from 'http';
+import type { Request, Response, NextFunction } from 'express';
 import { MediaResolver } from '../media/MediaResolver.js';
 import { sendError } from './helpers.js';
 
-export function handleMediaRequest(pathname: string, res: ServerResponse): boolean {
-  if (!pathname.startsWith('/media/')) {
-    return false;
+export function mediaMiddleware(req: Request, res: Response, next: NextFunction): void {
+  if (!req.path.startsWith('/media/')) {
+    return next();
   }
 
-  const resolved = MediaResolver.resolveDiskPath(pathname);
+  const resolved = MediaResolver.resolveDiskPath(req.path);
 
   if (!resolved.projectId || !resolved.relativePath) {
     sendError(res, 400, '非法媒体请求路径');
-    return true;
+    return;
   }
 
   if (!resolved.isValid || !resolved.diskPath) {
     sendError(res, 404, '媒体文件不存在或禁止跨项目越权访问');
-    return true;
+    return;
   }
 
   const contentType = MediaResolver.getMimeType(resolved.diskPath);
-  res.writeHead(200, { 'Content-Type': contentType });
+  res.setHeader('Content-Type', contentType);
   fs.createReadStream(resolved.diskPath).pipe(res);
-  return true;
 }

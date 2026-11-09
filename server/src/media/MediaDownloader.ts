@@ -69,7 +69,7 @@ export class MediaDownloader {
     const rawCleaned = normalizedSubfolder
       ? path.basename(normalizedSubfolder).replace(/[^a-zA-Z0-9_\-]/g, '_')
       : '';
-    const safeSubfolder = (rawCleaned && /[a-zA-Z0-9]/.test(rawCleaned)) ? rawCleaned : 'media';
+    const safeSubfolder = rawCleaned && /[a-zA-Z0-9]/.test(rawCleaned) ? rawCleaned : 'media';
     const targetDir = path.resolve(projectDir, safeSubfolder);
     if (!targetDir.startsWith(path.resolve(projectDir) + path.sep)) {
       throw new Error(`[MediaDownloader] 非法子目录路径穿越: "${subfolder}"`);
@@ -108,7 +108,8 @@ export class MediaDownloader {
           break;
         }
       }
-      const cleaned = path.basename(raw)
+      const cleaned = path
+        .basename(raw)
         .replace(/[^a-zA-Z0-9_\-\.]/g, '_')
         .replace(/\.{2,}/g, '_')
         .replace(/\.+$/, '');
@@ -121,10 +122,26 @@ export class MediaDownloader {
 
     // 若 baseName 已自带合规扩展名，直接使用；否则追加探测出的 ext
     const existingExt = path.extname(baseName).toLowerCase();
-    const validExts = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.mp4', '.mov', '.webm', '.mp3', '.wav', '.aac', '.m4a'];
+    const validExts = [
+      '.png',
+      '.jpg',
+      '.jpeg',
+      '.webp',
+      '.gif',
+      '.mp4',
+      '.mov',
+      '.webm',
+      '.mp3',
+      '.wav',
+      '.aac',
+      '.m4a',
+      '.svg',
+    ];
     const filename = validExts.includes(existingExt)
       ? baseName
-      : (baseName.endsWith(ext) ? baseName : `${baseName}${ext}`);
+      : baseName.endsWith(ext)
+      ? baseName
+      : `${baseName}${ext}`;
 
     const destinationPath = path.resolve(targetDir, filename);
     if (!destinationPath.startsWith(targetDir + path.sep)) {
@@ -140,7 +157,7 @@ export class MediaDownloader {
       attempts++;
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000); // 30秒超时
+        const timeout = setTimeout(() => controller.abort(), 30000);
         timeout.unref?.();
 
         try {
@@ -165,17 +182,19 @@ export class MediaDownloader {
         if (fs.existsSync(destinationPath) && fs.statSync(destinationPath).size > 0) {
           return MediaResolver.toMediaUrl(projectId, safeSubfolder, filename);
         } else {
-          // 清理空文件或损坏文件
           if (fs.existsSync(destinationPath)) {
-            try { fs.unlinkSync(destinationPath); } catch {}
+            try {
+              fs.unlinkSync(destinationPath);
+            } catch {}
           }
           throw new Error('下载文件为空或写入失败');
         }
       } catch (err: any) {
         lastError = err;
-        // 清理失败可能残留的损坏文件
         if (fs.existsSync(destinationPath)) {
-          try { fs.unlinkSync(destinationPath); } catch {}
+          try {
+            fs.unlinkSync(destinationPath);
+          } catch {}
         }
         console.warn(`[MediaDownloader] 下载尝试 ${attempts} 失败 (${trimmed}):`, err?.message || err);
         if (attempts < maxAttempts) {
@@ -185,15 +204,9 @@ export class MediaDownloader {
     }
 
     console.error(`[MediaDownloader] 媒体下载重试彻底失败: ${trimmed}`, lastError);
-    // 刚性 Fail-Fast (法典 0.4 刚性阻断优于隐式苟且)：坚决抛错阻断流水线，消除 24 小时过期临时 URL 假收敛
-    throw new Error(
-      `[MediaDownloader] 媒体下载彻底失败 (${trimmed}): ${lastError?.message || '未知错误'}`
-    );
+    throw new Error(`[MediaDownloader] 媒体下载彻底失败 (${trimmed}): ${lastError?.message || '未知错误'}`);
   }
 
-  /**
-   * downloadMedia 契约映射方法（与 PROJECT.md 接口定义统一）
-   */
   public async downloadMedia(
     url: string,
     projectId: string,

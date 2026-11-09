@@ -35,6 +35,8 @@ server/tsconfig.tsbuildinfo
 !.env.example
 
 # Runtime & Local Data
+data/
+server/data/
 server/data/projects/*
 !server/data/projects/.gitkeep
 server/data/test_projects/

@@ -1,9 +1,7 @@
 /**
  * llm/index.ts
- * 统一大模型服务导出入口 (LLM SSOT)
+ * 模型层对外统一总装出口 (LLM Module SSOT)
  */
 
-export * from './LLMService.js';
-export * from './MockLLMService.js';
-export * from './RealLLMService.js';
-export * from './LLMRegistry.js';
+export { LLMProvider, LLMProvider as LLMRegistry } from './provider.js';
+export { MockLanguageModel } from './mock-model.js';
