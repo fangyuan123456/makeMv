@@ -26,6 +26,8 @@ export const TextGameChoiceSchema = z.object({
 });
 
 export const SceneVisualSchema = z.object({
+  locationId: z.string().optional().describe('关联的场景空间资产 ID，如 loc_interrogation_room'),
+  entityIds: z.array(z.string()).optional().default([]).describe('关联出场的角色、生物或关键道具 ID 列表'),
   scenePrompt: z.string().describe('场景环境、光影色调与空间细节描写'),
   characterPrompt: z.string().describe('出场角色外貌、着装细节与当下的肢体动作微表情'),
   composition: z.string().describe('第一视角机位构图 (如 POV 第一人称主观视角，正对铁桌)'),

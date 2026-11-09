@@ -10,7 +10,7 @@
 import { Agent } from '@mastra/core/agent';
 import type { LanguageModelV1 } from 'ai';
 import { LLMProvider } from '../../llm/index.js';
-import type { GDDArtifact } from '../planner/schema.js';
+import type { GDDArtifact, WorldBibleArtifact } from '../planner/schema.js';
 import { TextGameArtifactSchema, type TextGameArtifact } from './schema.js';
 import { TEXT_GAME_SYSTEM_PROMPT, buildTextGameUserPrompt } from './prompt.js';
 import {
@@ -47,6 +47,7 @@ export async function writeTextGameWithAgent(
   gdd: GDDArtifact | string,
   agent: Agent = textGameAgent,
   customSessionId?: string,
+  worldBible?: WorldBibleArtifact,
 ): Promise<TextGameArtifact> {
   const sessionId = customSessionId || `session_pi_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   const session = TextGameDraftRegistry.getOrCreate(sessionId);
@@ -56,7 +57,7 @@ export async function writeTextGameWithAgent(
     session.title = gdd.title;
   }
 
-  const prompt = buildTextGameUserPrompt(gdd, sessionId);
+  const prompt = buildTextGameUserPrompt(gdd, sessionId, worldBible);
 
   try {
     // 启动 Mastra Agent 原生自主推演循环 (支持工具多轮调用自检与结构化收敛)

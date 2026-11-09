@@ -7,6 +7,7 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import { GDDSchema, type GDDArtifact } from '../src/agents/planner/schema.js';
+import { extractWorldBibleFromGDD } from '../src/agents/planner/index.js';
 import { ProjectStore } from '../src/project-store/ProjectStore.js';
 import { writeTextGameWithAgent } from '../src/agents/text-game/text-game.agent.js';
 import { TextGameRuntimeEngine } from '../src/runtime/state-engine.js';
@@ -194,11 +195,20 @@ async function main() {
   store.setArtifact(projectId, 'gdd', validatedGdd);
   console.log(`  ✅ 策划案已原子写入 data/projects/${projectId}/project.json\n`);
 
+  // 2.5 从 PRD 深度提取全量实体 (角色/生物/道具)、场景光影与对白资产圣经 (World Bible)
+  console.log('2.5 从 PRD 深度提取全量实体 (角色/生物/道具)、场景光影与对白资产圣经 (World Bible)...');
+  const worldBible = await extractWorldBibleFromGDD(validatedGdd);
+  assert.ok(worldBible.entities.length >= 4, '实体资产必须包含角色、生物与关键道具');
+  assert.ok(worldBible.locations.length >= 2, '场景资产必须包含核心空间与光影');
+  assert.ok(worldBible.dialogueModules.length >= 2, '必须提取关键机锋对白库');
+  store.setArtifact(projectId, 'world_bible', worldBible);
+  console.log(`  ✅ 资产圣经已成功提取并落盘: 共 ${worldBible.entities.length} 个实体/道具, ${worldBible.locations.length} 个场景空间, ${worldBible.dialogueModules.length} 组机锋对白库\n`);
+
   // 3. 准备第二步：调用文游 Agent (TextGameAgent) 进行扩写
-  console.log('3. 启动第二步：文游 Agent 消费标杆 GDD 进行扩写装配...');
+  console.log('3. 启动第二步：文游 Agent 消费标杆 GDD 与资产圣经进行扩写装配...');
   LLMProvider.setMockModel(new MockLanguageModel());
   
-  const textGame = await writeTextGameWithAgent(validatedGdd);
+  const textGame = await writeTextGameWithAgent(validatedGdd, undefined, undefined, worldBible);
   assert.ok(textGame.nodes.length > 0, '扩写文游必须包含文学节点');
   store.setArtifact(projectId, 'text_game', textGame);
   console.log(`  ✅ 文游扩写成功: 共 ${textGame.nodes.length} 个文学演出节点已落盘！`);

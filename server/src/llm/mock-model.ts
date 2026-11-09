@@ -86,6 +86,15 @@ export class MockLanguageModel implements LanguageModelV1 {
           {
             id: 'node_start',
             title: '雨夜审讯室对峙',
+            visual: {
+              locationId: 'loc_interrogation_room',
+              entityIds: ['char_viktor', 'prop_brass_bullet'],
+              scenePrompt: '雨夜封闭水泥审讯室，窗外冷蓝暴雨，冷白吊灯直射铁桌',
+              characterPrompt: '52岁维克托主管冷酷注视，冰蓝测谎义眼高频闪烁，右手按在黄铜子弹上',
+              composition: 'POV第一人称平视视角，正对金属铁桌与维克托上半身',
+              imagePromptEn:
+                '1man, 52yo imposing security chief, glowing blue cybernetic eye, dark military coat, pressing brass bullet on steel table, rainy neon backlight through barred window, extreme suspense, masterpiece, 8k, photorealistic',
+            },
             narrativeText:
               '暴雨猛烈抽打着铁窗。维克托慢条斯理地将一枚黄铜子弹按入冰冷的铁桌，推到你的面前。军规测谎义眼的冰蓝冷光高频震颤，死死锁定你的颈动脉跳动。\n\n“林巡，今晚第三下层机房失窃。我需要你证明，你的脑神经芯片里没有爬满抵抗军的蠕虫。”',
             choices: [
