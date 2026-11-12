@@ -1,0 +1,18 @@
+/**
+ * client/src/main.tsx
+ * 客户端前端挂载主入口
+ */
+
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App.js';
+import './index.css';
+
+const rootEl = document.getElementById('root');
+if (rootEl) {
+  ReactDOM.createRoot(rootEl).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>
+  );
+}

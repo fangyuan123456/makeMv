@@ -1,0 +1,1127 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>media → ConfirmUI 接入体检与 6 份工作流 JSON 测试报告</title>
+<style>
+  :root{color-scheme:light;--bg:#f6f7f9;--panel:#fff;--line:#e3e6ea;--text:#1f2329;--dim:#6b7280;--red:#c0392b;--green:#1a7f4b}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:32px 24px 64px}
+  h1{font-size:24px;margin:0 0 6px}h2{font-size:17px;margin:34px 0 12px}h3{font-size:15px;margin:0}h4{font-size:13px;margin:14px 0 6px;color:var(--dim)}
+  .sub,.dim{color:var(--dim)}.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+  .hero{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px;margin-bottom:18px}
+  .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700}
+  .badge.ok,.pill.yes{background:#e7f5ed;color:var(--green)}.badge.bad,.pill.no{background:#fdecea;color:var(--red)}
+  .pill.deferred{background:#fff4e5;color:#a05a00}
+  .verdict{font-size:30px;font-weight:800;margin:10px 0 4px}.verdict.bad{color:var(--red)}.verdict.ok{color:var(--green)}
+  .stats{display:flex;gap:26px;flex-wrap:wrap;margin-top:12px;color:var(--dim)}.stats b{font-size:18px;color:var(--text)}
+  .chain{display:flex;align-items:stretch;gap:6px;flex-wrap:wrap;margin:14px 0 4px}
+  .node{flex:1 1 170px;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--green);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+  .node.bad{border-left-color:var(--red)}.node span{font-size:12px;color:var(--dim)}
+  .arrow{align-self:center;font-size:20px;color:var(--green);font-weight:700}.arrow.broken{color:var(--red)}
+  table.grid{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;font-size:13px}
+  th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}th{background:#f0f2f5;font-weight:600}
+  tr:last-child td{border-bottom:none}.row-bad{background:#fffafa}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px}
+  .card-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .meta{display:flex;gap:18px;flex-wrap:wrap;color:var(--dim);font-size:12px;margin-top:8px}.meta b{color:var(--text)}
+  .note{margin:10px 0 0;color:var(--dim);font-size:13px}.err{color:var(--red);font-size:13px}
+  .caps{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:12px;color:var(--dim)}
+  .pill{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:600}
+  details{margin-top:10px}summary{cursor:pointer;color:#2563a8;font-size:13px}
+  pre{background:#f7f8fa;border:1px solid var(--line);border-radius:8px;padding:12px;max-height:340px;overflow:auto;font:11px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-all}
+  ul.fix{margin:0;padding-left:20px}ul.fix li{margin:6px 0}
+  footer{margin-top:34px;color:var(--dim);font-size:12px;border-top:1px solid var(--line);padding-top:14px}
+</style></head><body><div class="wrap">
+  <h1>media → ConfirmUI 接入体检</h1>
+  <div class="sub">项目 makeMv · 6 份 ComfyUI 工作流 JSON 契约测试 · 由测试实跑生成，非手写结论</div>
+
+  <div class="hero">
+    <span class="badge bad">关键链路 0/7 接通</span>
+    <div class="verdict bad">未接通</div>
+    <div class="sub">媒体算力与 ConfirmUI 之间的「触发 → 确认卡 → 门禁 → 执行」链路仍有断点。</div>
+    <div class="stats">
+      <span>模板测试 <b>6/6</b> 通过</span>
+      <span>链路探测 <b>3/11</b> 项通</span>
+      <span>关键项 <b>0/7</b> 项通</span>
+      <span>按约定暂缓 <b>1</b> 项</span>
+      <span>真实算力调用 <b>0</b>（模板全 dry-run）</span>
+    </div>
+    <div class="chain">
+      <div class="node bad"><b>媒体触发</b><span>入口未建确认卡</span></div>
+      <div class="arrow broken">✕</div>
+      <div class="node bad"><b>ConfirmUI 确认卡</b><span>卡片不认媒体 action</span></div>
+      <div class="arrow broken">✕</div>
+      <div class="node bad"><b>确认门禁</b><span>存在绕过确认的暗道</span></div>
+      <div class="arrow broken">✕</div>
+      <div class="node bad"><b>执行器</b><span>确认只改状态未执行</span></div>
+      <div class="arrow broken">✕</div>
+      <div class="node ok"><b>ComfyUI 6 模板</b><span>6/6 结构、注入、映射通过</span></div>
+      </div>
+  </div>
+
+  <h2>一、链路体检明细</h2>
+  <table class="grid"><thead><tr><th>#</th><th>层</th><th>检查项</th><th>状态</th><th>证据</th><th>影响</th></tr></thead><tbody>
+      <tr class="row-bad">
+        <td class="mono">L1</td>
+        <td>算力入口</td>
+        <td>媒体算力入口是否先建 proposed 确认任务</td>
+        <td><span class="pill no">断</span></td>
+        <td class="dim">runtime.route.ts:- createTask(..., true) 只建卡不执行</td>
+        <td class="dim">入口不建卡，创作者就没有授权机会，算力会被直接触发。</td>
+      </tr>
+      <tr class="row-bad">
+        <td class="mono">L2</td>
+        <td>HTTP 入口</td>
+        <td>执行口是否校验任务状态、裸入口是否停用（防绕过）</td>
+        <td><span class="pill no">断</span></td>
+        <td class="dim">runtime.route.ts:- 状态校验；旧裸 /render-images 返回 410</td>
+        <td class="dim">没有状态校验或旧裸入口还在，就能跳过确认卡直接烧算力。</td>
+      </tr>
+      <tr class="row-bad">
+        <td class="mono">L3</td>
+        <td>确认后执行</td>
+        <td>confirmTask 放行后是否真实驱动渲染并闭环任务状态</td>
+        <td><span class="pill no">断</span></td>
+        <td class="dim">runtime.route.ts:- → batchRenderGameImages → setStatus(succeeded/failed)</td>
+        <td class="dim">确认只改状态不执行，门禁就成了状态孤岛。</td>
+      </tr>
+      <tr class="row-bad">
+        <td class="mono">L4</td>
+        <td>渲染服务</td>
+        <td>batchRenderGameImages 是否只被受控入口调用</td>
+        <td><span class="pill no">断</span></td>
+        <td class="dim">server/src 内调用方 = [无]</td>
+        <td class="dim">多一个调用方就多一条绕过确认卡的暗道。</td>
+      </tr>
+      <tr class="">
+        <td class="mono">L5</td>
+        <td>确认门禁</td>
+        <td>proposed → running 状态机本身可用</td>
+        <td><span class="pill yes">通</span></td>
+        <td class="dim">本测试实跑 TaskStore.createTask(true) + ConfirmationGate.confirmTask，断言通过</td>
+        <td class="dim">门禁机制自身可用，现由入口层复用，无需在工具内部重复声明。</td>
+      </tr>
+      <tr class="">
+        <td class="mono">L6</td>
+        <td>HTTP 入口</td>
+        <td>/api/tasks/:id/confirm|reject 路由是否挂载</td>
+        <td><span class="pill yes">通</span></td>
+        <td class="dim">app.ts:30 已挂载，tasks.route.ts:8 已实现</td>
+        <td class="dim">后端接口齐备，缺的是前端调用方。</td>
+      </tr>
+      <tr class="row-bad">
+        <td class="mono">L7</td>
+        <td>前端网关</td>
+        <td>client/lib/api.ts 是否封装提案与确认/拒绝接口</td>
+        <td><span class="pill no">断</span></td>
+        <td class="dim">client/src/lib/api.ts 已补 proposeRenderImages / confirmRenderImages / rejectTask（走 /api/tasks/:id/reject）</td>
+        <td class="dim">前端没有这几个封装，确认卡就点不动后端门禁。</td>
+      </tr>
+      <tr class="row-bad">
+        <td class="mono">L8</td>
+        <td>ConfirmUI 卡片</td>
+        <td>ProposalCard / 座舱是否支持媒体类行动提案</td>
+        <td><span class="pill no">断</span></td>
+        <td class="dim">ProposalCard.tsx 动作标签 = [propose_stage, start_pipeline, resume_task, approve_stage, modify_asset, render_images, propose_stage, start_pipeline, resume_task, approve_stage, modify_asset, build_text_game, render_images]；TextGameCockpit.tsx 已渲染 render_images 确认卡</td>
+        <td class="dim">卡片不认媒体 action，媒体渲染就不在人在回路体系内。</td>
+      </tr>
+      <tr class="row-bad">
+        <td class="mono">L9</td>
+        <td>算力工具</td>
+        <td>videoGenerateTool（i2v 工作流）是否有生产消费方</td>
+        <td><span class="pill no">断</span> <span class="pill deferred">暂缓</span></td>
+        <td class="dim">server/src 内除定义文件与总装导出外，引用数 = 0（仅测试文件引用）</td>
+        <td class="dim">按约定暂缓：当前流水线只编译影视化切片清单，尚无视频工序；comfyui_i2v.json 模板已就绪，待新开视频工序时接入。</td>
+      </tr>
+      <tr class="row-bad">
+        <td class="mono">L10</td>
+        <td>前后端契约</td>
+        <td>action 枚举对齐 + chat_only 不出卡 + 未知意图不立项</td>
+        <td><span class="pill no">断</span></td>
+        <td class="dim">后端 = [modify_asset, resume_task, approve_stage, propose_stage, start_pipeline, chat_only]；卡片标签 = [propose_stage, start_pipeline, resume_task, approve_stage, modify_asset, render_images, propose_stage, start_pipeline, resume_task, approve_stage, modify_asset, build_text_game, render_images]；App 分支 = [resume_task, build_text_game, approve_stage]；chat_only 过滤=false；无兜底立项=true</td>
+        <td class="dim">枚举错位或 chat_only 出卡时，未识别意图会落进 else 兜底重复立项（409）；现在未知意图只提示不执行。</td>
+      </tr>
+      <tr class="">
+        <td class="mono">L11</td>
+        <td>工作流模板</td>
+        <td>6 份 ComfyUI JSON 是否全部可达且可注入</td>
+        <td><span class="pill yes">通</span></td>
+        <td class="dim">本文件 6 个模板契约测试（结构 / DAG / 注入 / Provider 映射 / 提交负载）</td>
+        <td class="dim">底座模板保持就绪，接线改动不得让任何一份模板掉队。</td>
+      </tr></tbody></table>
+
+  <h2>二、每份 JSON 一个测试</h2>
+  <div class="sub">断言内容：JSON 合法 → 转换器统一为 API Prompt → 节点/连线引用完整 → 输出与 LoadImage 节点数 → 四类注入「值真的被改写」→ Provider mode 映射 → 真实提交负载复核。</div>
+  
+      <section class="card">
+        <div class="card-head">
+          <h3>1. <span class="mono">comfyui_t2i.json</span></h3>
+          <span class="badge ok">PASS</span>
+        </div>
+        <div class="meta">
+          <span>格式 <b>API Prompt</b></span>
+          <span>节点 <b>10</b></span>
+          <span>入口 <b class="mono">generateImage(general_t2i / 默认)</b></span>
+          <span>LoadImage <b>无</b></span>
+        </div>
+        <p class="note">通用文生图（AuraFlow / SD3），正负向双 CLIPTextEncode；不传 mode 时也是这份模板。</p>
+        
+        <div class="caps">
+          <span>提示词 <span class="pill yes">支持</span></span><span>负向词 <span class="pill yes">支持</span></span>
+          <span>种子 <span class="pill yes">支持</span></span><span>画幅 <span class="pill yes">支持</span></span><span>参考图 <span class="pill no">不支持</span></span>
+        </div>
+        <p class="sub">节点类型：<span class="mono dim">SaveImage · CLIPLoader · VAELoader · VAEDecode · UNETLoader · CLIPTextEncode · EmptySD3LatentImage · ModelSamplingAuraFlow · KSampler</span></p>
+        <h4>注入前后对照（真实提交负载片段）</h4>
+        <table class="grid"><thead><tr><th>节点</th><th>字段</th><th>模板原值</th><th>注入后</th></tr></thead><tbody><tr><td>67/CLIPTextEncode</td><td>text</td><td class="mono dim">anime RPG game style, cute anime girl with gigantic fenn</td><td class="mono">__CONFIRM_UI_TEST_PROMPT__</td></tr></tbody></table>
+        <details><summary>展开：dry-run 实际会提交给 ComfyUI /prompt 的完整 API Prompt</summary><pre>{
+  &quot;9&quot;: {
+    &quot;inputs&quot;: {
+      &quot;filename_prefix&quot;: &quot;ComfyUI&quot;,
+      &quot;images&quot;: [
+        &quot;65&quot;,
+        0
+      ]
+    },
+    &quot;class_type&quot;: &quot;SaveImage&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;保存图像&quot;,
+      &quot;cnr_id&quot;: &quot;comfy-core&quot;,
+      &quot;ver&quot;: &quot;0.3.64&quot;
+    }
+  },
+  &quot;62&quot;: {
+    &quot;inputs&quot;: {
+      &quot;clip_name&quot;: &quot;qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors&quot;,
+      &quot;type&quot;: &quot;lumina2&quot;,
+      &quot;device&quot;: &quot;default&quot;
+    },
+    &quot;class_type&quot;: &quot;CLIPLoader&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;加载CLIP&quot;,
+      &quot;cnr_id&quot;: &quot;comfy-core&quot;,
+      &quot;ver&quot;: &quot;0.3.73&quot;
+    }
+  },
+  &quot;63&quot;: {
+    &quot;inputs&quot;: {
+      &quot;vae_name&quot;: &quot;minimax_h3_video_vae_fp16.safetensors&quot;
+    },
+    &quot;class_type&quot;: &quot;VAELoader&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;加载VAE&quot;,
+      &quot;cnr_id&quot;: &quot;comfy-core&quot;,
+      &quot;ver&quot;: &quot;0.3.73&quot;
+    }
+  },
+  &quot;65&quot;: {
+    &quot;inputs&quot;: {
+      &quot;samples&quot;: [
+        &quot;70&quot;,
+        0
+      ],
+      &quot;vae&quot;: [
+        &quot;63&quot;,
+        0
+      ]
+    },
+    &quot;class_type&quot;: &quot;VAEDecode&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;VAE解码&quot;,
+      &quot;cnr_id&quot;: &quot;comfy-core&quot;,
+      &quot;ver&quot;: &quot;0.3.64&quot;
+    }
+  },
+  &quot;66&quot;: {
+    &quot;inputs&quot;: {
+      &quot;unet_name&quot;: &quot;fastvideo_fasth3_8step_v2_pruned_nvfp4.safetensors&quot;,
+      &quot;weight_dtype&quot;: &quot;default&quot;
+    },
+    &quot;class_type&quot;: &quot;UNETLoader&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;UNet加载器&quot;,
+      &quot;cnr_id&quot;: &quot;comfy-core&quot;,
+      &quot;ver&quot;: &quot;0.3.73&quot;
+    }
+  },
+  &quot;67&quot;: {
+    &quot;inputs&quot;: {
+      &quot;text&quot;: &quot;__CONFIRM_UI_TEST_PROMPT__&quot;,
+      &quot;clip&quot;: [
+        &quot;62&quot;,
+        0
+      ]
+    },
+    &quot;class_type&quot;: &quot;CLIPTextEncode&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;CLIP文本编码&quot;,
+      &quot;cnr_id&quot;: &quot;comfy-core&quot;,
+      &quot;ver&quot;: &quot;0.3.73&quot;
+    }
+  },
+  &quot;68&quot;: {
+    &quot;inputs&quot;: {
+      &quot;width&quot;: 1280,
+      &quot;height&quot;: 720,
+      &quot;batch_size&quot;: 1
+    },
+    &quot;class_type&quot;: &quot;EmptySD3LatentImage&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;空Latent图像（SD3）&quot;,
+      &quot;cnr_id&quot;: &quot;comfy-core&quot;,
+      &quot;ver&quot;: &quot;0.3.64&quot;
+    }
+  },
+  &quot;69&quot;: {
+    &quot;inputs&quot;: {
+      &quot;shift&quot;: 3,
+      &quot;sampling&quot;: &quot;flow&quot;,
+      &quot;model&quot;: [
+        &quot;66&quot;,
+        0
+      ]
+    },
+    &quot;class_type&quot;: &quot;ModelSamplingAuraFlow&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;采样算法（AuraFlow）&quot;,
+      &quot;cnr_id&quot;: &quot;comfy-core&quot;,
+      &quot;ver&quot;: &quot;0.3.64&quot;
+    }
+  },
+  &quot;70&quot;: {
+    &quot;inputs&quot;: {
+      &quot;seed&quot;: 424242,
+      &quot;steps&quot;: 8,
+      &quot;cfg&quot;: 1,
+      &quot;sampler_name&quot;: &quot;res_multistep&quot;,
+      &quot;scheduler&quot;: &quot;simple&quot;,
+      &quot;denoise&quot;: 1,
+      &quot;model&quot;: [
+        &quot;66&quot;,
+        0
+      ],
+      &quot;positive&quot;: [
+        &quot;67&quot;,
+        0
+      ],
+      &quot;negative&quot;: [
+        &quot;71&quot;,
+        0
+      ],
+      &quot;latent_image&quot;: [
+        &quot;68&quot;,
+        0
+      ]
+    },
+    &quot;class_type&quot;: &quot;KSampler&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;K采样器&quot;,
+      &quot;cnr_id&quot;: &quot;comfy-core&quot;,
+      &quot;ver&quot;: &quot;0.3.64&quot;
+    }
+  },
+  &quot;71&quot;: {
+    &quot;inputs&quot;: {
+      &quot;text&quot;: &quot;low quality, bad anatomy, extra digits, missing digits, extra limbs, missing limbs&quot;,
+      &quot;clip&quot;: [
+        &quot;62&quot;,
+        0
+      ]
+    },
+    &quot;class_type&quot;: &quot;CLIPTextEncode&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;CLIP文本编码&quot;,
+      &quot;cnr_id&quot;: &quot;comfy-core&quot;,
+      &quot;ver&quot;: &quot;0.3.73&quot;
+    }
+  }
+}</pre></details>
+      </section>
+      <section class="card">
+        <div class="card-head">
+          <h3>2. <span class="mono">comfyui_character_t2i.json</span></h3>
+          <span class="badge ok">PASS</span>
+        </div>
+        <div class="meta">
+          <span>格式 <b>UI Workflow</b></span>
+          <span>节点 <b>8</b></span>
+          <span>入口 <b class="mono">generateImage(character_t2i)</b></span>
+          <span>LoadImage <b>无</b></span>
+        </div>
+        <p class="note">角色定妆首图，TextEncodeQwenImage21 + EmptyLatentImage。</p>
+        
+        <div class="caps">
+          <span>提示词 <span class="pill yes">支持</span></span><span>负向词 <span class="pill yes">支持</span></span>
+          <span>种子 <span class="pill yes">支持</span></span><span>画幅 <span class="pill yes">支持</span></span><span>参考图 <span class="pill no">不支持</span></span>
+        </div>
+        <p class="sub">节点类型：<span class="mono dim">UNETLoader · CLIPLoader · VAELoader · TextEncodeQwenImage21 · EmptyLatentImage · KSampler · VAEDecode · SaveImage</span></p>
+        <h4>注入前后对照（真实提交负载片段）</h4>
+        <table class="grid"><thead><tr><th>节点</th><th>字段</th><th>模板原值</th><th>注入后</th></tr></thead><tbody><tr><td>4/TextEncodeQwenImage21</td><td>prompt</td><td class="mono dim">3D animated feature film style, clean stylised character</td><td class="mono">__CONFIRM_UI_TEST_PROMPT__</td></tr></tbody></table>
+        <details><summary>展开：dry-run 实际会提交给 ComfyUI /prompt 的完整 API Prompt</summary><pre>{
+  &quot;1&quot;: {
+    &quot;class_type&quot;: &quot;UNETLoader&quot;,
+    &quot;inputs&quot;: {
+      &quot;unet_name&quot;: &quot;qwen_image_2.1_int8_convrot.safetensors&quot;,
+      &quot;weight_dtype&quot;: &quot;default&quot;
+    }
+  },
+  &quot;2&quot;: {
+    &quot;class_type&quot;: &quot;CLIPLoader&quot;,
+    &quot;inputs&quot;: {
+      &quot;clip_name&quot;: &quot;qwen3vl_8b_w4a8.safetensors&quot;,
+      &quot;type&quot;: &quot;qwen_image&quot;,
+      &quot;device&quot;: &quot;default&quot;
+    }
+  },
+  &quot;3&quot;: {
+    &quot;class_type&quot;: &quot;VAELoader&quot;,
+    &quot;inputs&quot;: {
+      &quot;vae_name&quot;: &quot;qwen_image_2.1_vae_bf16.safetensors&quot;
+    }
+  },
+  &quot;4&quot;: {
+    &quot;class_type&quot;: &quot;TextEncodeQwenImage21&quot;,
+    &quot;inputs&quot;: {
+      &quot;clip&quot;: [
+        &quot;2&quot;,
+        0
+      ],
+      &quot;vae&quot;: [
+        &quot;3&quot;,
+        0
+      ],
+      &quot;prompt&quot;: &quot;__CONFIRM_UI_TEST_PROMPT__&quot;,
+      &quot;negative_prompt&quot;: &quot;低分辨率，低画质，肢体畸形，手指畸形，多手多脚，画面过饱和，蜡像感，塑料感，2D平面插画，赛璐璐线稿，漫画描边，墨线，平涂色块，写实照片，真人实拍，摄影质感，皮肤毛孔，油光皮肤，皱纹，胡茬，脏污，油渍，污垢，灰尘，破旧，文字，水印，标签，边框，拼贴，分格线。中年，苍老，胡须，胡茬，皱纹，抬头纹，眼周皱纹，法令纹，写实背景，街景，室外场景，多个人物。&quot;,
+      &quot;resolution&quot;: 1024
+    }
+  },
+  &quot;5&quot;: {
+    &quot;class_type&quot;: &quot;EmptyLatentImage&quot;,
+    &quot;inputs&quot;: {
+      &quot;width&quot;: 1280,
+      &quot;height&quot;: 720,
+      &quot;batch_size&quot;: 1
+    }
+  },
+  &quot;6&quot;: {
+    &quot;class_type&quot;: &quot;KSampler&quot;,
+    &quot;inputs&quot;: {
+      &quot;model&quot;: [
+        &quot;1&quot;,
+        0
+      ],
+      &quot;positive&quot;: [
+        &quot;4&quot;,
+        0
+      ],
+      &quot;negative&quot;: [
+        &quot;4&quot;,
+        1
+      ],
+      &quot;latent_image&quot;: [
+        &quot;5&quot;,
+        0
+      ],
+      &quot;seed&quot;: 424242,
+      &quot;steps&quot;: 25,
+      &quot;cfg&quot;: 1,
+      &quot;sampler_name&quot;: &quot;euler&quot;,
+      &quot;scheduler&quot;: &quot;simple&quot;,
+      &quot;denoise&quot;: 1
+    }
+  },
+  &quot;7&quot;: {
+    &quot;class_type&quot;: &quot;VAEDecode&quot;,
+    &quot;inputs&quot;: {
+      &quot;samples&quot;: [
+        &quot;6&quot;,
+        0
+      ],
+      &quot;vae&quot;: [
+        &quot;3&quot;,
+        0
+      ]
+    }
+  },
+  &quot;8&quot;: {
+    &quot;class_type&quot;: &quot;SaveImage&quot;,
+    &quot;inputs&quot;: {
+      &quot;images&quot;: [
+        &quot;7&quot;,
+        0
+      ],
+      &quot;filename_prefix&quot;: &quot;角色WF/01-文生图&quot;
+    }
+  }
+}</pre></details>
+      </section>
+      <section class="card">
+        <div class="card-head">
+          <h3>3. <span class="mono">comfyui_character_ref2i.json</span></h3>
+          <span class="badge ok">PASS</span>
+        </div>
+        <div class="meta">
+          <span>格式 <b>UI Workflow</b></span>
+          <span>节点 <b>8</b></span>
+          <span>入口 <b class="mono">generateImage(character_ref2i)</b></span>
+          <span>LoadImage <b>有</b></span>
+        </div>
+        <p class="note">角色锁脸参考生图；无宽高节点，size 参数会被静默丢弃。</p>
+        
+        <div class="caps">
+          <span>提示词 <span class="pill yes">支持</span></span><span>负向词 <span class="pill yes">支持</span></span>
+          <span>种子 <span class="pill yes">支持</span></span><span>画幅 <span class="pill no">不支持</span></span><span>参考图 <span class="pill yes">支持</span></span>
+        </div>
+        <p class="sub">节点类型：<span class="mono dim">LoadImage · UNETLoader · CLIPLoader · VAELoader · TextEncodeQwenImage21 · KSampler · VAEDecode · SaveImage</span></p>
+        <h4>注入前后对照（真实提交负载片段）</h4>
+        <table class="grid"><thead><tr><th>节点</th><th>字段</th><th>模板原值</th><th>注入后</th></tr></thead><tbody><tr><td>5/TextEncodeQwenImage21</td><td>prompt</td><td class="mono dim">以 &lt;image1&gt; 中的人物为基准：脸型、五官比例、眼色、发型、发色、肤色全部保持一致，只重画成下面这个角色设</td><td class="mono">__CONFIRM_UI_TEST_PROMPT__</td></tr></tbody></table>
+        <details><summary>展开：dry-run 实际会提交给 ComfyUI /prompt 的完整 API Prompt</summary><pre>{
+  &quot;1&quot;: {
+    &quot;class_type&quot;: &quot;LoadImage&quot;,
+    &quot;inputs&quot;: {
+      &quot;image&quot;: &quot;confirm_ui_ref_stub.png&quot;,
+      &quot;upload&quot;: &quot;image&quot;
+    }
+  },
+  &quot;2&quot;: {
+    &quot;class_type&quot;: &quot;UNETLoader&quot;,
+    &quot;inputs&quot;: {
+      &quot;unet_name&quot;: &quot;qwen_image_2.1_int8_convrot.safetensors&quot;,
+      &quot;weight_dtype&quot;: &quot;default&quot;
+    }
+  },
+  &quot;3&quot;: {
+    &quot;class_type&quot;: &quot;CLIPLoader&quot;,
+    &quot;inputs&quot;: {
+      &quot;clip_name&quot;: &quot;qwen3vl_8b_w4a8.safetensors&quot;,
+      &quot;type&quot;: &quot;qwen_image&quot;,
+      &quot;device&quot;: &quot;default&quot;
+    }
+  },
+  &quot;4&quot;: {
+    &quot;class_type&quot;: &quot;VAELoader&quot;,
+    &quot;inputs&quot;: {
+      &quot;vae_name&quot;: &quot;qwen_image_2.1_vae_bf16.safetensors&quot;
+    }
+  },
+  &quot;5&quot;: {
+    &quot;class_type&quot;: &quot;TextEncodeQwenImage21&quot;,
+    &quot;inputs&quot;: {
+      &quot;clip&quot;: [
+        &quot;3&quot;,
+        0
+      ],
+      &quot;images.image_1&quot;: [
+        &quot;1&quot;,
+        0
+      ],
+      &quot;vae&quot;: [
+        &quot;4&quot;,
+        0
+      ],
+      &quot;prompt&quot;: &quot;__CONFIRM_UI_TEST_PROMPT__&quot;,
+      &quot;negative_prompt&quot;: &quot;低分辨率，低画质，肢体畸形，手指畸形，多手多脚，画面过饱和，蜡像感，塑料感，2D平面插画，赛璐璐线稿，漫画描边，墨线，平涂色块，写实照片，真人实拍，摄影质感，皮肤毛孔，油光皮肤，皱纹，胡茬，脏污，油渍，污垢，灰尘，破旧，文字，水印，标签，边框，拼贴，分格线。换脸，另一张脸，五官变形，年龄变化，中年，苍老，胡须，皱纹，写实背景，街景，多个人物。&quot;,
+      &quot;resolution&quot;: 1024
+    }
+  },
+  &quot;6&quot;: {
+    &quot;class_type&quot;: &quot;KSampler&quot;,
+    &quot;inputs&quot;: {
+      &quot;model&quot;: [
+        &quot;2&quot;,
+        0
+      ],
+      &quot;positive&quot;: [
+        &quot;5&quot;,
+        0
+      ],
+      &quot;negative&quot;: [
+        &quot;5&quot;,
+        1
+      ],
+      &quot;latent_image&quot;: [
+        &quot;5&quot;,
+        2
+      ],
+      &quot;seed&quot;: 424242,
+      &quot;steps&quot;: 25,
+      &quot;cfg&quot;: 1,
+      &quot;sampler_name&quot;: &quot;euler&quot;,
+      &quot;scheduler&quot;: &quot;simple&quot;,
+      &quot;denoise&quot;: 1
+    }
+  },
+  &quot;7&quot;: {
+    &quot;class_type&quot;: &quot;VAEDecode&quot;,
+    &quot;inputs&quot;: {
+      &quot;samples&quot;: [
+        &quot;6&quot;,
+        0
+      ],
+      &quot;vae&quot;: [
+        &quot;4&quot;,
+        0
+      ]
+    }
+  },
+  &quot;8&quot;: {
+    &quot;class_type&quot;: &quot;SaveImage&quot;,
+    &quot;inputs&quot;: {
+      &quot;images&quot;: [
+        &quot;7&quot;,
+        0
+      ],
+      &quot;filename_prefix&quot;: &quot;角色WF/02-参考图&quot;
+    }
+  }
+}</pre></details>
+      </section>
+      <section class="card">
+        <div class="card-head">
+          <h3>4. <span class="mono">comfyui_character_pose_outfit.json</span></h3>
+          <span class="badge ok">PASS</span>
+        </div>
+        <div class="meta">
+          <span>格式 <b>UI Workflow</b></span>
+          <span>节点 <b>9</b></span>
+          <span>入口 <b class="mono">generateImage(character_pose_outfit)</b></span>
+          <span>LoadImage <b>有</b></span>
+        </div>
+        <p class="note">姿态 + 服装双参考图；无宽高节点，size 参数会被静默丢弃。</p>
+        
+        <div class="caps">
+          <span>提示词 <span class="pill yes">支持</span></span><span>负向词 <span class="pill yes">支持</span></span>
+          <span>种子 <span class="pill yes">支持</span></span><span>画幅 <span class="pill no">不支持</span></span><span>参考图 <span class="pill yes">支持</span></span>
+        </div>
+        <p class="sub">节点类型：<span class="mono dim">UNETLoader · CLIPLoader · VAELoader · LoadImage · TextEncodeQwenImage21 · KSampler · VAEDecode · SaveImage</span></p>
+        <h4>注入前后对照（真实提交负载片段）</h4>
+        <table class="grid"><thead><tr><th>节点</th><th>字段</th><th>模板原值</th><th>注入后</th></tr></thead><tbody><tr><td>6/TextEncodeQwenImage21</td><td>prompt</td><td class="mono dim">以 &lt;image1&gt; 中的角色为准：脸型、五官、发型、发色、肤色、体型比例、身高必须完全不变，这是同一个人，只改</td><td class="mono">__CONFIRM_UI_TEST_PROMPT__</td></tr></tbody></table>
+        <details><summary>展开：dry-run 实际会提交给 ComfyUI /prompt 的完整 API Prompt</summary><pre>{
+  &quot;1&quot;: {
+    &quot;class_type&quot;: &quot;UNETLoader&quot;,
+    &quot;inputs&quot;: {
+      &quot;unet_name&quot;: &quot;qwen_image_2.1_int8_convrot.safetensors&quot;,
+      &quot;weight_dtype&quot;: &quot;default&quot;
+    }
+  },
+  &quot;2&quot;: {
+    &quot;class_type&quot;: &quot;CLIPLoader&quot;,
+    &quot;inputs&quot;: {
+      &quot;clip_name&quot;: &quot;qwen3vl_8b_w4a8.safetensors&quot;,
+      &quot;type&quot;: &quot;qwen_image&quot;,
+      &quot;device&quot;: &quot;default&quot;
+    }
+  },
+  &quot;3&quot;: {
+    &quot;class_type&quot;: &quot;VAELoader&quot;,
+    &quot;inputs&quot;: {
+      &quot;vae_name&quot;: &quot;qwen_image_2.1_vae_bf16.safetensors&quot;
+    }
+  },
+  &quot;4&quot;: {
+    &quot;class_type&quot;: &quot;LoadImage&quot;,
+    &quot;inputs&quot;: {
+      &quot;image&quot;: &quot;角色锚点图.png&quot;,
+      &quot;upload&quot;: &quot;image&quot;
+    }
+  },
+  &quot;5&quot;: {
+    &quot;class_type&quot;: &quot;LoadImage&quot;,
+    &quot;inputs&quot;: {
+      &quot;image&quot;: &quot;着装参考.png&quot;,
+      &quot;upload&quot;: &quot;image&quot;
+    }
+  },
+  &quot;6&quot;: {
+    &quot;class_type&quot;: &quot;TextEncodeQwenImage21&quot;,
+    &quot;inputs&quot;: {
+      &quot;clip&quot;: [
+        &quot;2&quot;,
+        0
+      ],
+      &quot;images.image_1&quot;: [
+        &quot;4&quot;,
+        0
+      ],
+      &quot;vae&quot;: [
+        &quot;3&quot;,
+        0
+      ],
+      &quot;prompt&quot;: &quot;__CONFIRM_UI_TEST_PROMPT__&quot;,
+      &quot;negative_prompt&quot;: &quot;低分辨率，低画质，肢体畸形，手指畸形，多手多脚，画面过饱和，蜡像感，塑料感，2D平面插画，赛璐璐线稿，漫画描边，墨线，平涂色块，写实照片，真人实拍，摄影质感，皮肤毛孔，油光皮肤，皱纹，胡茬，脏污，油渍，污垢，灰尘，破旧，文字，水印，标签，边框，拼贴，分格线。换脸，另一张脸，五官变形，年龄变化，配饰消失，围巾消失，多个人物，裁切。&quot;,
+      &quot;resolution&quot;: 1024
+    }
+  },
+  &quot;7&quot;: {
+    &quot;class_type&quot;: &quot;KSampler&quot;,
+    &quot;inputs&quot;: {
+      &quot;model&quot;: [
+        &quot;1&quot;,
+        0
+      ],
+      &quot;positive&quot;: [
+        &quot;6&quot;,
+        0
+      ],
+      &quot;negative&quot;: [
+        &quot;6&quot;,
+        1
+      ],
+      &quot;latent_image&quot;: [
+        &quot;6&quot;,
+        2
+      ],
+      &quot;seed&quot;: 424242,
+      &quot;steps&quot;: 25,
+      &quot;cfg&quot;: 1,
+      &quot;sampler_name&quot;: &quot;euler&quot;,
+      &quot;scheduler&quot;: &quot;simple&quot;,
+      &quot;denoise&quot;: 1
+    }
+  },
+  &quot;8&quot;: {
+    &quot;class_type&quot;: &quot;VAEDecode&quot;,
+    &quot;inputs&quot;: {
+      &quot;samples&quot;: [
+        &quot;7&quot;,
+        0
+      ],
+      &quot;vae&quot;: [
+        &quot;3&quot;,
+        0
+      ]
+    }
+  },
+  &quot;9&quot;: {
+    &quot;class_type&quot;: &quot;SaveImage&quot;,
+    &quot;inputs&quot;: {
+      &quot;images&quot;: [
+        &quot;8&quot;,
+        0
+      ],
+      &quot;filename_prefix&quot;: &quot;角色WF/03-换姿换装&quot;
+    }
+  }
+}</pre></details>
+      </section>
+      <section class="card">
+        <div class="card-head">
+          <h3>5. <span class="mono">comfyui_character_three_view.json</span></h3>
+          <span class="badge ok">PASS</span>
+        </div>
+        <div class="meta">
+          <span>格式 <b>UI Workflow</b></span>
+          <span>节点 <b>9</b></span>
+          <span>入口 <b class="mono">generateImage(character_three_view)</b></span>
+          <span>LoadImage <b>有</b></span>
+        </div>
+        <p class="note">三视图，1 个 LoadImage + EmptyLatentImage。</p>
+        
+        <div class="caps">
+          <span>提示词 <span class="pill yes">支持</span></span><span>负向词 <span class="pill yes">支持</span></span>
+          <span>种子 <span class="pill yes">支持</span></span><span>画幅 <span class="pill yes">支持</span></span><span>参考图 <span class="pill yes">支持</span></span>
+        </div>
+        <p class="sub">节点类型：<span class="mono dim">UNETLoader · CLIPLoader · VAELoader · LoadImage · TextEncodeQwenImage21 · EmptyLatentImage · KSampler · VAEDecode · SaveImage</span></p>
+        <h4>注入前后对照（真实提交负载片段）</h4>
+        <table class="grid"><thead><tr><th>节点</th><th>字段</th><th>模板原值</th><th>注入后</th></tr></thead><tbody><tr><td>5/TextEncodeQwenImage21</td><td>prompt</td><td class="mono dim">角色设定卡 character sheet，横向三等分网格，三格宽高完全相等：
+左格 = 正面全身 FRONT，</td><td class="mono">__CONFIRM_UI_TEST_PROMPT__</td></tr></tbody></table>
+        <details><summary>展开：dry-run 实际会提交给 ComfyUI /prompt 的完整 API Prompt</summary><pre>{
+  &quot;1&quot;: {
+    &quot;class_type&quot;: &quot;UNETLoader&quot;,
+    &quot;inputs&quot;: {
+      &quot;unet_name&quot;: &quot;qwen_image_2.1_int8_convrot.safetensors&quot;,
+      &quot;weight_dtype&quot;: &quot;default&quot;
+    }
+  },
+  &quot;2&quot;: {
+    &quot;class_type&quot;: &quot;CLIPLoader&quot;,
+    &quot;inputs&quot;: {
+      &quot;clip_name&quot;: &quot;qwen3vl_8b_w4a8.safetensors&quot;,
+      &quot;type&quot;: &quot;qwen_image&quot;,
+      &quot;device&quot;: &quot;default&quot;
+    }
+  },
+  &quot;3&quot;: {
+    &quot;class_type&quot;: &quot;VAELoader&quot;,
+    &quot;inputs&quot;: {
+      &quot;vae_name&quot;: &quot;qwen_image_2.1_vae_bf16.safetensors&quot;
+    }
+  },
+  &quot;4&quot;: {
+    &quot;class_type&quot;: &quot;LoadImage&quot;,
+    &quot;inputs&quot;: {
+      &quot;image&quot;: &quot;单角色图.png&quot;,
+      &quot;upload&quot;: &quot;image&quot;
+    }
+  },
+  &quot;5&quot;: {
+    &quot;class_type&quot;: &quot;TextEncodeQwenImage21&quot;,
+    &quot;inputs&quot;: {
+      &quot;clip&quot;: [
+        &quot;2&quot;,
+        0
+      ],
+      &quot;images.image_1&quot;: [
+        &quot;4&quot;,
+        0
+      ],
+      &quot;vae&quot;: [
+        &quot;3&quot;,
+        0
+      ],
+      &quot;prompt&quot;: &quot;__CONFIRM_UI_TEST_PROMPT__&quot;,
+      &quot;negative_prompt&quot;: &quot;低分辨率，低画质，肢体畸形，手指畸形，多手多脚，画面过饱和，蜡像感，塑料感，2D平面插画，赛璐璐线稿，漫画描边，墨线，平涂色块，写实照片，真人实拍，摄影质感，皮肤毛孔，油光皮肤，皱纹，胡茬，脏污，油渍，污垢，灰尘，破旧，文字，水印，标签，边框，拼贴，分格线。三张不同的脸，不同的人，角色不一致，身高不一致，半身像，裁切，特写，场景背景，街景，多个人物，画框，说明文字。&quot;,
+      &quot;resolution&quot;: 1024
+    }
+  },
+  &quot;6&quot;: {
+    &quot;class_type&quot;: &quot;EmptyLatentImage&quot;,
+    &quot;inputs&quot;: {
+      &quot;width&quot;: 1280,
+      &quot;height&quot;: 720,
+      &quot;batch_size&quot;: 1
+    }
+  },
+  &quot;7&quot;: {
+    &quot;class_type&quot;: &quot;KSampler&quot;,
+    &quot;inputs&quot;: {
+      &quot;model&quot;: [
+        &quot;1&quot;,
+        0
+      ],
+      &quot;positive&quot;: [
+        &quot;5&quot;,
+        0
+      ],
+      &quot;negative&quot;: [
+        &quot;5&quot;,
+        1
+      ],
+      &quot;latent_image&quot;: [
+        &quot;5&quot;,
+        2
+      ],
+      &quot;seed&quot;: 424242,
+      &quot;steps&quot;: 25,
+      &quot;cfg&quot;: 1,
+      &quot;sampler_name&quot;: &quot;euler&quot;,
+      &quot;scheduler&quot;: &quot;simple&quot;,
+      &quot;denoise&quot;: 1
+    }
+  },
+  &quot;8&quot;: {
+    &quot;class_type&quot;: &quot;VAEDecode&quot;,
+    &quot;inputs&quot;: {
+      &quot;samples&quot;: [
+        &quot;7&quot;,
+        0
+      ],
+      &quot;vae&quot;: [
+        &quot;3&quot;,
+        0
+      ]
+    }
+  },
+  &quot;9&quot;: {
+    &quot;class_type&quot;: &quot;SaveImage&quot;,
+    &quot;inputs&quot;: {
+      &quot;images&quot;: [
+        &quot;8&quot;,
+        0
+      ],
+      &quot;filename_prefix&quot;: &quot;角色WF/04-三视图&quot;
+    }
+  }
+}</pre></details>
+      </section>
+      <section class="card">
+        <div class="card-head">
+          <h3>6. <span class="mono">comfyui_i2v.json</span></h3>
+          <span class="badge ok">PASS</span>
+        </div>
+        <div class="meta">
+          <span>格式 <b>API Prompt</b></span>
+          <span>节点 <b>16</b></span>
+          <span>入口 <b class="mono">generateVideo(i2v)</b></span>
+          <span>LoadImage <b>有</b></span>
+        </div>
+        <p class="note">MiniMax-H3 图生视频，3 个 LoadImage；含视频与音轨输出节点。</p>
+        
+        <div class="caps">
+          <span>提示词 <span class="pill yes">支持</span></span><span>负向词 <span class="pill no">不支持</span></span>
+          <span>种子 <span class="pill yes">支持</span></span><span>画幅 <span class="pill yes">支持</span></span><span>参考图 <span class="pill yes">支持</span></span>
+        </div>
+        <p class="sub">节点类型：<span class="mono dim">UNETLoader · CLIPLoader · VAELoader · LoadImage · KSampler · VAEDecode · CreateVideo · SaveVideo · SaveAudioAdvanced · VAEDecodeAudio · BlockSparseAttention · LoraLoaderModelOnly · MiniMaxH3ReferenceToVideo</span></p>
+        <h4>注入前后对照（真实提交负载片段）</h4>
+        <table class="grid"><thead><tr><th>节点</th><th>字段</th><th>模板原值</th><th>注入后</th></tr></thead><tbody><tr><td>25/MiniMaxH3ReferenceToVideo</td><td>prompt</td><td class="mono dim"></td><td class="mono">__CONFIRM_UI_TEST_PROMPT__</td></tr></tbody></table>
+        <details><summary>展开：dry-run 实际会提交给 ComfyUI /prompt 的完整 API Prompt</summary><pre>{
+  &quot;2&quot;: {
+    &quot;inputs&quot;: {
+      &quot;unet_name&quot;: &quot;minimax_h3_ref2va_pruned_int8_convrot.safetensors&quot;,
+      &quot;weight_dtype&quot;: &quot;default&quot;
+    },
+    &quot;class_type&quot;: &quot;UNETLoader&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;UNet加载器&quot;
+    }
+  },
+  &quot;3&quot;: {
+    &quot;inputs&quot;: {
+      &quot;clip_name&quot;: &quot;qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors&quot;,
+      &quot;type&quot;: &quot;minimax&quot;,
+      &quot;device&quot;: &quot;default&quot;
+    },
+    &quot;class_type&quot;: &quot;CLIPLoader&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;加载CLIP&quot;
+    }
+  },
+  &quot;4&quot;: {
+    &quot;inputs&quot;: {
+      &quot;vae_name&quot;: &quot;minimax_h3_video_vae_fp16.safetensors&quot;
+    },
+    &quot;class_type&quot;: &quot;VAELoader&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;加载VAE&quot;
+    }
+  },
+  &quot;6&quot;: {
+    &quot;inputs&quot;: {
+      &quot;image&quot;: &quot;confirm_ui_ref_stub.png&quot;
+    },
+    &quot;class_type&quot;: &quot;LoadImage&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;加载图像&quot;
+    }
+  },
+  &quot;9&quot;: {
+    &quot;inputs&quot;: {
+      &quot;seed&quot;: 656373231,
+      &quot;steps&quot;: 6,
+      &quot;cfg&quot;: 1,
+      &quot;sampler_name&quot;: &quot;euler&quot;,
+      &quot;scheduler&quot;: &quot;simple&quot;,
+      &quot;denoise&quot;: 1,
+      &quot;model&quot;: [
+        &quot;21&quot;,
+        0
+      ],
+      &quot;positive&quot;: [
+        &quot;25&quot;,
+        0
+      ],
+      &quot;negative&quot;: [
+        &quot;25&quot;,
+        0
+      ],
+      &quot;latent_image&quot;: [
+        &quot;25&quot;,
+        1
+      ]
+    },
+    &quot;class_type&quot;: &quot;KSampler&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;K采样器&quot;
+    }
+  },
+  &quot;10&quot;: {
+    &quot;inputs&quot;: {
+      &quot;samples&quot;: [
+        &quot;9&quot;,
+        0
+      ],
+      &quot;vae&quot;: [
+        &quot;4&quot;,
+        0
+      ]
+    },
+    &quot;class_type&quot;: &quot;VAEDecode&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;VAE解码&quot;
+    }
+  },
+  &quot;12&quot;: {
+    &quot;inputs&quot;: {
+      &quot;fps&quot;: 24,
+      &quot;bit_depth&quot;: &quot;auto&quot;,
+      &quot;color_space&quot;: &quot;sRGB&quot;,
+      &quot;codec&quot;: &quot;none&quot;,
+      &quot;images&quot;: [
+        &quot;10&quot;,
+        0
+      ],
+      &quot;audio&quot;: [
+        &quot;20&quot;,
+        0
+      ]
+    },
+    &quot;class_type&quot;: &quot;CreateVideo&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;创建视频&quot;
+    }
+  },
+  &quot;13&quot;: {
+    &quot;inputs&quot;: {
+      &quot;filename_prefix&quot;: &quot;video/test01&quot;,
+      &quot;format&quot;: &quot;auto&quot;,
+      &quot;format.codec&quot;: &quot;auto&quot;,
+      &quot;codec&quot;: &quot;auto&quot;,
+      &quot;video&quot;: [
+        &quot;12&quot;,
+        0
+      ]
+    },
+    &quot;class_type&quot;: &quot;SaveVideo&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;保存视频&quot;
+    }
+  },
+  &quot;17&quot;: {
+    &quot;inputs&quot;: {
+      &quot;vae_name&quot;: &quot;minimax_h3_audio_vae_fp32.safetensors&quot;
+    },
+    &quot;class_type&quot;: &quot;VAELoader&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;加载VAE&quot;
+    }
+  },
+  &quot;18&quot;: {
+    &quot;inputs&quot;: {
+      &quot;filename_prefix&quot;: &quot;audio/ComfyUI&quot;,
+      &quot;format&quot;: &quot;flac&quot;,
+      &quot;audio&quot;: [
+        &quot;20&quot;,
+        0
+      ]
+    },
+    &quot;class_type&quot;: &quot;SaveAudioAdvanced&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;保存音频（高级）&quot;
+    }
+  },
+  &quot;20&quot;: {
+    &quot;inputs&quot;: {
+      &quot;samples&quot;: [
+        &quot;9&quot;,
+        0
+      ],
+      &quot;vae&quot;: [
+        &quot;17&quot;,
+        0
+      ]
+    },
+    &quot;class_type&quot;: &quot;VAEDecodeAudio&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;VAE解码（音频）&quot;
+    }
+  },
+  &quot;21&quot;: {
+    &quot;inputs&quot;: {
+      &quot;selection&quot;: &quot;sol-attn&quot;,
+      &quot;selection.tau&quot;: 1.5,
+      &quot;start_percent&quot;: 0.2,
+      &quot;end_percent&quot;: 1,
+      &quot;dense_blocks&quot;: &quot;&quot;,
+      &quot;min_tokens&quot;: 12288,
+      &quot;extra_tokens&quot;: 256,
+      &quot;sink_conditioning&quot;: &quot;exact_kv_and_rows&quot;,
+      &quot;verbose&quot;: false,
+      &quot;model&quot;: [
+        &quot;22&quot;,
+        0
+      ]
+    },
+    &quot;class_type&quot;: &quot;BlockSparseAttention&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;模型稀疏注意力&quot;
+    }
+  },
+  &quot;22&quot;: {
+    &quot;inputs&quot;: {
+      &quot;lora_name&quot;: &quot;minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors&quot;,
+      &quot;strength_model&quot;: 1,
+      &quot;model&quot;: [
+        &quot;2&quot;,
+        0
+      ]
+    },
+    &quot;class_type&quot;: &quot;LoraLoaderModelOnly&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;LoRA加载器（仅模型）&quot;
+    }
+  },
+  &quot;23&quot;: {
+    &quot;inputs&quot;: {
+      &quot;image&quot;: &quot;confirm_ui_ref_stub.png&quot;
+    },
+    &quot;class_type&quot;: &quot;LoadImage&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;加载图像&quot;
+    }
+  },
+  &quot;24&quot;: {
+    &quot;inputs&quot;: {
+      &quot;image&quot;: &quot;confirm_ui_ref_stub.png&quot;
+    },
+    &quot;class_type&quot;: &quot;LoadImage&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;加载图像&quot;
+    }
+  },
+  &quot;25&quot;: {
+    &quot;inputs&quot;: {
+      &quot;prompt&quot;: &quot;__CONFIRM_UI_TEST_PROMPT__&quot;,
+      &quot;width&quot;: 1344,
+      &quot;height&quot;: 768,
+      &quot;length&quot;: 124,
+      &quot;ref_image_size&quot;: &quot;match&quot;,
+      &quot;clip&quot;: [
+        &quot;3&quot;,
+        0
+      ],
+      &quot;vae&quot;: [
+        &quot;4&quot;,
+        0
+      ],
+      &quot;ref_images.ref_image_0&quot;: [
+        &quot;6&quot;,
+        0
+      ],
+      &quot;ref_images.ref_image_1&quot;: [
+        &quot;23&quot;,
+        0
+      ],
+      &quot;ref_images.ref_image_2&quot;: [
+        &quot;24&quot;,
+        0
+      ]
+    },
+    &quot;class_type&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+    &quot;_meta&quot;: {
+      &quot;title&quot;: &quot;MiniMax H3 参考转视频&quot;
+    }
+  }
+}</pre></details>
+      </section>
+
+  <h2>三、本次落地与剩余待办</h2>
+  <h4>已落地（5 处）</h4>
+  <ul class="fix">
+    <li><b>入口挂门禁</b>：<span class="mono">runtime.route.ts</span> 拆出 <span class="mono">propose</span>（createTask(..., true) 只建卡）与 <span class="mono">confirm</span>（校验 proposed → confirmTask → batchRenderGameImages → setStatus 闭环），旧裸入口返回 410。</li>
+    <li><b>门禁接执行</b>：执行器挂在确认链路里，<span class="mono">ConfirmationGate</span> 仍只管状态；渲染服务保持纯执行且全仓仅一个受控调用方。</li>
+    <li><b>前端接线</b>：<span class="mono">api.ts</span> 补 propose/confirm/reject 封装；<span class="mono">TextGameCockpit</span> 按钮先出 <span class="mono">ProposalCard</span>（带节点数），批准才执行，驳回走 /api/tasks/reject。</li>
+    <li><b>契约对齐</b>：后端 action 统一为 <span class="mono">start_pipeline / approve_stage / modify_asset / chat_only</span>；<span class="mono">chat.route.ts</span> 过滤 chat_only；<span class="mono">App.tsx</span> 删除 else 兜底立项。</li>
+    <li><b>模板层</b>：显式 mode 优先于参考图回落；无宽高节点的工作流对 size 显式 WARN，不再静默吞参数。</li>
+  </ul>
+  <h4>剩余待办 / 已知限制</h4>
+  <ul class="fix">
+    <li><b>i2v 业务入口（按约定暂缓）</b>：<span class="mono">videoGenerateTool</span> 仍无生产消费方 —— 当前 <span class="mono">compile-film.step.ts</span> 只编译影视化切片清单，尚无视频工序；<span class="mono">comfyui_i2v.json</span> 模板已就绪，待新开视频工序时接入。</li>
+    <li><b>modify_asset 执行逻辑</b>：枚举已对齐，但前端仅提示「暂不支持执行」，定向精修尚未接执行器。</li>
+    <li><b>两份模板无宽高节点</b>：<span class="mono">character_pose_outfit / character_ref2i</span> 的 size 参数不生效（现在会打 WARN），若要指定画幅需改工作流模板本身。</li>
+  </ul>
+
+  <footer>
+    运行命令：<span class="mono">tsx tests/media-confirm-ui.test.ts</span>（已挂进 <span class="mono">npm test</span>） ·
+    报告生成时间：2026-11-11T10:46:13.472Z ·
+    产物：<span class="mono">server/tests/output/media-confirm-ui-report.html</span><br>
+    说明：6 份模板测试仅替换 <span class="mono">uploadImage / executeAndPoll</span> 网络出站，未连接 ComfyUI、未消耗算力；端到端测试用 Mock 生图落盘 1 张测试图，并随临时项目一并清理。
+  </footer>
+</div></body></html>

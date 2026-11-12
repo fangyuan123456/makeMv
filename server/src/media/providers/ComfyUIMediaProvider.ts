@@ -17,9 +17,21 @@ import type { IVideoProvider, VideoGenerationOptions } from './VideoProvider.js'
 import { config } from '../../utils/config.js';
 import { ensureApiPromptFormat } from '../comfyui/comfyui-converter.js';
 import { MediaResolver } from '../MediaResolver.js';
+import { ConcurrencyPool } from '../../workflow-engine/concurrency.js';
+import { combineAbortSignals, getRunContext } from '../../workflow-engine/run-context.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/** 生图模式 → 工作流模板唯一映射（显式 mode 优先于参考图回落） */
+const MODE_TEMPLATES: Record<NonNullable<ImageGenerationOptions['mode']>, string> = {
+  character_t2i: 'comfyui_character_t2i.json',
+  character_ref2i: 'comfyui_character_ref2i.json',
+  character_pose_outfit: 'comfyui_character_pose_outfit.json',
+  character_three_view: 'comfyui_character_three_view.json',
+  scene_ref2i: 'comfyui_character_ref2i.json',
+  general_t2i: 'comfyui_t2i.json',
+};
 
 /**
  * 拓扑自适应注入辅助工具类 (ComfyUI Workflow Topology Injector)
@@ -59,6 +71,8 @@ export class ComfyUITopologyInjector {
         if (targetNode?.inputs) {
           if ('text' in targetNode.inputs) {
             targetNode.inputs.text = negativePrompt;
+          } else if ('negative_prompt' in targetNode.inputs) {
+            targetNode.inputs.negative_prompt = negativePrompt;
           } else if ('prompt_negative' in targetNode.inputs) {
             targetNode.inputs.prompt_negative = negativePrompt;
           } else if ('prompt' in targetNode.inputs && targetId !== String(inputs.positive?.[0])) {
@@ -75,7 +89,7 @@ export class ComfyUITopologyInjector {
       if (node?.class_type === 'TextEncodeQwenImage21' && node.inputs) {
         node.inputs.prompt = prompt;
         if (negativePrompt) {
-          node.inputs.prompt_negative = negativePrompt;
+          node.inputs.negative_prompt = negativePrompt;
         }
         return true;
       }
@@ -139,7 +153,49 @@ export class ComfyUITopologyInjector {
   }
 
   /**
-   * 拓扑注入参考图文件名 (至 LoadImage 节点列表)
+   * 当工作流没有 EmptyLatentImage（如 ref2i 继承参考图比例）但需要锁定指定画幅时，
+   * 在内存中挂载 EmptyLatentImage 并接入 KSampler.latent_image。
+   */
+  public static ensureEmptyLatent(workflow: Record<string, any>, sizeStr?: string): boolean {
+    if (!sizeStr) return false;
+    if (this.injectImageSize(workflow, sizeStr)) return true;
+
+    const parts = sizeStr.split(/[x*]/).map((s) => parseInt(s.trim(), 10));
+    if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) return false;
+
+    const [width, height] = parts;
+    const maxNumericId = Object.keys(workflow).reduce((max, k) => {
+      const n = /^\d+$/.test(k) ? parseInt(k, 10) : 0;
+      return Math.max(max, n);
+    }, 0);
+    const latentNodeId = String(maxNumericId + 1);
+
+    workflow[latentNodeId] = {
+      class_type: 'EmptyLatentImage',
+      inputs: {
+        width,
+        height,
+        batch_size: 1,
+      },
+    };
+
+    let wired = false;
+    for (const node of Object.values(workflow)) {
+      if (
+        (node?.class_type === 'KSampler' || node?.class_type === 'KSamplerAdvanced') &&
+        node.inputs &&
+        'latent_image' in node.inputs
+      ) {
+        node.inputs.latent_image = [latentNodeId, 0];
+        wired = true;
+      }
+    }
+
+    return wired;
+  }
+
+  /**
+   * 拓扑注入参考图文件名 (至 LoadImage 节点列表；超出已有 LoadImage 数时为 TextEncodeQwenImage21 动态增补 COMFY_AUTOGROW_V3 槽位)
    */
   public static injectReferenceImages(
     workflow: Record<string, any>,
@@ -148,16 +204,49 @@ export class ComfyUITopologyInjector {
     const list = Array.isArray(imageFilenames) ? imageFilenames : [imageFilenames];
     if (list.length === 0) return;
 
-    const loadNodes = Object.values(workflow).filter((n) => n?.class_type === 'LoadImage' && n.inputs);
-    if (loadNodes.length === 0) return;
+    const loadEntries = Object.entries(workflow)
+      .filter(([, n]) => n?.class_type === 'LoadImage' && n.inputs)
+      .sort(([a], [b]) => Number(a) - Number(b));
+    if (loadEntries.length === 0) return;
+
+    const qwenEntry = Object.entries(workflow).find(
+      ([, n]) => n?.class_type === 'TextEncodeQwenImage21' && n.inputs
+    );
 
     if (list.length === 1) {
-      for (const node of loadNodes) {
+      for (const [, node] of loadEntries) {
         node.inputs.image = list[0];
       }
-    } else {
-      for (let i = 0; i < loadNodes.length && i < list.length; i++) {
-        loadNodes[i].inputs.image = list[i];
+      return;
+    }
+
+    const capped = qwenEntry ? list.slice(0, 16) : list;
+    let maxNumericId = Object.keys(workflow).reduce((max, k) => {
+      const n = /^\d+$/.test(k) ? parseInt(k, 10) : 0;
+      return Math.max(max, n);
+    }, 0);
+
+    for (let i = 0; i < capped.length; i++) {
+      let loadNodeId: string;
+      if (i < loadEntries.length) {
+        loadNodeId = loadEntries[i][0];
+        loadEntries[i][1].inputs.image = capped[i];
+      } else if (qwenEntry) {
+        maxNumericId += 1;
+        loadNodeId = String(maxNumericId);
+        workflow[loadNodeId] = {
+          class_type: 'LoadImage',
+          inputs: {
+            image: capped[i],
+            upload: 'image',
+          },
+        };
+      } else {
+        break;
+      }
+
+      if (qwenEntry) {
+        qwenEntry[1].inputs[`images.image_${i + 1}`] = [loadNodeId, 0];
       }
     }
   }
@@ -172,12 +261,35 @@ export interface ComfyUIExecuteOptions {
   abortSignal?: AbortSignal;
 }
 
+const comfyGpuPools = new Map<string, ConcurrencyPool>();
+
+function getComfyGpuPool(baseUrl: string): ConcurrencyPool {
+  const key = baseUrl.replace(/\/+$/, '');
+  let pool = comfyGpuPools.get(key);
+  if (!pool) {
+    pool = new ConcurrencyPool(config.comfyui.maxConcurrency);
+    comfyGpuPools.set(key, pool);
+  }
+  return pool;
+}
+
 export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
   public readonly name = 'comfyui';
   private baseUrl: string;
 
   constructor(customBaseUrl?: string) {
     this.baseUrl = (customBaseUrl || config.comfyui.baseUrl).replace(/\/+$/, '');
+  }
+
+  public static getGpuPool(baseUrl: string = config.comfyui.baseUrl): ConcurrencyPool {
+    return getComfyGpuPool(baseUrl);
+  }
+
+  /**
+   * 按 ComfyUI 地址共享全局 GPU 槽位池（图像与视频共池限流，支持排队期间被 AbortSignal 取消）
+   */
+  private runExclusive<T>(fn: () => Promise<T>, abortSignal?: AbortSignal): Promise<T> {
+    return getComfyGpuPool(this.baseUrl).run(fn, abortSignal);
   }
 
   public resolveTemplatePath(filename: string): string {
@@ -198,20 +310,19 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
   }
 
   /**
-   * 通用与角色文生图
+   * 通用与角色/场景文生图（支持单图及多定妆参考图动态连线）
    */
   public async generateImage(prompt: string, options?: ImageGenerationOptions): Promise<string> {
-    let templateFile = 'comfyui_t2i.json';
+    const refs = (options?.referenceImageUrls || []).filter(
+      (u) => typeof u === 'string' && u.trim().length > 0
+    );
 
-    if (options?.mode === 'character_ref2i' || options?.referenceImageUrl) {
-      templateFile = 'comfyui_character_ref2i.json';
-    } else if (options?.mode === 'character_t2i') {
-      templateFile = 'comfyui_character_t2i.json';
-    } else if (options?.mode === 'character_pose_outfit') {
-      templateFile = 'comfyui_character_pose_outfit.json';
-    } else if (options?.mode === 'character_three_view') {
-      templateFile = 'comfyui_character_three_view.json';
-    }
+    // 显式 mode 优先；只有未指定 mode 且带参考图时，才按参考图语义回落到 ref2i
+    const templateFile = options?.mode
+      ? (MODE_TEMPLATES[options.mode] ?? 'comfyui_t2i.json')
+      : refs.length > 0
+        ? 'comfyui_character_ref2i.json'
+        : 'comfyui_t2i.json';
 
     const templatePath = this.resolveTemplatePath(templateFile);
     if (!fs.existsSync(templatePath)) {
@@ -221,12 +332,16 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
     const templateRaw = fs.readFileSync(templatePath, 'utf-8');
     const workflow = ensureApiPromptFormat(JSON.parse(templateRaw));
 
+    if (options?.mode === 'scene_ref2i' && options?.size) {
+      ComfyUITopologyInjector.ensureEmptyLatent(workflow, options.size);
+    }
+
     return this.executeWorkflow(workflow, 'image', {
       prompt,
       negativePrompt: options?.negativePrompt,
       seed: options?.seed,
       size: options?.size,
-      referenceImages: options?.referenceImageUrl ? [options.referenceImageUrl] : undefined,
+      referenceImages: refs.length > 0 ? refs : undefined,
       abortSignal: options?.abortSignal,
     });
   }
@@ -260,40 +375,48 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
   }
 
   /**
-   * 执行任意通用或技能私有的 ComfyUI 工作流
+   * 执行任意通用或技能私有的 ComfyUI 工作流（经串行 GPU 队列防并发超时）
    */
   public async executeWorkflow(
     workflow: any,
     mediaType: 'image' | 'video',
     options?: ComfyUIExecuteOptions
   ): Promise<string> {
-    const apiPrompt = ensureApiPromptFormat(workflow);
+    const effectiveSignal = combineAbortSignals(options?.abortSignal, getRunContext()?.abortSignal);
+    return this.runExclusive(async () => {
+      const apiPrompt = ensureApiPromptFormat(workflow);
 
-    // 1. 若提供了参考图，依次上传至 ComfyUI 并拓扑注入 LoadImage
-    if (options?.referenceImages && options.referenceImages.length > 0) {
-      const uploadedNames: string[] = [];
-      for (const imgUrl of options.referenceImages) {
-        const uploadedName = await this.uploadImage(imgUrl);
-        uploadedNames.push(uploadedName);
+      // 1. 若提供了参考图，依次上传至 ComfyUI 并拓扑注入 LoadImage
+      if (options?.referenceImages && options.referenceImages.length > 0) {
+        const uploadedNames: string[] = [];
+        for (const imgUrl of options.referenceImages) {
+          const uploadedName = await this.uploadImage(imgUrl);
+          uploadedNames.push(uploadedName);
+        }
+        ComfyUITopologyInjector.injectReferenceImages(apiPrompt, uploadedNames);
       }
-      ComfyUITopologyInjector.injectReferenceImages(apiPrompt, uploadedNames);
-    }
 
-    // 2. 注入提示词
-    if (options?.prompt) {
-      ComfyUITopologyInjector.injectPrompts(apiPrompt, options.prompt, options?.negativePrompt);
-    }
+      // 2. 注入提示词
+      if (options?.prompt) {
+        ComfyUITopologyInjector.injectPrompts(apiPrompt, options.prompt, options?.negativePrompt);
+      }
 
-    // 3. 注入随机种子
-    const seed = options?.seed ?? Math.floor(Math.random() * 1000000000);
-    ComfyUITopologyInjector.injectSeed(apiPrompt, seed);
+      // 3. 注入随机种子
+      const seed = options?.seed ?? Math.floor(Math.random() * 1000000000);
+      ComfyUITopologyInjector.injectSeed(apiPrompt, seed);
 
-    // 4. 注入画幅尺寸
-    if (options?.size) {
-      ComfyUITopologyInjector.injectImageSize(apiPrompt, options.size);
-    }
+      // 4. 注入画幅尺寸（无宽高节点的工作流必须显式告警，禁止静默吞掉参数）
+      if (options?.size) {
+        const sizeInjected = ComfyUITopologyInjector.injectImageSize(apiPrompt, options.size);
+        if (!sizeInjected) {
+          console.warn(
+            `[ComfyUIMediaProvider] 当前工作流不含 width/height 节点，size=${options.size} 未生效（该参数已被忽略）`
+          );
+        }
+      }
 
-    return this.executeAndPoll(apiPrompt, mediaType, options?.abortSignal);
+      return this.executeAndPoll(apiPrompt, mediaType, effectiveSignal);
+    }, effectiveSignal);
   }
 
   /**

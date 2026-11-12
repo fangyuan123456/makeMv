@@ -5,6 +5,12 @@
 
 import { createApp } from './api/app.js';
 import { config } from './utils/config.js';
+import { ProductionWorkflowEngine } from './workflows/production.workflow.js';
+
+const recoveredCount = ProductionWorkflowEngine.recoverStaleTasks();
+if (recoveredCount > 0) {
+  console.log(`[Bootstrap] 已自动清理 ${recoveredCount} 条服务重启中断的残留任务并释放对应项目执行槽位`);
+}
 
 const app = createApp();
 

@@ -1,6 +1,6 @@
 /**
  * workflows/index.ts
- * 生产流水线与工序导出出口 (Workflows SSOT)
+ * Mastra 官方微内核工作流总装出口
  */
 
 export * from './production.workflow.js';

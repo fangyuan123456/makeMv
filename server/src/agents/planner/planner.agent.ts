@@ -1,38 +1,46 @@
 /**
  * agents/planner/planner.agent.ts
- * 策划 Agent (Planner Agent) - 基于 Mastra 官方微内核 Agent 原生实现
+ * 策划 Agent (Planner Agent SSOT) - 基于 Mastra 官方微内核 Agent 原生实现
  *
  * 核心定位：
- * 作为首道工序智能体，接收创作者剧本创意意图，结合世界观规则推演输出强类型 GDD (Game Design Document)。
+ * 纯粹的 Mastra 官方 Agent 认知模型定义，提供系统提示词与通用大模型绑定。
+ * 业务工序调度由 workflows/steps/plan-gdd.step.ts 内聚驱动，杜绝 Agent 层散落 loose 执行函数。
  */
 
 import { Agent } from '@mastra/core/agent';
 import type { LanguageModelV1 } from 'ai';
 import { LLMProvider } from '../../llm/index.js';
-import { GDDSchema, type GDDArtifact } from './schema.js';
-import { PLANNER_SYSTEM_PROMPT, buildPlannerUserPrompt } from './prompt.js';
+import { buildPlannerSystemPrompt } from './prompt.js';
+import { runPlannerWorkflow } from './planner.workflow.js';
+import type { GDDArtifact } from './schema.js';
 
-export function createPlannerAgent(model?: LanguageModelV1): Agent {
+export interface PlannerAgentOptions {
+  model?: LanguageModelV1;
+}
+
+/**
+ * 创建策划 Agent 实例
+ */
+export function createPlannerAgent(options: PlannerAgentOptions = {}): Agent {
   return new Agent({
     name: 'planner-agent',
-    instructions: PLANNER_SYSTEM_PROMPT,
-    model: model || LLMProvider.getModel(),
+    instructions: buildPlannerSystemPrompt(),
+    model: options.model || LLMProvider.getModel(),
   });
 }
 
 export const plannerAgent = createPlannerAgent();
 
 /**
- * 策划智能体核心推演函数：基于 Mastra Agent 原生结构化输出
+ * 策划推演合法门面：桥接至 Mastra 微内核 plannerWorkflow (5大工序流水线)
  */
 export async function planGDDWithAgent(
-  userPrompt: string,
-  agent: Agent = plannerAgent,
+  input: { userPrompt: string; projectId: string },
+  _agent?: Agent
 ): Promise<GDDArtifact> {
-  const prompt = buildPlannerUserPrompt(userPrompt);
-  const result = await agent.generate(prompt, {
-    output: GDDSchema,
+  const result = await runPlannerWorkflow({
+    projectId: input.projectId,
+    userPrompt: input.userPrompt,
   });
-
-  return result.object as GDDArtifact;
+  return result.gdd;
 }

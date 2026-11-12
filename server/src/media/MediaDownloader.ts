@@ -64,13 +64,20 @@ export class MediaDownloader {
 
     const projectDir = ProjectStore.getInstance().getProjectDir(projectId);
 
-    // 路径穿越与盘符逃逸防御 (Path Traversal & Drive Root Defense - 子目录)
-    const normalizedSubfolder = subfolder ? subfolder.replace(/^[a-zA-Z]:[/\\]?/, '') : '';
-    const rawCleaned = normalizedSubfolder
-      ? path.basename(normalizedSubfolder).replace(/[^a-zA-Z0-9_\-]/g, '_')
-      : '';
-    const safeSubfolder = rawCleaned && /[a-zA-Z0-9]/.test(rawCleaned) ? rawCleaned : 'media';
-    const targetDir = path.resolve(projectDir, safeSubfolder);
+    // 路径穿越与盘符逃逸防御：支持合法多级相对子目录（如 assets/entities、assets/scenes），刚性拦截 .. 与盘符逃逸
+    const rawSegments = (subfolder || '')
+      .replace(/^[a-zA-Z]:[/\\]?/, '')
+      .split(/[/\\]+/)
+      .filter(Boolean);
+    if (rawSegments.some((s) => s === '..')) {
+      throw new Error(`[MediaDownloader] 非法子目录路径穿越: "${subfolder}"`);
+    }
+    const cleanSegments = rawSegments
+      .filter((s) => s !== '.')
+      .map((s) => s.replace(/[^a-zA-Z0-9_\-]/g, '_'))
+      .filter((s) => /[a-zA-Z0-9]/.test(s));
+    const safeSubfolder = cleanSegments.length > 0 ? cleanSegments.join('/') : 'media';
+    const targetDir = path.resolve(projectDir, ...safeSubfolder.split('/'));
     if (!targetDir.startsWith(path.resolve(projectDir) + path.sep)) {
       throw new Error(`[MediaDownloader] 非法子目录路径穿越: "${subfolder}"`);
     }

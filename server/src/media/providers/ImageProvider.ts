@@ -4,14 +4,19 @@
  */
 
 export interface ImageGenerationOptions {
-  size?: '1024*1024' | '720*1280' | '1280*720' | string;
+  size?: '1024*1024' | '720*1280' | '768*1344' | '1280*720' | string;
   n?: number;
   negativePrompt?: string;
   seed?: number;
   abortSignal?: AbortSignal;
-  referenceImageUrl?: string;
-  outfitImageUrl?: string;
-  mode?: 'character_t2i' | 'character_ref2i' | 'character_pose_outfit' | 'character_three_view' | 'general_t2i';
+  referenceImageUrls?: string[];
+  mode?:
+    | 'character_t2i'
+    | 'character_ref2i'
+    | 'character_pose_outfit'
+    | 'character_three_view'
+    | 'scene_ref2i'
+    | 'general_t2i';
 }
 
 export interface IImageProvider {

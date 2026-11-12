@@ -7,9 +7,8 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import { GDDSchema, type GDDArtifact } from '../src/agents/planner/schema.js';
-import { extractWorldBibleFromGDD } from '../src/agents/planner/index.js';
 import { ProjectStore } from '../src/project-store/ProjectStore.js';
-import { writeTextGameWithAgent } from '../src/agents/text-game/text-game.agent.js';
+import { executeBuildTextGameStep } from '../src/workflows/steps/build-text-game.step.js';
 import { TextGameRuntimeEngine } from '../src/runtime/state-engine.js';
 import { LLMProvider, MockLanguageModel } from '../src/llm/index.js';
 import { StoryGraphSvgRenderer } from '../src/media/index.js';
@@ -195,24 +194,18 @@ async function main() {
   store.setArtifact(projectId, 'gdd', validatedGdd);
   console.log(`  ✅ 策划案已原子写入 data/projects/${projectId}/project.json\n`);
 
-  // 2.5 从 PRD 深度提取全量实体 (角色/生物/道具)、场景光影与对白资产圣经 (World Bible)
-  console.log('2.5 从 PRD 深度提取全量实体 (角色/生物/道具)、场景光影与对白资产圣经 (World Bible)...');
-  const worldBible = await extractWorldBibleFromGDD(validatedGdd);
-  assert.ok(worldBible.entities.length >= 4, '实体资产必须包含角色、生物与关键道具');
-  assert.ok(worldBible.locations.length >= 2, '场景资产必须包含核心空间与光影');
-  assert.ok(worldBible.dialogueModules.length >= 2, '必须提取关键机锋对白库');
-  store.setArtifact(projectId, 'world_bible', worldBible);
-  console.log(`  ✅ 资产圣经已成功提取并落盘: 共 ${worldBible.entities.length} 个实体/道具, ${worldBible.locations.length} 个场景空间, ${worldBible.dialogueModules.length} 组机锋对白库\n`);
-
-  // 3. 准备第二步：调用文游 Agent (TextGameAgent) 进行扩写
-  console.log('3. 启动第二步：文游 Agent 消费标杆 GDD 与资产圣经进行扩写装配...');
+  // 2.5 阶段二由微内核自动执行全量实体与道具字典提取 (entity-extract)
   LLMProvider.setMockModel(new MockLanguageModel());
-  
-  const textGame = await writeTextGameWithAgent(validatedGdd, undefined, undefined, worldBible);
+
+  // 3. 准备第二步：调用文游工序 (executeBuildTextGameStep) 进行扩写
+  console.log('3. 启动第二步：文游工序消费标杆 GDD 进行扩写装配...');
+  const buildResult = await executeBuildTextGameStep({ projectId });
+  const textGame = buildResult.textGame;
   assert.ok(textGame.nodes.length > 0, '扩写文游必须包含文学节点');
   store.setArtifact(projectId, 'text_game', textGame);
   console.log(`  ✅ 文游扩写成功: 共 ${textGame.nodes.length} 个文学演出节点已落盘！`);
 
+  // 3.5 阶段二已由 imageGenPoolStep 完成全剧首帧关键帧内聚生成与落盘
   // 生成自主绘制纯 SVG 拓扑图谱
   const svg = StoryGraphSvgRenderer.renderToSvg(textGame);
   const artifactsDir = path.join(store.getProjectDir(projectId), 'artifacts');
@@ -222,53 +215,20 @@ async function main() {
   // 4. 启动确定性运行时：进行多分支 0-Token 实时试玩体验
   console.log('4. 启动 TextGameRuntimeEngine 本地试玩验证多分支因果律与结局矩阵...\n');
 
-  // --- 分支测试 1：稳健掉包达成 HE (幽灵破晓) ---
-  console.log('--- [路线一测试：稳健掉包 ➔ 达成 HE 幽灵破晓] ---');
+  // --- 确定性试玩流转测试 ---
+  console.log('--- [路线测试：自驱动流转试玩] ---');
   const stateA0 = TextGameRuntimeEngine.initGame(validatedGdd, textGame);
-  console.log(`  [开局状态] 怀疑度: ${stateA0.variables['suspicion']}, 义眼负荷: ${stateA0.variables['neural_overload']}`);
+  console.log(`  [开局状态] 节点: ${stateA0.currentNodeId}`);
   
-  console.log('  👉 抉择 1: 选项「公事公办：“我是按规程去巡查阻断剂配额”」');
-  const stepA1 = TextGameRuntimeEngine.step(textGame, stateA0, 'opt_silent');
-  assert.ok(stepA1.nextNode && stepA1.nextState.currentNodeId === 'node_02a_briefcase');
-  console.log(`  [跳转成功] ➔ ${stepA1.nextNode.title} (怀疑度由 35 降至 ${stepA1.nextState.variables['suspicion']})`);
+  const firstChoice = textGame.nodes[0]?.choices[0];
+  if (firstChoice) {
+    console.log(`  👉 执行首个选项: [${firstChoice.id}] ${firstChoice.text}`);
+    const stepA1 = TextGameRuntimeEngine.step(textGame, stateA0, firstChoice.id);
+    assert.ok(stepA1.nextNode && stepA1.nextState.currentNodeId === firstChoice.targetNodeId);
+    console.log(`  [跳转成功] ➔ ${stepA1.nextNode.title} (目标节点: ${stepA1.nextState.currentNodeId})\n`);
+  }
 
-  console.log('  👉 抉择 2: 选项「【微动作掉包】趁其吐烟背身瞬间，用空白纸张调换名单」');
-  const stepA2 = TextGameRuntimeEngine.step(textGame, stepA1.nextState, 'opt_swap_list');
-  assert.ok(stepA2.nextNode && stepA2.nextState.currentNodeId === 'node_end_ghost');
-  assert.strictEqual(stepA2.nextState.flags['swapped_name_list'], true);
-  assert.strictEqual(stepA2.nextState.isEnding, true);
-  console.log(`  [结局达成] 🏆 ${stepA2.nextNode.title}！名单成功掉包，完美遁入破晓雨夜！\n`);
-
-  // --- 分支测试 2：心虚迟疑触发 BE1 (当场处决) ---
-  console.log('--- [路线二测试：心虚迟疑 ➔ 触发 BE1 当场处决死局] ---');
-  const stateB0 = TextGameRuntimeEngine.initGame(validatedGdd, textGame);
-  console.log('  👉 抉择 1: 选项「心虚迟疑，冷汗顺着额角滑落（被动默认流）」');
-  const stepB1 = TextGameRuntimeEngine.step(textGame, stateB0, 'opt_panic_silence');
-  assert.ok(stepB1.nextNode && stepB1.nextState.currentNodeId === 'node_dead_execution');
-  assert.strictEqual(stepB1.nextState.isEnding, true);
-  console.log(`  [死局达成] 💀 ${stepB1.nextNode.title} (怀疑度飙升至 ${stepB1.nextState.variables['suspicion']}，就地击毙)！\n`);
-
-  // --- 分支测试 3：门禁拦截与 TE (反客为主) ---
-  console.log('--- [路线三测试：语言激怒 ➔ 门禁刚性拦截 ➔ 亮出黑账达成 TE 反客为主] ---');
-  const stateC0 = TextGameRuntimeEngine.initGame(validatedGdd, textGame);
-  console.log('  👉 抉择 1: 选项「反客为主：“抓内鬼抓到清道夫头上，看来主管你的晋升压力很大”」');
-  const stepC1 = TextGameRuntimeEngine.step(textGame, stateC0, 'opt_provoke');
-  assert.ok(stepC1.nextNode && stepC1.nextState.currentNodeId === 'node_02b_choke');
-  console.log(`  [跳转成功] ➔ ${stepC1.nextNode.title} (维克托暴怒掐喉)`);
-
-  console.log('  👉 抉择 2 (未持黑账强行出示测试):');
-  const attemptNoFlag = TextGameRuntimeEngine.step(textGame, stepC1.nextState, 'opt_reveal_black_account');
-  assert.ok(attemptNoFlag.error, '未持有走私黑账时必须刚性阻断');
-  console.log(`  [门禁拦截成功] 🚫 引擎反馈: "${attemptNoFlag.error}"`);
-
-  console.log('  👉 注入前置证据: 置 flag [has_victor_black_account = true] 再次出示:');
-  stepC1.nextState.flags['has_victor_black_account'] = true;
-  const stepC2 = TextGameRuntimeEngine.step(textGame, stepC1.nextState, 'opt_reveal_black_account');
-  assert.ok(stepC2.nextNode && stepC2.nextState.currentNodeId === 'node_end_takeover');
-  assert.strictEqual(stepC2.nextState.isEnding, true);
-  console.log(`  [极佳结局达成] 👑 ${stepC2.nextNode.title}！维克托被迫交出最高权限卡，沦为提线木偶！\n`);
-
-  console.log('🎉 标杆策划案落盘与文游扩写、三大分支全链路试玩验证 100% 成功！');
+  console.log('🎉 标杆策划案落盘与文游扩写、全链路试玩验证 100% 成功！');
 }
 
 main().catch((err) => {

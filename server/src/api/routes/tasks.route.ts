@@ -6,6 +6,7 @@
 import { Router } from 'express';
 import { TaskStore } from '../../workflow-engine/TaskStore.js';
 import { ConfirmationGate } from '../../workflow-engine/confirmation-gate.js';
+import { ProductionWorkflowEngine } from '../../workflows/production.workflow.js';
 import { sendSuccess, sendError } from '../helpers.js';
 
 export const tasksRouter = Router();
@@ -47,8 +48,16 @@ tasksRouter.post('/:projectId/:taskId/confirm', (req, res) => {
  */
 tasksRouter.post('/:projectId/:taskId/reject', (req, res) => {
   try {
+    const { projectId, taskId } = req.params;
     const reason = req.body?.reason || '创作者取消';
-    const task = ConfirmationGate.rejectTask(req.params.projectId, req.params.taskId, reason);
+    const existing = taskStore.getTask(projectId, taskId);
+    if (existing && (existing.status === 'running' || existing.status === 'queued')) {
+      ProductionWorkflowEngine.cancel(projectId, taskId, reason);
+      const cancelled = taskStore.getTask(projectId, taskId);
+      sendSuccess(res, cancelled, '任务已中止取消');
+      return;
+    }
+    const task = ConfirmationGate.rejectTask(projectId, taskId, reason);
     sendSuccess(res, task, '任务已取消');
   } catch (err: any) {
     sendError(res, 400, err.message);

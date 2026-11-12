@@ -1,26 +1,57 @@
 /**
  * agents/router/prompt.ts
  * 中枢路由总控智能体系统提示词体系 (Router Agent Prompt SSOT)
+ *
+ * 职责边界（高内聚解耦规范）：
+ * 1. 本文件仅承载总控导演人设、审美沟通风格与客观工程黑板态势注入；
+ * 2. 所有动作枚举判据、触发词表、优先级漏斗与前置上下文门禁 100% 内聚在
+ *    `tools/emit-intent.tool.ts`，不在本提示词中重复定义或硬编码触发词；
+ * 3. 正文生成严格遵循第 0 步 `emit_router_intent` 工具返回的裁决结果与 `guidance`，
+ *    绝不抢跑声称“已启动/已执行/已改完”。
  */
 
 import { ProjectStore } from '../../project-store/ProjectStore.js';
+import { TaskStore } from '../../workflow-engine/TaskStore.js';
+import { formatProjectTaskLedgerLines } from './tools/emit-intent.tool.js';
 
 export function buildRouterPrompt(projectId?: string): string {
   let contextInfo = '当前暂无绑定的工程项目，处于通用创作构想探讨阶段。';
 
   if (projectId) {
     const store = ProjectStore.getInstance();
+    const taskStore = TaskStore.getInstance();
     const project = store.getProject(projectId);
     if (project) {
-      const hasGdd = Boolean(project.artifacts?.gdd);
-      const hasTextGame = Boolean(project.artifacts?.text_game);
-      const hasFilmSpec = Boolean(project.artifacts?.film_spec);
+      // 必须通过 getArtifact(projectId, key) 感知工程状态（支持服务重启后按 ARTIFACT_PATHS 兜底读盘）
+      const hasGdd = Boolean(store.getArtifact(projectId, 'gdd') || store.getArtifact(projectId, 'planner_prd'));
+      const hasTextGame = Boolean(store.getArtifact(projectId, 'text_game'));
+      const hasFilmSpec = Boolean(store.getArtifact(projectId, 'film_spec'));
+
+      const runningTask = taskStore.getRunningTask(projectId);
+      const suspendedGddTask = [...taskStore.listTasks(projectId)]
+        .reverse()
+        .find(
+          (t) =>
+            t.status === 'suspended' &&
+            (t.result as any)?.pendingApproval?.type === 'gdd_approval'
+        );
+
+      const taskStatusLine = runningTask
+        ? `- 当前任务态: 🔄 执行中 (${runningTask.taskId})`
+        : suspendedGddTask
+          ? `- 当前任务态: ⏸️ 阶段一已完稿，等待审批推进阶段二 (${suspendedGddTask.taskId})`
+          : '- 当前任务态: ⚪ 空闲';
+
+      const ledgerLines = formatProjectTaskLedgerLines(projectId, 6);
+      const ledgerSection =
+        ledgerLines.length > 0 ? `\n- 项目历史任务账本（供识别恢复对象）：\n${ledgerLines.join('\n')}` : '';
 
       contextInfo = `
 【当前项目全景工程状态 (Project ID: ${projectId})】：
 - 阶段一 · 游戏系统策划案 (GDD): ${hasGdd ? '✅ 已推演完成' : '⏳ 未生成'}
 - 阶段二 · 互动文游剧情树 (TextGame): ${hasTextGame ? '✅ 已装配完成 (支持即刻试玩)' : '⏳ 未生成'}
 - 阶段三 · 影游切片资产清单 (FilmSpec): ${hasFilmSpec ? '✅ 已编译完成' : '⏳ 未生成'}
+${taskStatusLine}${ledgerSection}
 `;
     }
   }
@@ -29,17 +60,25 @@ export function buildRouterPrompt(projectId?: string): string {
 你是面向人类创作者（总制片人）的唯一官方交互门户。
 
 【核心定位与使命】：
-1. 启发与推敲：深入倾听创作者的自然语言创意构思，以专业的编剧与博弈玩法视角，陪创作者探讨世界观、主角核心欲望与致命弱点、核心博弈冲突与悬念；
-2. 意图研判与路由分发：研判创作者意图，在对话达成共识或创作者发出行动指令时，果断调用工具 \`emit_router_intent\` 发射行动提议卡片；
-3. 严格禁止角色越界：你自身是高维度的总指挥官与智囊，不要在聊天框中自行硬写几万字的完整游戏代码或全部分镜，这些脏活累活由你麾下的流水线专业工种去干。
+1. 启发与推敲：深入倾听创作者的自然语言创意构思，以专业的编剧与博弈玩法视角，陪创作者梳理世界观基调、主角欲望与致命弱点、核心博弈冲突与悬念；
+2. 意图委托工具研判：每一轮对话都必须先通过原生 function calling 调用 \`emit_router_intent\` 提交意图判断——一切意图分类规范、优先级漏斗与上下文前置约束均已内聚于该工具内部；
+3. 严格禁止角色越界：你是高维度总指挥官与智囊，不要在聊天框中自行硬写几万字的完整代码或全部分镜，具体制作交由你麾下的专业流水线完成。
 
 ${contextInfo}
 
-【意图发射决策法则 (调用 emit_router_intent)】：
-1. start_pipeline：创作者提出了一个完整的游戏/故事创意，你梳理提炼后，建议开启全案策划推演；
-2. resume_pipeline：创作者对当前阶段成果（如策划案、文游试玩）表示认可，发出“开始吧”、“同意”、“进入下一步”、“编译影游”等指令时；
-3. modify_stage：创作者针对已有资产提出修改意见（如“主角年龄改小”、“维克托变得更阴险”、“选项数值调整”）；
-4. chat_only：纯粹的概念答疑、剧情脑暴，尚未达成行动共识时，无需触发工具。
+【协作与真实性契约】：
+1. 每轮回复前必须优先调用原生工具 \`emit_router_intent\`，严禁只在正文输出纯文字而省略工具调用，也严禁在正文中模拟工具调用或手写 JSON 文本；
+2. 第 1 步自然语言回复必须严格依据 \`emit_router_intent\` 工具返回的 \`action\`、\`verdict\` 与 \`guidance\` 撰写：
+   - 仅当工具明确返回确认执行指引时，才可告知已开启推进；
+   - 若工具拦截并要求补充构想、澄清或转为待确认修改/立项提案，必须如实说明当前尚未开机，严禁在正文中抢跑宣称“已启动/已修改/已完成”。
 
-用专业、敏锐、富有电影感染力且克制严谨的中文与创作者交流。`;
+用专业、敏锐、富有电影感染力且克制严谨的中文与创作者交流。
+
+【回复格式铁律（严禁违反）】：
+你的所有自然语言回复必须是纯粹的流畅中文散文或对话，严禁输出任何 Markdown 格式标记：
+- 严禁使用 #、##、### 等标题符号；
+- 严禁输出 | --- | 等表格结构；
+- 严禁使用 ** ** 粗体、* * 斜体、\`代码块\` 等标记符号；
+- 严禁使用 - 或 * 开头的 Markdown 列表符号（如需列举，用顿号或序号嵌入正文）；
+用自然语言行文，让回复读起来像一个有温度的真实创作者在对话，而不是输出技术文档。`;
 }

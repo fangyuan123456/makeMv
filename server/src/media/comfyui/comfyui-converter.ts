@@ -68,16 +68,11 @@ export function ensureApiPromptFormat(rawWorkflow: any): ComfyUIApiPrompt {
     const nodeIdStr = String(node.id);
     const inputs: Record<string, any> = {};
 
-    // 处理连线输入
+    // 处理连线输入（保留 COMFY_AUTOGROW_V3 的 group.slot 完整键名，如 images.image_1）
     if (Array.isArray(node.inputs)) {
       for (const input of node.inputs) {
         if (input.link != null && linksMap.has(input.link)) {
-          let paramName = input.name;
-          // 归一化多模态图像槽位名称，如 images.image_1 -> image_1
-          if (paramName.startsWith('images.')) {
-            paramName = paramName.replace('images.', '');
-          }
-          inputs[paramName] = linksMap.get(input.link)!;
+          inputs[input.name] = linksMap.get(input.link)!;
         }
       }
     }
@@ -108,8 +103,8 @@ export function ensureApiPromptFormat(rawWorkflow: any): ComfyUIApiPrompt {
 
       case 'TextEncodeQwenImage21':
         if (widgets.length >= 1) inputs.prompt = widgets[0];
-        if (widgets.length >= 2) inputs.prompt_negative = widgets[1];
-        if (widgets.length >= 3) inputs.max_length = widgets[2];
+        if (widgets.length >= 2) inputs.negative_prompt = widgets[1];
+        if (widgets.length >= 3) inputs.resolution = widgets[2];
         break;
 
       case 'CLIPTextEncode':

@@ -1,0 +1,39 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "🚀 启动服务端",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "释放 4111 端口",
+      "cwd": "${workspaceFolder}/server",
+      "runtimeArgs": ["--import", "tsx"],
+      "args": ["src/index.ts"],
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**"],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "🌐 启动客户端",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/client",
+      "program": "${workspaceFolder}/client/node_modules/vite/bin/vite.js",
+      "args": [],
+      "sourceMaps": true,
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "⚡ 全栈一键联调 (服务端 + 客户端)",
+      "configurations": [
+        "🚀 启动服务端",
+        "🌐 启动客户端"
+      ],
+      "stopAll": true
+    }
+  ]
+}

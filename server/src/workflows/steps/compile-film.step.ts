@@ -9,6 +9,12 @@ import { filmAdapterAgent, adaptFilmWithAgent } from '../../agents/film-adapter/
 import { FilmAdapterArtifactSchema, type FilmAdapterArtifact } from '../../agents/film-adapter/schema.js';
 import type { TextGameArtifact } from '../../agents/text-game/schema.js';
 import { ProjectStore } from '../../project-store/ProjectStore.js';
+import {
+  STAGE,
+  FILM_STEP,
+  writeArtifactFile,
+  renderArtifactMarkdown,
+} from '../../project-store/artifact-fs.js';
 import { createProgressReporter } from '../../workflow-engine/progress.js';
 
 export const compileFilmStepInputSchema = z.object({
@@ -40,16 +46,22 @@ export async function executeCompileFilmStep(
     throw new Error(`[CompileFilmStep] 项目 [${projectId}] 缺少前置可玩文游资产，无法执行影视升维`);
   }
 
-  report(25, '视听总导演正在分析文游文学描写，拆解好莱坞分镜机位...');
-  report(60, '正在将情景意境翻译为纯英文高精度 Video Prompt 与动势衔接点...');
+  report(25, '视听总导演正在分析文游文学描写，翻译分镜机位与高精度 Video Prompt...');
 
   // 2. 调用 Mastra 官方原生影游翻译 Agent 提取视听资产需求
   const filmSpec = await adaptFilmWithAgent(textGame, filmAdapterAgent);
 
-  report(90, '正在生成各镜头切片订单与音频对白参数...');
+  report(88, '正在生成各镜头切片订单并落盘影视资产清单...');
 
-  // 3. 落盘
+  // 3. 落盘：运行时黑板 + .debug 展示镜像 + 外层交付文档
   store.setArtifact(projectId, 'film_spec', filmSpec);
+  try {
+    const md = renderArtifactMarkdown(`《${textGame.title}》影游视听切片清单`, filmSpec);
+    writeArtifactFile(projectId, 'debug', STAGE.filmAdapter, FILM_STEP.compile, 'film_spec.md', md);
+    writeArtifactFile(projectId, 'delivery', STAGE.filmAdapter, FILM_STEP.compile, 'film_spec.md', md);
+  } catch (err) {
+    console.warn(`[CompileFilmStep] 写入影视切片清单失败:`, err);
+  }
 
   report(100, `影视化切片清单已编译完成，共计 ${filmSpec.clips.length} 个视听镜头需求`);
 

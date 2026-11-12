@@ -13,7 +13,9 @@ import { routerAgent } from './agents/router/router.agent.js';
 import { plannerAgent } from './agents/planner/planner.agent.js';
 import { textGameAgent } from './agents/text-game/index.js';
 import { filmAdapterAgent } from './agents/film-adapter/film-adapter.agent.js';
-import { productionWorkflow } from './workflows/production.workflow.js';
+import { createProductionWorkflow } from './workflows/production.workflow.js';
+
+const productionWorkflow = createProductionWorkflow();
 
 export const mastra = new Mastra({
   agents: {
@@ -29,5 +31,5 @@ export {
   plannerAgent,
   textGameAgent,
   filmAdapterAgent,
-  productionWorkflow,
+  createProductionWorkflow,
 };

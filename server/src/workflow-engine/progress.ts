@@ -8,7 +8,15 @@
  * 3. 统一与 TaskStore 无缝联动。
  */
 
+import type { Workflow } from '@mastra/core/workflows';
 import { TaskStore } from './TaskStore.js';
+import type { ProgressReporter } from './types.js';
+
+export interface WorkflowStepProgressConfig {
+  stepId: string;
+  percent: number;
+  note: string;
+}
 
 export interface ProgressReportOptions {
   projectId: string;
@@ -45,4 +53,54 @@ export function createProgressReporter(projectId: string, taskId: string) {
       // 容错防崩，保证主干执行不受统计影响
     }
   };
+}
+
+/**
+ * 监听 Mastra Workflow 实例真实的 XState 步骤迁移事件，按工序执行顺序单调上报进度。
+ * 通过 runId 隔离同实例潜在并发运行，防止多运行互串与进度倒退。
+ */
+export function attachWorkflowStepProgress(
+  workflow: Workflow<any, any>,
+  runId: string,
+  steps: ReadonlyArray<WorkflowStepProgressConfig>,
+  onProgress?: ProgressReporter
+): () => void {
+  if (!onProgress || steps.length === 0) {
+    return () => {};
+  }
+
+  let lastReportedIdx = -1;
+
+  return workflow.watch((state) => {
+    if ((state as any)?.runId && (state as any).runId !== runId) {
+      return;
+    }
+
+    const activePaths = Array.isArray((state as any)?.activePaths)
+      ? (state as any).activePaths
+      : [];
+    const completedSteps = (state as any)?.context?.steps || {};
+
+    let matchedIdx = -1;
+    for (let i = 0; i < steps.length; i++) {
+      const sid = steps[i].stepId;
+      const isActive = activePaths.some(
+        (p: any) =>
+          (p?.stepId === sid || p?.stepPath?.[0] === sid) && p?.status !== 'completed'
+      );
+      const isDone = completedSteps[sid]?.status === 'success';
+      if (isActive || isDone) {
+        matchedIdx = Math.max(matchedIdx, i);
+      }
+    }
+
+    if (matchedIdx > lastReportedIdx) {
+      lastReportedIdx = matchedIdx;
+      const cfg = steps[matchedIdx];
+      onProgress(cfg.percent, cfg.note, {
+        current: matchedIdx + 1,
+        total: steps.length,
+      });
+    }
+  });
 }

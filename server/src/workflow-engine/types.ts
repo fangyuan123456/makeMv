@@ -3,7 +3,14 @@
  * 任务生命周期与工作流契约规范 (Task Lifecycle SSOT)
  */
 
-export type TaskStatus = 'proposed' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type TaskStatus =
+  | 'proposed'
+  | 'queued'
+  | 'running'
+  | 'suspended'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled';
 
 export interface TaskProgress {
   current: number;
@@ -27,4 +34,8 @@ export interface Task {
   updatedAt: string;
 }
 
-export type ProgressReporter = (percent: number, note: string) => void;
+export type ProgressReporter = (
+  percent: number,
+  note: string,
+  stepInfo?: { current: number; total: number }
+) => void;

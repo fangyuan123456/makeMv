@@ -4,3 +4,4 @@
  */
 
 export * from './image-generate/image-generate.tool.js';
+export * from './video-generate/video-generate.tool.js';

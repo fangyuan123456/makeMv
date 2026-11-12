@@ -158,6 +158,16 @@ export class MediaResolver {
         return 'application/json';
       case '.svg':
         return 'image/svg+xml';
+      // 独立可玩文游 text-game/index.html + bundle.js 需要以正确 MIME 返回，
+      // 否则 /media/ 下会被当成 application/octet-stream 下载，iframe 无法渲染。
+      case '.html':
+      case '.htm':
+        return 'text/html; charset=utf-8';
+      case '.js':
+      case '.mjs':
+        return 'text/javascript; charset=utf-8';
+      case '.css':
+        return 'text/css; charset=utf-8';
       default:
         return 'application/octet-stream';
     }

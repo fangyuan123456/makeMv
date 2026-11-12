@@ -1,6 +1,6 @@
 /**
  * api/routes/runtime.route.ts
- * 纯确定性文游运行与试玩决策路由 (Runtime Domain Route)
+ * 纯确定性文游运行与试玩决策路由 (Runtime Domain Route SSOT)
  *
  * 特性：0 Token 消耗，纯本地内存级毫秒运算
  */
@@ -63,4 +63,15 @@ runtimeRouter.post('/:projectId/step', (req, res) => {
   }
 
   sendSuccess(res, { state: result.nextState, node: result.nextNode }, '状态机推进成功');
+});
+
+/**
+ * 获取完整文游图谱资产（包含全部节点与 SVG 拓扑）
+ */
+runtimeRouter.get('/:projectId/graph', (req, res) => {
+  const textGame = store.getArtifact<TextGameArtifact>(req.params.projectId, 'text_game');
+  if (!textGame) {
+    return sendError(res, 404, '文游资产尚未生成');
+  }
+  sendSuccess(res, textGame, '获取文游图谱成功');
 });

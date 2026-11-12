@@ -9,7 +9,7 @@
  */
 
 import type { TextGameArtifact, TextGameNode, TextGameChoice } from '../agents/text-game/schema.js';
-import type { GDDArtifact } from '../agents/planner/schema.js';
+import type { GDDArtifact, GlobalStateMachine } from '../agents/planner/schema.js';
 
 export interface PlayerGameState {
   currentNodeId: string;
@@ -33,29 +33,55 @@ export class TextGameRuntimeEngine {
   /**
    * 初始化新的玩家游戏存档
    */
-  public static initGame(gdd: GDDArtifact, textGame: TextGameArtifact): PlayerGameState {
+  public static initGame(
+    gdd: { globalStateMachine?: Partial<GlobalStateMachine> } | GDDArtifact,
+    textGame: TextGameArtifact
+  ): PlayerGameState {
     const initialVariables: Record<string, number> = {};
     if (gdd.globalStateMachine?.variables) {
       for (const [key, spec] of Object.entries(gdd.globalStateMachine.variables)) {
-        initialVariables[key] = spec.initial;
+        if (spec && typeof spec.initial === 'number') {
+          initialVariables[key] = spec.initial;
+        }
       }
     }
 
     const initialFlags: Record<string, boolean> = {};
     if (gdd.globalStateMachine?.flags) {
       for (const [key, spec] of Object.entries(gdd.globalStateMachine.flags)) {
-        initialFlags[key] = spec.initial;
+        if (spec && typeof spec.initial === 'boolean') {
+          initialFlags[key] = spec.initial;
+        }
+      }
+    }
+
+    const initialInventory: string[] = [...(gdd.globalStateMachine?.inventory || [])];
+
+    // 合入 PRD initialState（保留文本游与独立座舱统一的初始状态）
+    if (textGame.initialState) {
+      for (const [key, val] of Object.entries(textGame.initialState)) {
+        if (typeof val === 'number' && initialVariables[key] === undefined) {
+          initialVariables[key] = val;
+        } else if (typeof val === 'boolean' && initialFlags[key] === undefined) {
+          initialFlags[key] = val;
+        } else if (Array.isArray(val)) {
+          for (const item of val) {
+            if (typeof item === 'string' && !initialInventory.includes(item)) {
+              initialInventory.push(item);
+            }
+          }
+        }
       }
     }
 
     return {
-      currentNodeId: textGame.startNodeId || textGame.nodes[0]?.id || 'start',
+      currentNodeId: textGame.startNodeId || textGame.nodes[0]?.id || 'S1',
       variables: initialVariables,
       flags: initialFlags,
-      inventory: [...(gdd.globalStateMachine?.inventory || [])],
+      inventory: initialInventory,
       history: [
         {
-          nodeId: textGame.startNodeId || textGame.nodes[0]?.id || 'start',
+          nodeId: textGame.startNodeId || textGame.nodes[0]?.id || 'S1',
           timestamp: new Date().toISOString(),
         },
       ],
@@ -64,19 +90,46 @@ export class TextGameRuntimeEngine {
   }
 
   /**
-   * 校验选项是否满足门禁条件
+   * 校验选项是否满足多态门禁条件（布尔标记 / 道具持有 / 数值门槛）
    */
   public static validateChoice(
     choice: TextGameChoice,
     state: PlayerGameState
   ): ChoiceValidationResult {
-    if (!choice.requiredFlags || choice.requiredFlags.length === 0) {
-      return { allowed: true };
+    // 1. 布尔旗标门禁判定
+    if (choice.requiredFlags && choice.requiredFlags.length > 0) {
+      for (const flag of choice.requiredFlags) {
+        if (!state.flags[flag]) {
+          return { allowed: false, reason: `尚未解锁前置条件或未达成对应标记: [${flag}]` };
+        }
+      }
     }
 
-    for (const flag of choice.requiredFlags) {
-      if (!state.flags[flag]) {
-        return { allowed: false, reason: `尚未解锁前置条件或未持有对应证据线索: [${flag}]` };
+    // 2. 随身物品/线索持有门禁判定
+    if (choice.requiredItems && choice.requiredItems.length > 0) {
+      for (const item of choice.requiredItems) {
+        if (!state.inventory.includes(item)) {
+          return { allowed: false, reason: `尚未持有关键随身物品或证据线索: [${item}]` };
+        }
+      }
+    }
+
+    // 3. 数值门槛条件判定 (gte / lte)
+    if (choice.requiredVariables && Object.keys(choice.requiredVariables).length > 0) {
+      for (const [varKey, range] of Object.entries(choice.requiredVariables)) {
+        const currentVal = state.variables[varKey] ?? 0;
+        if (range.gte !== undefined && currentVal < range.gte) {
+          return {
+            allowed: false,
+            reason: `当前 [${varKey}] (${currentVal}) 未达到要求下限 (${range.gte})`,
+          };
+        }
+        if (range.lte !== undefined && currentVal > range.lte) {
+          return {
+            allowed: false,
+            reason: `当前 [${varKey}] (${currentVal}) 超出允许上限 (${range.lte})`,
+          };
+        }
       }
     }
 
@@ -109,26 +162,31 @@ export class TextGameRuntimeEngine {
 
     // 2. 状态机运算变动 (Mutation)
     const nextVariables = { ...state.variables };
-    if (choice.stateMutation.variables) {
+    if (choice.stateMutation?.variables) {
       for (const [vKey, delta] of Object.entries(choice.stateMutation.variables)) {
         nextVariables[vKey] = (nextVariables[vKey] ?? 0) + delta;
       }
     }
+    if (choice.stateMutation?.setVariables) {
+      for (const [vKey, val] of Object.entries(choice.stateMutation.setVariables)) {
+        nextVariables[vKey] = val;
+      }
+    }
 
     const nextFlags = { ...state.flags };
-    if (choice.stateMutation.flags) {
+    if (choice.stateMutation?.flags) {
       for (const [fKey, val] of Object.entries(choice.stateMutation.flags)) {
         nextFlags[fKey] = val;
       }
     }
 
     const nextInventory = [...state.inventory];
-    if (choice.stateMutation.inventoryAdd) {
+    if (choice.stateMutation?.inventoryAdd) {
       for (const item of choice.stateMutation.inventoryAdd) {
         if (!nextInventory.includes(item)) nextInventory.push(item);
       }
     }
-    if (choice.stateMutation.inventoryRemove) {
+    if (choice.stateMutation?.inventoryRemove) {
       for (const item of choice.stateMutation.inventoryRemove) {
         const idx = nextInventory.indexOf(item);
         if (idx !== -1) nextInventory.splice(idx, 1);

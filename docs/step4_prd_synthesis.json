@@ -1,0 +1,285 @@
+{
+  "title": "遗忘的火焰",
+  "prd": {
+    "gameMeta": {
+      "title": "《遗忘的火焰》互动短剧游戏策划案 (PRD)",
+      "genre": "民国谍战悬疑 / 情感博弈 / 竖屏互动短剧文游",
+      "playerIdentity": "玩家代入地下交通员「火绒」林晚——一名在法租界以照相馆为掩护的遗孤，背负父亲用命换来的绝密名单，在天亮前完成最后一趟传递任务。",
+      "oneSentenceHook": "父亲说「火，要烧在纸的背面」——你只有一夜，在旧情人的试探与巡捕房的搜捕之间，把名单烧进光里，也把真相烧进人心。",
+      "coreMechanicSummary": "以「限时心跳抉择 + 双难分支 + 物证出示 + 划屏动作」四大机制驱动，玩家在5个主干片段与4条分支间反复博弈，通过「死亡回溯·时光倒流」在死局中重选，最终在「烧名单保命」与「烧名单保人」之间，亲手决定那卷胶片的归宿。"
+    },
+    "uiShellSpecification": {
+      "hudElements": [
+        {
+          "name": "心理防线进度条",
+          "position": "顶部中央",
+          "description": "以「信任值/暴露值」双轨进度条呈现，左轨为沈青竹对玩家的信任，右轨为巡捕房对玩家的暴露程度。任一轨触顶即触发危机事件或死局。"
+        },
+        {
+          "name": "任务倒计时",
+          "position": "顶部右上角",
+          "description": "以「距天亮」为单位的倒计时，随剧情推进递减，营造天亮前必须完成交接的窒息压迫感。"
+        },
+        {
+          "name": "底片背包按钮",
+          "position": "右下角常驻",
+          "description": "收纳玩家已获得的底片、信笺、锡纸名单等关键物证，供「物证出示」机制调用。"
+        },
+        {
+          "name": "时光倒流按钮",
+          "position": "左上角常驻（死亡后激活）",
+          "description": "死亡或死局时亮起「⏪ 时光倒流」，点击回退至关键抉择点重选。"
+        },
+        {
+          "name": "暗房红灯状态灯",
+          "position": "顶部左下角",
+          "description": "以暗房红灯的明灭暗示当前危险等级，红灯闪烁越急，暴露风险越高。"
+        }
+      ],
+      "viewportRatio": "9:16 (竖屏沉浸短剧画幅)",
+      "subtitleRules": "中部偏下以电影级字幕呈现对白，关键暗语（如「火，要烧在纸的背面」）以特殊字体与红光高亮，并在字幕旁附微缩底片水印提示线索关联。",
+      "interactionZoneRules": "底部操作区常驻「抉择按钮」与「物证出示」双栏；抉择按钮以左右双键呈现（主线/分支），限时抉择时按钮外围出现红色倒计时圆环；物证出示栏可拖拽底片/信笺至屏幕中央的「出示区」触发剧情反应。"
+    },
+    "interactionMechanics": [
+      {
+        "name": "限时心跳抉择 (QTE)",
+        "triggerType": "QTE_COUNTDOWN",
+        "operationDescription": "在关键对白处弹出左右双键抉择，外围红色倒计时圆环随心跳节律收缩，玩家须在数秒内按下「主线」或「分支」键。",
+        "playerFeel": "倒计时圆环与心跳同频收缩，指尖每按一下都像在赌命——爽点在于「明知是陷阱却不得不选」的窒息快感，以及选对后肾上腺素飙升的劫后余生。"
+      },
+      {
+        "name": "双难分支二选一",
+        "triggerType": "BRANCH_CHOICE",
+        "operationDescription": "在「相信旧情」与「怀疑设局」、「烧名单保命」与「烧名单保人」等核心矛盾处，弹出两个代价截然不同的选项，选项下方标注各自将付出的代价（如「暴露半张底片」「双手灼伤」）。",
+        "playerFeel": "每个选项都附带可见代价，玩家在「保任务」与「保人」之间反复撕扯——爽点在于亲手选择牺牲什么、守护什么，让每一次抉择都刻骨铭心。"
+      },
+      {
+        "name": "底片物证出示",
+        "triggerType": "INVENTORY_PRESENT",
+        "operationDescription": "玩家从底片背包中拖拽关键物证（全家福底片、信笺、锡纸名单）至屏幕中央出示区，触发对方反应或解锁隐藏线索。",
+        "playerFeel": "拖拽出示的瞬间，镜头推近物证细节，配合红光显影特效——爽点在于「用一张底片试探人心」的博弈快感，以及物证被识破时的冷汗直冒。"
+      },
+      {
+        "name": "划屏显影动作",
+        "triggerType": "TOUCH_GESTURE",
+        "operationDescription": "在暗房显影、拆灯箱、翻拍底片等关键工序处，玩家以手指在屏幕上划动（如左右擦拭显影、旋转拆解灯箱、对焦翻拍），完成精细操作。",
+        "playerFeel": "划屏动作与暗房红光、药水气泡音效同步，指尖的每一次摩擦都像在触碰历史的尘埃——爽点在于「亲手把秘密显影出来」的仪式感与掌控感。"
+      }
+    ],
+    "threeKeyFlowRoutes": [
+      {
+        "routeName": "稳健求真线（旧情护航）",
+        "summary": "玩家全程选择「主线」路径：直面沈青竹、相信她的暗示、顺着「见光」线索追查、将名单翻拍进底片、目送她收队离去。以信任为盾，在旧情人的掩护下完成传递，最终走向黄金结局——名单以光的形式留存，旧情在火光中重生。"
+      },
+      {
+        "routeName": "硬核反杀线（孤身破局）",
+        "summary": "玩家在关键节点选择「分支」路径：退入暗房阴影、怀疑沈青竹设局、独自按父亲遗言追索、烧毁全家福底片作诱饵骗过特务。以烧伤的双手为代价，孤身守住名单，在搜查余波中完成极限转移——走向「火在纸的背面」的硬核胜利。"
+      },
+      {
+        "routeName": "惨痛失足线（赌上最后一束光）",
+        "summary": "玩家在 clip_04 选择「追出门外向沈青竹坦白一切」，赌她仍站在自己这边——却换来她以命相护、自己只拿到一卷空胶片的惨痛结局。走向独立结局【烧在光里的名字】(BE)，以最深的遗憾触发「时光倒流」回溯重选。"
+      }
+    ],
+    "gameFeelAndFeedback": {
+      "haptics": "关键抉择时手机以「心跳节律」震动（先缓后急，倒计时越紧震动越密）；死亡瞬间以「骤停式」强震模拟心脏骤停；划屏显影时以「细密微震」模拟药水气泡的触感。",
+      "floatingTexts": "信任值/暴露值增减时以「红闪警报」与「数值飘字」呈现（如「信任 +15」「暴露 +30」）；双手灼伤时屏幕边缘泛起焦黑灼烧特效并飘出「双手烧伤」状态提示；死局时全屏红光闪烁并浮现「你已暴露」警告。",
+      "soundEffects": "抉择按钮按下时以「机械快门声」反馈（模拟相机快门，呼应照相馆主题）；倒计时圆环收缩时伴随「心跳鼓点」渐强；划屏显影时以「药水气泡咕嘟声」与「胶片摩擦沙沙声」营造暗房沉浸；死亡时以「玻璃碎裂声」与「雨声骤停」制造戛然而止的窒息感。"
+    },
+    "deathAndRewindRules": {
+      "rewindButtonName": "⏪ 时光倒流",
+      "rewindMechanism": "玩家死亡或陷入死局时，屏幕浮现「⏪ 时光倒流」按钮，点击后画面以「胶片倒放」特效回退至最近一次关键抉择点（clip_01~clip_04），玩家可即时重选不同路径。回退不消耗额外资源，鼓励玩家反复尝试不同分支以探索全结局。",
+      "endingsGalleryRule": "全剧共收敛为多个结局，玩家每解锁一个结局即在「结局图鉴」中点亮对应胶片格，图鉴以「暗房底片墙」形式呈现，未解锁结局以「未显影的空白底片」占位。解锁全部结局可解锁隐藏彩蛋——父亲生前完整录音，揭示「火绒」代号与名单背后的全部真相。"
+    },
+    "endingsSummary": [
+      {
+        "endingId": "ENDING_clip_05_HE",
+        "type": "HE",
+        "title": "烧在光里的名单",
+        "verdict": "名单以光的形式留存，旧情在火光中重生——你烧掉了纸，却把真相烧进了每一个人的心里。",
+        "sourceBranchOrClipId": "clip_05"
+      },
+      {
+        "endingId": "ENDING_cut_04",
+        "type": "BE",
+        "title": "烧在光里的名字",
+        "verdict": "她赌上了命，才换回你手里那卷空胶片——有些名单，注定要烧在人的骨血里。",
+        "sourceBranchOrClipId": "cut_04",
+        "rewindTargetClipId": "clip_04"
+      }
+    ]
+  },
+  "graph": {
+    "startNodeId": "clip_01",
+    "nodes": [
+      {
+        "nodeId": "clip_01",
+        "nodeType": "MAINLINE_CLIP",
+        "title": "雨夜铁门",
+        "level": 1,
+        "contentSnippet": "1938年深秋，法租界梧桐叶落尽的那个深夜，巡捕房特务处的铁门在雨里哐当合拢..."
+      },
+      {
+        "nodeId": "clip_02",
+        "nodeType": "MAINLINE_CLIP",
+        "title": "旧情如雨",
+        "level": 2,
+        "contentSnippet": "沈青竹推门进来时，雨珠顺着她油纸伞的骨沿滴落..."
+      },
+      {
+        "nodeId": "clip_03",
+        "nodeType": "MAINLINE_CLIP",
+        "title": "纸背之火",
+        "level": 3,
+        "contentSnippet": "他扑向底片盒，手指飞快翻检。父亲做事极有章法..."
+      },
+      {
+        "nodeId": "clip_04",
+        "nodeType": "MAINLINE_CLIP",
+        "title": "烧在光里",
+        "level": 4,
+        "contentSnippet": "就在这时，楼下传来急促的脚步声。沈青竹提前回来了..."
+      },
+      {
+        "nodeId": "clip_05",
+        "nodeType": "MAINLINE_CLIP",
+        "title": "欠你一张全家福",
+        "level": 5,
+        "contentSnippet": "军靴声远去，雨声渐歇。沈青竹走到门口..."
+      },
+      {
+        "nodeId": "ENDING_clip_05_HE",
+        "nodeType": "ENDING",
+        "title": "黄金好结局 (HE)",
+        "level": 6,
+        "endingType": "HE",
+        "contentSnippet": "历经重重生死抉择，达成主线黄金真相结局。"
+      },
+      {
+        "nodeId": "branch_cut_01",
+        "nodeType": "BRANCH_CLIP",
+        "title": "暗房里的第一道裂痕",
+        "level": 1,
+        "contentSnippet": "三长两短，像三根针扎进耳膜..."
+      },
+      {
+        "nodeId": "branch_cut_02",
+        "nodeType": "BRANCH_CLIP",
+        "title": "纸背之火",
+        "level": 2,
+        "contentSnippet": "雨声在檐角连成一片，林晚盯着沈青竹离去的方向..."
+      },
+      {
+        "nodeId": "branch_cut_03",
+        "nodeType": "BRANCH_CLIP",
+        "title": "火在纸的背面",
+        "level": 3,
+        "contentSnippet": "楼下传来皮鞋踩上木楼梯的声响，一下，两下，像丧钟..."
+      },
+      {
+        "nodeId": "branch_cut_04",
+        "nodeType": "BRANCH_CLIP",
+        "title": "赌上最后一束光",
+        "level": 4,
+        "contentSnippet": "林晚追出门外，夜风卷起他额前的碎发..."
+      },
+      {
+        "nodeId": "ENDING_cut_04",
+        "nodeType": "ENDING",
+        "title": "烧在光里的名字",
+        "level": 5,
+        "endingType": "BE",
+        "contentSnippet": "她赌上了命，才换回你手里那卷空胶片——有些名单，注定要烧在人的骨血里。"
+      }
+    ],
+    "edges": [
+      {
+        "fromNodeId": "clip_01",
+        "toNodeId": "clip_02",
+        "edgeType": "MAINLINE_PROGRESS",
+        "label": "迎上前去，直面来客，试探对方来意"
+      },
+      {
+        "fromNodeId": "clip_02",
+        "toNodeId": "clip_03",
+        "edgeType": "MAINLINE_PROGRESS",
+        "label": "相信沈青竹话中的暗示，顺着\"见光\"的线索追查底片"
+      },
+      {
+        "fromNodeId": "clip_03",
+        "toNodeId": "clip_04",
+        "edgeType": "MAINLINE_PROGRESS",
+        "label": "将名单翻拍进相机底片，让名单以光的形式留存"
+      },
+      {
+        "fromNodeId": "clip_04",
+        "toNodeId": "clip_05",
+        "edgeType": "MAINLINE_PROGRESS",
+        "label": "目送沈青竹收队离去，相信她带走了名单"
+      },
+      {
+        "fromNodeId": "clip_05",
+        "toNodeId": "ENDING_clip_05_HE",
+        "edgeType": "CHOICE_BRANCH",
+        "label": "终局达成"
+      },
+      {
+        "fromNodeId": "clip_01",
+        "toNodeId": "branch_cut_01",
+        "edgeType": "CHOICE_BRANCH",
+        "label": "退入暗房阴影，先观察来者身份再作打算"
+      },
+      {
+        "fromNodeId": "branch_cut_01",
+        "toNodeId": "clip_02",
+        "edgeType": "REJOIN",
+        "label": "殊途同归合流",
+        "condition": "林晚在暗房门口与来者正面相对..."
+      },
+      {
+        "fromNodeId": "clip_02",
+        "toNodeId": "branch_cut_02",
+        "edgeType": "CHOICE_BRANCH",
+        "label": "怀疑沈青竹设局，独自按父亲遗言\"火要烧在纸的背面\"寻找线索"
+      },
+      {
+        "fromNodeId": "branch_cut_02",
+        "toNodeId": "clip_03",
+        "edgeType": "REJOIN",
+        "label": "殊途同归合流",
+        "condition": "林晚以双手被煤油灯焰灼出大片燎泡为代价..."
+      },
+      {
+        "fromNodeId": "clip_03",
+        "toNodeId": "branch_cut_03",
+        "edgeType": "CHOICE_BRANCH",
+        "label": "将名单烧毁，保全自身与沈青竹，放弃任务"
+      },
+      {
+        "fromNodeId": "branch_cut_03",
+        "toNodeId": "clip_04",
+        "edgeType": "REJOIN",
+        "label": "殊途同归合流",
+        "condition": "林晚以右手掌被火舌严重灼伤为代价..."
+      },
+      {
+        "fromNodeId": "clip_04",
+        "toNodeId": "branch_cut_04",
+        "edgeType": "CHOICE_BRANCH",
+        "label": "追出门外，向沈青竹坦白一切，赌她仍站在自己这边"
+      },
+      {
+        "fromNodeId": "branch_cut_04",
+        "toNodeId": "ENDING_cut_04",
+        "edgeType": "CHOICE_BRANCH",
+        "label": "达成【烧在光里的名字】"
+      },
+      {
+        "fromNodeId": "ENDING_cut_04",
+        "toNodeId": "clip_04",
+        "edgeType": "REWIND",
+        "label": "⏪ 时光倒流",
+        "condition": "死亡/失败回溯，重新抉择"
+      }
+    ]
+  }
+}

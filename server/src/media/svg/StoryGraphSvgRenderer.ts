@@ -73,12 +73,36 @@ export function computeDagRanks(
 }
 
 export class StoryGraphSvgRenderer {
-  private static readonly NW = 240;
-  private static readonly NH = 120;
-  private static readonly COL_GAP = 160;
-  private static readonly ROW_GAP = 60;
-  private static readonly PAD_X = 60;
-  private static readonly PAD_Y = 50;
+  private static readonly NW = 190;
+  private static readonly NH = 58;
+  private static readonly COL_GAP = 100;
+  private static readonly ROW_GAP = 36;
+  private static readonly PAD_X = 50;
+  private static readonly PAD_Y = 40;
+
+  private static renderNodeOutline(
+    kind: 'start' | 'ending' | 'branch' | 'scene',
+    w: number,
+    h: number,
+    borderColor: string
+  ): string {
+    if (kind === 'start') {
+      return `<rect width="${w}" height="${h}" rx="${h / 2}" ry="${h / 2}" fill="#0f172a" stroke="${borderColor}" stroke-width="2" />`;
+    }
+    if (kind === 'branch') {
+      const cut = 16;
+      const pts = `${cut},0 ${w - cut},0 ${w},${h / 2} ${w - cut},${h} ${cut},${h} 0,${h / 2}`;
+      return `<polygon points="${pts}" fill="#0f172a" stroke="${borderColor}" stroke-width="2" stroke-linejoin="round" />`;
+    }
+    if (kind === 'ending') {
+      const cut = 12;
+      const pts = `${cut},0 ${w - cut},0 ${w},${cut} ${w},${h - cut} ${w - cut},${h} ${cut},${h} 0,${h - cut} 0,${cut}`;
+      const i = 4;
+      const innerPts = `${i + cut - 2},${i} ${w - i - cut + 2},${i} ${w - i},${i + cut - 2} ${w - i},${h - i - cut + 2} ${w - i - cut + 2},${h - i} ${i + cut - 2},${h - i} ${i},${h - i - cut + 2} ${i},${i + cut - 2}`;
+      return `<polygon points="${pts}" fill="#0f172a" stroke="${borderColor}" stroke-width="2" stroke-linejoin="round" /><polygon points="${innerPts}" fill="none" stroke="${borderColor}" stroke-width="1" stroke-opacity="0.45" stroke-linejoin="round" />`;
+    }
+    return `<rect width="${w}" height="${h}" rx="10" fill="#0f172a" stroke="${borderColor}" stroke-width="2" />`;
+  }
 
   /**
    * 将 TextGameArtifact 或节点列表渲染为工业级高美感 SVG 拓扑网络
@@ -160,10 +184,18 @@ export class StoryGraphSvgRenderer {
       const sy = from.y + from.h / 2;
       const ex = to.x;
       const ey = to.y + to.h / 2;
-      const cp1x = sx + (ex - sx) * 0.45;
-      const cp2x = sx + (ex - sx) * 0.55;
 
-      const d = `M ${sx} ${sy} C ${cp1x} ${sy}, ${cp2x} ${ey}, ${ex} ${ey}`;
+      let d: string;
+      const isLoop = ex <= sx;
+      if (isLoop) {
+        // 时空循环与回溯边：向下平滑绕行绘制反向弧线
+        const arcY = Math.max(sy, ey) + 70;
+        d = `M ${sx} ${sy} C ${sx + 50} ${arcY}, ${ex - 50} ${arcY}, ${ex} ${ey}`;
+      } else {
+        const cp1x = sx + (ex - sx) * 0.45;
+        const cp2x = sx + (ex - sx) * 0.55;
+        d = `M ${sx} ${sy} C ${cp1x} ${sy}, ${cp2x} ${ey}, ${ex} ${ey}`;
+      }
       const lx = (sx + ex) / 2;
       const ly = (sy + ey) / 2;
 
@@ -184,46 +216,28 @@ export class StoryGraphSvgRenderer {
       `);
     });
 
-    // 构建节点卡片
+    // 构建节点卡片（按语义区分几何形状，内部只保留最小识别信息）
     const nodesHtml: string[] = [];
     positionedNodes.forEach(({ node, x, y, w, h }) => {
       const isStart = node.id === startId;
       const isEnding = !!node.isEnding;
-      const borderColor = isStart ? '#38bdf8' : isEnding ? '#ec4899' : '#334155';
-      const badgeBg = isStart ? '#0369a1' : isEnding ? '#9d174d' : '#1e293b';
-      const badgeText = isStart ? 'START' : isEnding ? (node.endingType || 'ENDING') : 'SCENE';
+      const isBranch = !isStart && !isEnding && (node.choices?.length || 0) > 1;
+      const shapeKind = isEnding ? 'ending' : isStart ? 'start' : isBranch ? 'branch' : 'scene';
+      const borderColor = isStart ? '#00d2ff' : isEnding ? '#ec4899' : isBranch ? '#38bdf8' : '#334155';
+      const badgeText = isStart ? 'START' : isEnding ? (node.endingType || 'ENDING') : isBranch ? 'BRANCH' : 'SCENE';
 
-      const safeTitle = this.escapeXml(node.title || node.id);
-      const previewText = this.escapeXml(
-        (node.narrativeText || '').slice(0, 36) + ((node.narrativeText || '').length > 36 ? '...' : '')
-      );
+      const rawTitle = (node.title || node.id).trim();
+      const shortTitle = rawTitle.length > 11 ? `${rawTitle.slice(0, 10)}…` : rawTitle;
+      const safeTitle = this.escapeXml(shortTitle);
+      const outline = this.renderNodeOutline(shapeKind, w, h, borderColor);
 
       nodesHtml.push(`
         <g transform="translate(${x}, ${y})">
-          <!-- 节点背景卡片 -->
-          <rect width="${w}" height="${h}" rx="12" fill="#0f172a" stroke="${borderColor}" stroke-width="2" />
-          
-          <!-- 顶部状态胶囊 -->
-          <rect x="12" y="12" width="60" height="18" rx="9" fill="${badgeBg}" />
-          <text x="42" y="24" fill="#ffffff" font-size="9" font-family="system-ui, sans-serif" font-weight="bold" text-anchor="middle">${badgeText}</text>
-          
-          <!-- 节点 ID 提示 -->
-          <text x="${w - 14}" y="25" fill="#64748b" font-size="10" font-family="monospace" text-anchor="end">${this.escapeXml(
-        node.id
+          ${outline}
+          <text x="${w / 2}" y="21" fill="#94a3b8" font-size="10" font-family="monospace" font-weight="700" text-anchor="middle">${this.escapeXml(
+        `${badgeText} · ${node.id}`
       )}</text>
-          
-          <!-- 节点标题 -->
-          <text x="14" y="52" fill="#f8fafc" font-size="13" font-family="system-ui, sans-serif" font-weight="bold">${safeTitle}</text>
-          
-          <!-- 剧本前瞻 -->
-          <text x="14" y="74" fill="#94a3b8" font-size="10.5" font-family="system-ui, sans-serif">${previewText}</text>
-          
-          <!-- 分支统计指示器 -->
-          <line x1="12" y1="${h - 26}" x2="${w - 12}" y2="${h - 26}" stroke="#1e293b" stroke-width="1" />
-          <circle cx="20" cy="${h - 13}" r="4" fill="#6366f1" />
-          <text x="30" y="${h - 10}" fill="#818cf8" font-size="9.5" font-family="system-ui, sans-serif">${
-        (node.choices || []).length
-      } 个后续抉择分支</text>
+          <text x="${w / 2}" y="42" fill="#f8fafc" font-size="12.5" font-family="system-ui, sans-serif" font-weight="bold" text-anchor="middle">${safeTitle}</text>
         </g>
       `);
     });
