@@ -20,6 +20,7 @@ import { buildWorkingDialogueTurns } from '../../mastra-compat/index.js';
 import { ProjectStore } from '../../project-store/ProjectStore.js';
 import { ProductionWorkflowEngine } from '../../workflows/production.workflow.js';
 import { TaskStore } from '../../workflow-engine/TaskStore.js';
+import { combineAbortSignals } from '../../workflow-engine/run-context.js';
 
 export interface ChatHistoryTaskRef {
   runId?: string;
@@ -47,17 +48,41 @@ export interface ActiveChatTask {
 export interface ActiveChatStream {
   projectId: string;
   messageId: string;
+  /** 本轮创作者发言的气泡 id：整轮撤销时一并回收 */
+  userMessageId?: string;
   accumulatedText: string;
   proposal?: Record<string, any>;
   task?: ActiveChatTask;
   errorMessage?: string;
+  /** 本轮气泡已被撤销（意图落到既有任务气泡上，不再需要单独回复） */
+  removed?: boolean;
   status: 'streaming' | 'done' | 'error';
   subscribers: Set<Response>;
   cleanupTimer?: ReturnType<typeof setTimeout>;
+  createdAt: number;
+  lastChunkAt: number;
+  abortController?: AbortController;
 }
 
 const STREAM_FLUSH_INTERVAL_MS = 350;
 const FINISHED_STREAM_TTL_MS = 60_000;
+/**
+ * 首字超时：上游连第一个 token 都不给，前端就会一直转圈且没有任何提示。
+ * 到点直接掐断本轮，交给下面的重试 / 报错路径，让失败可见。
+ */
+const FIRST_TOKEN_TIMEOUT_MS = 90_000;
+/** 字间空闲超时：已经开吐之后卡住同样不放过（一次完整回复不该停顿这么久）。 */
+const STREAM_IDLE_TIMEOUT_MS = 45_000;
+
+/**
+ * 上游 SSE 可能在首个 delta 之后断流，AI SDK 会把断流当成正常结束（不抛错）。
+ * 这里只做结构判断、不猜中文语义：有提案时，一轮完整回复不该短于提案摘要本身。
+ * 以摘要长度作参照而非写死阈值，换题材 / 换提示词都不用调数字。
+ */
+export function isTruncatedReply(text: string, summary: string): boolean {
+  const ref = (summary || '').trim();
+  return ref.length > 0 && (text || '').trim().length < ref.length;
+}
 
 export class ChatStreamManager {
   private static instance: ChatStreamManager | null = null;
@@ -84,6 +109,9 @@ export class ChatStreamManager {
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
+    if (typeof (res as any).flushHeaders === 'function') {
+      (res as any).flushHeaders();
+    }
   }
 
   private safeSend(res: Response, payload: Record<string, any> | '[DONE]'): void {
@@ -129,7 +157,28 @@ export class ChatStreamManager {
     const { projectId, message, history } = params;
     const prev = this.streams.get(projectId);
     if (prev?.status === 'streaming') {
-      throw new Error(`[409 Conflict] 项目 [${projectId}] 的总导演正在回复中，请稍候`);
+      const now = Date.now();
+      const isStale =
+        (now - (prev.createdAt || 0) > 75_000 && !prev.accumulatedText) ||
+        (now - (prev.lastChunkAt || 0) > 45_000) ||
+        (prev.subscribers.size === 0 && now - (prev.createdAt || 0) > 30_000);
+
+      if (isStale) {
+        console.warn(
+          `[ChatStreamManager] 检测到项目 [${projectId}] 存在僵死流 (存活 ${Math.round(
+            (now - (prev.createdAt || 0)) / 1000
+          )}s, 字数 ${prev.accumulatedText.length})，主动触发熔断自愈并放行新对话`
+        );
+        try {
+          prev.abortController?.abort(new Error('[ChatStreamManager] 新请求进入，僵死流被强制抢占'));
+        } catch {}
+        prev.status = 'error';
+        prev.errorMessage = '上游响应超时，已被新对话重置';
+        this.broadcastDoneAndClose(prev);
+        this.streams.delete(projectId);
+      } else {
+        throw new Error(`[409 Conflict] 项目 [${projectId}] 的总导演正在回复中，请稍候`);
+      }
     }
     if (prev?.cleanupTimer) {
       clearTimeout(prev.cleanupTimer);
@@ -147,12 +196,16 @@ export class ChatStreamManager {
       status: 'streaming',
     });
 
+    const now = Date.now();
     const stream: ActiveChatStream = {
       projectId,
       messageId: placeholder.id,
+      userMessageId: userMsg.id,
       accumulatedText: '',
       status: 'streaming',
       subscribers: new Set(),
+      createdAt: now,
+      lastChunkAt: now,
     };
     this.streams.set(projectId, stream);
 
@@ -165,6 +218,14 @@ export class ChatStreamManager {
     const active = this.streams.get(projectId);
 
     if (active) {
+      // 本轮气泡已被撤销：只通知前端摘掉本轮气泡（含创作者发言），不再下发正文快照
+      if (active.removed) {
+        this.safeSend(res, { type: 'remove', messageId: active.messageId, turn: true });
+        this.safeSend(res, '[DONE]');
+        res.end();
+        return;
+      }
+
       this.safeSend(res, {
         type: 'snapshot',
         messageId: active.messageId,
@@ -303,24 +364,27 @@ export class ChatStreamManager {
       }
     }
 
-    // 2. 阶段二推进：若存在挂起于 gdd_approval 的阶段一任务，直接 resume 进入文游装配
+    // 2. 阶段二推进：若存在挂起在「策划案 / 定妆」确认点的任务，直接 resume 往下走
+    //    （具体走哪一段由引擎按 pendingApproval.type 判定：gdd→提取实体，lookdev→出图+装配）
     const allTasks = taskStore.listTasks(projectId);
-    const suspendedGddTask = [...allTasks]
+    const suspendedApprovalTask = [...allTasks]
       .reverse()
-      .find(
-        (t) =>
+      .find((t) => {
+        const pendingType = (t.result as any)?.pendingApproval?.type;
+        return (
           t.status === 'suspended' &&
-          (t.result as any)?.pendingApproval?.type === 'gdd_approval'
-      );
+          (pendingType === 'gdd_approval' || pendingType === 'lookdev_approval')
+        );
+      });
 
-    if (suspendedGddTask) {
-      await ProductionWorkflowEngine.resume(projectId, suspendedGddTask.taskId, {
+    if (suspendedApprovalTask) {
+      await ProductionWorkflowEngine.resume(projectId, suspendedApprovalTask.taskId, {
         approved: true,
       });
-      this.store.markTaskNextProposalResolved(projectId, suspendedGddTask.taskId);
+      this.store.markTaskNextProposalResolved(projectId, suspendedApprovalTask.taskId);
       this.store.markChatProposalsResolved(projectId);
       return {
-        runId: suspendedGddTask.taskId,
+        runId: suspendedApprovalTask.taskId,
         stage: 'build_text_game',
         title: '装配互动文游 (index.html)',
         status: 'running',
@@ -450,10 +514,16 @@ export class ChatStreamManager {
     currentMsgIds: string[] = []
   ): Promise<void> {
     let lastFlushAt = 0;
+    let chunkCount = 0;
+    let lastSteps: any[] = [];
     const flushToDisk = (status: 'streaming' | 'done' | 'error', finalContent?: string) => {
+      if (stream.removed) return;
       this.store.updateChatRecord(stream.projectId, stream.messageId, {
         content: finalContent ?? stream.accumulatedText,
         status,
+        ...(status === 'error' && stream.errorMessage
+          ? { errorMessage: stream.errorMessage }
+          : {}),
         ...(stream.proposal ? { proposal: stream.proposal } : {}),
         ...(stream.task && !stream.task.ownerMessageId
           ? { taskRunId: stream.task.runId, taskStage: stream.task.stage }
@@ -463,6 +533,9 @@ export class ChatStreamManager {
     };
 
     try {
+      const turnAbortController = new AbortController();
+      stream.abortController = turnAbortController;
+
       const annotatedHistory = this.buildTaskAwareDialogueHistory(
         stream.projectId,
         history,
@@ -478,13 +551,40 @@ export class ChatStreamManager {
       let lastErr: any;
       let succeeded = false;
       for (let attempt = 1; attempt <= 2; attempt++) {
+        // 看门狗：上游迟迟不给首字 / 中途卡住，都在这里掐断，避免无限期挂着
+        const watchdog = new AbortController();
+        let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
+        const armWatchdog = (ms: number, reason: string) => {
+          if (watchdogTimer) clearTimeout(watchdogTimer);
+          watchdogTimer = setTimeout(() => {
+            watchdog.abort(new DOMException(reason, 'TimeoutError'));
+          }, ms);
+          watchdogTimer.unref?.();
+        };
+        const disarmWatchdog = () => {
+          if (watchdogTimer) clearTimeout(watchdogTimer);
+          watchdogTimer = undefined;
+        };
+
         try {
+          armWatchdog(
+            FIRST_TOKEN_TIMEOUT_MS,
+            `[ChatStream] 上游 ${FIRST_TOKEN_TIMEOUT_MS}ms 内未返回任何内容`
+          );
+          const combinedSignal = combineAbortSignals(watchdog.signal, turnAbortController.signal);
           const streamResult = streamRouterDialogue({
             projectId: stream.projectId,
             messages,
+            abortSignal: combinedSignal,
           });
 
           for await (const chunk of streamResult.textStream) {
+            stream.lastChunkAt = Date.now();
+            armWatchdog(
+              STREAM_IDLE_TIMEOUT_MS,
+              `[ChatStream] 上游输出中断超过 ${STREAM_IDLE_TIMEOUT_MS}ms`
+            );
+            chunkCount += 1;
             stream.accumulatedText += chunk;
             this.broadcast(stream, { type: 'text', delta: chunk });
             if (Date.now() - lastFlushAt >= STREAM_FLUSH_INTERVAL_MS) {
@@ -492,7 +592,9 @@ export class ChatStreamManager {
             }
           }
 
+          disarmWatchdog();
           const steps = await streamResult.steps;
+          lastSteps = (steps || []) as any[];
           const proposal = extractRouterIntentFromSteps(steps as any, runtimeCtx);
           if (proposal) {
             if (
@@ -501,21 +603,41 @@ export class ChatStreamManager {
             ) {
               const startedTask = await this.executeApprovedIntent(stream, proposal);
               if (startedTask) {
-                stream.task = startedTask;
+                const ownerMessageId =
+                  startedTask.ownerMessageId && startedTask.ownerMessageId !== stream.messageId
+                    ? startedTask.ownerMessageId
+                    : undefined;
+
                 stream.proposal = undefined;
+                stream.task = startedTask;
                 this.broadcast(stream, {
                   type: 'task',
                   task: startedTask,
                 });
-                if (!stream.accumulatedText.trim()) {
-                  const fallbackText =
-                    proposal.action === 'resume_task'
-                      ? `收到，已恢复任务 ${startedTask.runId}，继续推进当前阶段流水线，进度将在本消息中实时更新。`
-                      : startedTask.stage === 'build_text_game'
-                        ? '收到，已批准进入阶段二，即刻为您直接装配可玩互动文游，进度将在本消息中实时更新。'
-                        : '收到，已确认立项方向，即刻为您启动全案策划推演，进度将在本消息中实时更新。';
-                  stream.accumulatedText = fallbackText;
-                  this.broadcast(stream, { type: 'text', delta: fallbackText });
+
+                // 意图已经落到任务上：本轮正文只可能是「收到 / 已恢复执行」这类寒暄，
+                // 与任务面板（标题 + 进度 + 停止按钮）完全重复，因此一律丢弃。
+                stream.accumulatedText = '';
+                if (ownerMessageId) {
+                  // 任务复用既有气泡：整轮撤销——连同驱动这轮意图的创作者发言一起回收，
+                  // 否则会留下一条「继续」孤零零挂在面板下面，没有任何后续回复。
+                  stream.removed = true;
+                  this.store.deleteChatRecord(stream.projectId, stream.messageId);
+                  if (stream.userMessageId) {
+                    this.store.deleteChatRecord(stream.projectId, stream.userMessageId);
+                  }
+                  this.broadcast(stream, {
+                    type: 'remove',
+                    messageId: stream.messageId,
+                    turn: true,
+                  });
+                } else {
+                  // 任务挂在本轮气泡：清空已流出的寒暄，气泡只保留面板
+                  this.broadcast(stream, {
+                    type: 'snapshot',
+                    messageId: stream.messageId,
+                    content: '',
+                  });
                 }
                 succeeded = true;
                 break;
@@ -527,12 +649,7 @@ export class ChatStreamManager {
               type: 'proposal',
               proposal,
             });
-            if (!stream.accumulatedText.trim()) {
-              const fallbackText =
-                '已梳理当前创作构想，请点击输入框旁的确认按钮启动下一步，或继续补充设定细节。';
-              stream.accumulatedText = fallbackText;
-              this.broadcast(stream, { type: 'text', delta: fallbackText });
-            }
+            // 空正文 / 断流残字的兜底统一放在流结束之后处理，避免两处各补一句。
           }
 
           // 上游返回「200 但零文本、零意图、零任务」不能算成功：否则会落一条空 assistant
@@ -546,9 +663,16 @@ export class ChatStreamManager {
           succeeded = true;
           break;
         } catch (attemptErr: any) {
+          disarmWatchdog();
           lastErr = attemptErr;
           const errText = String(attemptErr?.message || '');
+          // 看门狗掐断属于网络/网关侧卡死，换一次连接往往就好了，值得重试
+          const isWatchdogTimeout =
+            watchdog.signal.aborted ||
+            errText.includes('未返回任何内容') ||
+            errText.includes('输出中断超过');
           const isTransientEmptyResponse =
+            isWatchdogTimeout ||
             errText.includes('choices') ||
             errText.includes('InvalidResponseDataError') ||
             errText.includes('No output generated');
@@ -559,6 +683,11 @@ export class ChatStreamManager {
             !stream.proposal &&
             !stream.task
           ) {
+            if (isWatchdogTimeout) {
+              console.warn(
+                `[ChatStream] 上游疑似卡死（${errText}），换连接重试一次 (projectId=${stream.projectId})`
+              );
+            }
             console.warn(
               `[ChatStream] 上游返回空响应，正在进行第 2 次安全重试 (projectId=${stream.projectId}): ${errText}`
             );
@@ -572,6 +701,25 @@ export class ChatStreamManager {
         throw lastErr;
       }
 
+      // 写终态前统一兜底：上游断流时 AI SDK 不抛错，textStream 可能只吐出首个 delta。
+      // 不重试（重试会再等一整轮超时），直接把提案摘要补进正文并留一条诊断日志。
+      const proposalSummary = String(stream.proposal?.summary || '').trim();
+      const reply = stream.accumulatedText;
+      if (stream.proposal && isTruncatedReply(reply, proposalSummary)) {
+        const stepsDiag = lastSteps
+          .map((s, i) => `step${i}:finish=${s?.finishReason ?? '?'},textLen=${(s?.text || '').length}`)
+          .join(' | ');
+        console.warn(
+          `[ChatStream] 上游回复疑似断流 (projectId=${stream.projectId}, messageId=${stream.messageId}): ` +
+            `chunks=${chunkCount}, 正文=${reply.trim().length}字, 提案摘要=${proposalSummary.length}字; ${stepsDiag}`
+        );
+        const fallbackText =
+          `${reply.trim() ? '\n\n' : ''}[本轮回复中断，以下为本轮提案摘要]\n${proposalSummary}\n\n` +
+          '请点击输入框旁的确认按钮启动下一步，或继续补充设定细节。';
+        stream.accumulatedText = reply + fallbackText;
+        this.broadcast(stream, { type: 'text', delta: fallbackText });
+      }
+
       stream.status = 'done';
       flushToDisk('done');
       this.broadcastDoneAndClose(stream);
@@ -579,10 +727,8 @@ export class ChatStreamManager {
       const errMsg = err?.message || '总控对话推演异常';
       stream.status = 'error';
       stream.errorMessage = errMsg;
-      const persistedContent = stream.accumulatedText
-        ? `${stream.accumulatedText}\n[导演总控提示: ${errMsg}]`
-        : `[导演总控提示: ${errMsg}]`;
-      flushToDisk('error', persistedContent);
+      // 只保留已流出的正文，失败原因单独落字段：前端据此挂带「重试」的提示块，一轮新动作就能摘掉
+      flushToDisk('error');
       this.broadcast(stream, { type: 'error', error: errMsg });
       this.broadcastDoneAndClose(stream);
     } finally {

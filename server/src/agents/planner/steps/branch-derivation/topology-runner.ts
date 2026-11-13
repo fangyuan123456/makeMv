@@ -10,6 +10,8 @@
  */
 
 import { Agent } from '@mastra/core/agent';
+import { generateStructured } from '../../../../utils/llm-diagnostics.js';
+import { STAGE, PLANNER_STEP } from '../../../../project-store/artifact-fs.js';
 import { z } from 'zod';
 import type { SlicedClipNode } from '../interaction-slicing/schema.js';
 import {
@@ -117,8 +119,10 @@ export async function runTopologyBranchDerivation(
 
     // 单切口独立调用编剧 Agent，注入全剧主线剧本记忆防止失忆吃书
     const spineContext = spineScript.trim().length > 0
-      ? `【全剧黄金主干剧本全文（请严格基于此全文记忆推演，严禁让已死亡角色复生，严禁捏造未出现的人物，所有角色姓名、生死状态与事件必须与此完全一致）】\n${
-          spineScript.length > 3000 ? spineScript.slice(0, 3000) + '\n…（后略）' : spineScript
+      ? `【黄金主干剧本上下文（请严格基于此记忆推演，严禁让已死亡角色复生，严禁捏造未出现的人物，所有角色姓名、生死状态与事件必须与此完全一致）】\n${
+          spineScript.length > 12000
+            ? `${spineScript.slice(0, 6000)}\n…（中段省略）…\n${spineScript.slice(-6000)}`
+            : spineScript
         }\n\n`
       : '';
     const prompt = spineContext + buildSingleBranchUserPrompt({
@@ -132,13 +136,16 @@ export async function runTopologyBranchDerivation(
       branchStats: { rejoinCount, endingCount, totalCuts },
     });
 
-    const response = await agent.generate(prompt, {
-      output: SingleBranchStructuredOutputSchema,
-    });
-
-    const parsed = response.object || {
+    const parsed = (await generateStructured({
+      agent,
+      prompt,
+      schema: SingleBranchStructuredOutputSchema,
+      stage: STAGE.planner,
+      step: PLANNER_STEP.branches,
+      label: '逆向拓扑分支推演',
+    })) || {
       branchTitle: '突发支线',
-      narrativeText: (response as any).text || currentCut.choiceText,
+      narrativeText: currentCut.choiceText,
       resolutionType: 'ENDING',
       endingType: 'BE',
       endingTitle: '未解的死局',

@@ -83,6 +83,8 @@ export function App() {
     isStreaming,
     activeProposal,
     sendMessage,
+    retryFailed,
+    dismissErrors,
     resumeStream,
     clearChat,
     hydrateMessages,
@@ -180,15 +182,19 @@ export function App() {
 
         const taskCancelled = state.status === 'cancelled' || task.status === 'cancelled';
         const failed = state.status === 'failed' || task.status === 'failed';
+        const pendingType = state.pendingApproval?.type;
+        const isLookdevCheckpoint = stage === 'build_text_game' && pendingType === 'lookdev_approval';
         const done =
           !taskCancelled &&
           !failed &&
           (stage === 'plan_gdd'
-            ? (state.status === 'suspended' && state.pendingApproval?.type === 'gdd_approval') ||
+            ? (state.status === 'suspended' && pendingType === 'gdd_approval') ||
               state.currentStage === 'build_text_game' ||
               state.currentStage === 'completed' ||
               state.status === 'succeeded'
-            : state.pendingApproval?.type === 'playtest_approval' || state.status === 'succeeded');
+            : pendingType === 'lookdev_approval' ||
+              pendingType === 'playtest_approval' ||
+              state.status === 'succeeded');
         const queued = !taskCancelled && !failed && !done && (state.status === 'queued' || task.status === 'queued');
 
         patchMessage(messageId, (m) => {
@@ -243,25 +249,43 @@ export function App() {
             next.nextProposal = {
               action: 'build_text_game',
               targetStage: 'build_text_game',
-              summary: `确认后直接生成可玩的 index.html 互动文游《${title}》，角色定妆与关键帧不再需要确认`,
+              summary: `确认后先生成角色 / 道具 / 场景母本图，再装配可玩的《${title}》`,
               payload: { runId },
             };
           }
 
           if (done && stage === 'build_text_game') {
-            const nodes = Array.isArray(state.pendingApproval?.data?.nodes)
-              ? state.pendingApproval!.data.nodes.length
-              : 0;
-            next.resultSummary =
-              `互动文游已直接产出${nodes ? `：${nodes} 幕可玩切片` : ''}，` +
-              '独立入口 text-game/index.html 即刻可试玩；玩家在游戏内修改后续接入。';
-            next.gameUrl = buildGameUrl(currentProjectId);
+            if (pendingType === 'lookdev_approval') {
+              const ents = state.pendingApproval?.data || {};
+              const chars = Array.isArray(ents.characters) ? ents.characters.length : 0;
+              const items = Array.isArray(ents.items) ? ents.items.length : 0;
+              const locs = Array.isArray(ents.locations) ? ents.locations.length : 0;
+              next.title = '角色 / 道具 / 场景母本图';
+              next.percent = 100;
+              next.resultSummary =
+                `已生成 ${chars} 个角色 / ${items} 件道具 / ${locs} 个场景的母本图，母本清单已落盘；` +
+                '确认后按场景装配分幕与可玩切片。';
+              next.nextProposal = {
+                action: 'render_images',
+                targetStage: 'build_text_game',
+                summary: '确认母本图，开始装配互动文游',
+                payload: { runId },
+              };
+            } else {
+              const nodes = Array.isArray(state.pendingApproval?.data?.nodes)
+                ? state.pendingApproval!.data.nodes.length
+                : 0;
+              next.resultSummary =
+                `互动文游已直接产出${nodes ? `：${nodes} 幕可玩切片` : ''}，` +
+                '独立入口 text-game/index.html 即刻可试玩；玩家在游戏内修改后续接入。';
+              next.gameUrl = buildGameUrl(currentProjectId);
+            }
           }
 
           return { ...m, task: next };
         });
 
-        if (done && stage === 'build_text_game') {
+        if (done && stage === 'build_text_game' && !isLookdevCheckpoint) {
           setGameUrl(buildGameUrl(currentProjectId));
         }
 
@@ -271,7 +295,7 @@ export function App() {
             setCurrentRunId(null);
           }
           await reloadData();
-          if (done) setActiveTab(stage === 'plan_gdd' ? 'gdd' : 'text_game');
+          if (done) setActiveTab(stage === 'plan_gdd' || isLookdevCheckpoint ? 'gdd' : 'text_game');
         }
       } catch {
         // 轮询失败不打断：等服务连上或下一拍重试
@@ -336,6 +360,45 @@ export function App() {
     [currentProjectId, messages, patchMessage, projectData?.artifacts?.gdd, reloadData]
   );
 
+  /** 任务执行失败后重试：resume 复用同一 runId，从已完成工序继续（后端已支持 failed 恢复） */
+  const handleRetryTask = useCallback(
+    async (runId: string, messageId: string) => {
+      const stage = messages.find((m) => m.id === messageId)?.task?.stage || 'plan_gdd';
+      const now = new Date().toISOString();
+      patchMessage(messageId, (m) => ({
+        ...m,
+        task: m.task
+          ? {
+              ...m.task,
+              status: 'running',
+              percent: 0,
+              note: '已重新发起，正从上次完成的工序继续…',
+              startedAt: now,
+            }
+          : undefined,
+      }));
+
+      try {
+        await resumeWorkflow(currentProjectId, runId, {
+          approved: true,
+          summary: '重试失败任务',
+        });
+        setCurrentRunId(runId);
+        setActiveWatch({ runId, stage, messageId });
+        await reloadData();
+      } catch (err: any) {
+        patchMessage(messageId, (m) => ({
+          ...m,
+          task: m.task
+            ? { ...m.task, status: 'failed', note: `重试启动失败：${err.message}` }
+            : undefined,
+        }));
+        alert(`重试任务失败: ${err.message}`);
+      }
+    },
+    [currentProjectId, messages, patchMessage, reloadData]
+  );
+
   /** 人在回路：确认后追加「确认动作 + AI 回复」两条气泡，AI 回复气泡承载该阶段 task */
   const handleApproveProposal = async (
     proposal: ActionProposal,
@@ -347,6 +410,50 @@ export function App() {
       patchMessage(ctx.messageId, (m) => ({ ...m, proposalResolved: true }));
       setActiveProposal(null);
       await sendMessage(`确认修改：${proposal.summary}`);
+      return;
+    }
+
+    /**
+     * 定妆确认：任务在同一气泡上原地续跑（同一个 runId 的第二段），
+     * 不新开气泡，避免出现两条同 runId 的任务消息。
+     */
+    if (proposal.action === 'render_images') {
+      const runId = currentRunId || proposal.payload?.runId;
+      if (!runId) {
+        alert('缺少当前任务 runId，请在对话中发送「继续」由导演定位任务');
+        return;
+      }
+      setIsExecutingProposal(true);
+      patchMessage(ctx.messageId, (m) =>
+        m.task
+          ? {
+              ...m,
+              task: {
+                ...m.task,
+                nextProposalResolved: true,
+                title: '装配互动文游',
+                status: 'running',
+                percent: 0,
+                note: '已确认母本图，正在装配分幕…',
+                startedAt: new Date().toISOString(),
+              },
+            }
+          : m
+      );
+      try {
+        await resumeWorkflow(currentProjectId, runId, {
+          approved: true,
+          summary: proposal.summary,
+        });
+        setActiveWatch({ runId, stage: 'build_text_game', messageId: ctx.messageId });
+      } catch (err: any) {
+        patchMessage(ctx.messageId, (m) =>
+          m.task ? { ...m, task: { ...m.task, status: 'failed', note: `启动失败：${err.message}` } } : m
+        );
+        alert(`执行流水线失败: ${err.message}`);
+      } finally {
+        setIsExecutingProposal(false);
+      }
       return;
     }
 
@@ -410,20 +517,12 @@ export function App() {
             }
           : undefined,
       }));
-      appendMessages(
-        {
-          id: userMsgId,
-          role: 'user',
-          content: `✅ 批准：${proposal.summary}`,
-          createdAt: now,
-        },
-        {
-          id: taskMsgId,
-          role: 'assistant',
-          content: '收到，已在原任务气泡上恢复继续执行。',
-          createdAt: now,
-        }
-      );
+      appendMessages({
+        id: userMsgId,
+        role: 'user',
+        content: `✅ 批准：${proposal.summary}`,
+        createdAt: now,
+      });
     } else {
       appendMessages(
         {
@@ -435,9 +534,8 @@ export function App() {
         {
           id: taskMsgId,
           role: 'assistant',
-          content: isStage2
-            ? '收到，直接装配可玩的 index.html 互动文游；角色定妆与关键帧不再单独确认。'
-            : '收到，开始推演全案策划案。这一阶段的进度会在这条消息里实时更新。',
+          // 正文留空：这一段的信息全部由任务面板承载（标题 + 进度 + 停止）
+          content: '',
           createdAt: now,
           task: {
             runId: '',
@@ -510,6 +608,9 @@ export function App() {
           isStreaming={isStreaming}
           activeProposal={activeProposal}
           onSendMessage={sendMessage}
+          onRetry={retryFailed}
+          onDismissErrors={dismissErrors}
+          onRetryTask={handleRetryTask}
           onApproveProposal={handleApproveProposal}
           onCancelTask={handleCancelTask}
           onOpenGame={(url) => {

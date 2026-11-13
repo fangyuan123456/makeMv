@@ -126,7 +126,7 @@ function buildRestoredTaskView(
             nextProposal: {
               action: 'build_text_game',
               targetStage: 'build_text_game',
-              summary: `确认后直接生成可玩的 index.html 互动文游《${title}》，角色定妆与关键帧不再需要确认`,
+              summary: `确认后先生成角色 / 道具 / 场景母本图，再装配可玩的《${title}》`,
               payload: { runId },
             },
             nextProposalResolved: Boolean(nextProposalResolved || stage2Progressed),
@@ -135,9 +135,15 @@ function buildRestoredTaskView(
     };
   }
 
+  const pendingType = stageResult?.pendingApproval?.type;
+  /** 阶段二中途的母本确认点：角色 / 道具 / 场景母本图出完即挂起，进入装配前需要创作者点一次确认 */
+  const isLookdevCheckpoint =
+    (task?.status === 'suspended' || task?.status === 'proposed') && pendingType === 'lookdev_approval';
+
   const stage2Done =
+    isLookdevCheckpoint ||
     ((task?.status === 'suspended' || task?.status === 'proposed') &&
-      stageResult?.pendingApproval?.type === 'playtest_approval') ||
+      pendingType === 'playtest_approval') ||
     task?.status === 'succeeded' ||
     stageResult?.currentStage === 'compile_film' ||
     stageResult?.currentStage === 'completed' ||
@@ -161,11 +167,17 @@ function buildRestoredTaskView(
           ? 'queued'
           : 'running';
   const nodes = Array.isArray(textGameData?.nodes) ? textGameData.nodes.length : 0;
+  const lookdevEntities = isLookdevCheckpoint ? stageResult?.pendingApproval?.data : null;
+  const lookdevChars = Array.isArray(lookdevEntities?.characters) ? lookdevEntities.characters.length : 0;
+  const lookdevItems = Array.isArray(lookdevEntities?.items) ? lookdevEntities.items.length : 0;
+  const lookdevLocations = Array.isArray(lookdevEntities?.locations)
+    ? lookdevEntities.locations.length
+    : 0;
 
   return {
     runId,
     stage,
-    title: '装配互动文游 (index.html)',
+    title: isLookdevCheckpoint ? '角色 / 道具 / 场景母本图' : '装配互动文游 (index.html)',
     status,
     percent:
       status === 'running' || status === 'queued'
@@ -177,14 +189,27 @@ function buildRestoredTaskView(
         ? task?.error || '任务执行失败'
         : task?.progress?.note || (stage2Done ? '互动文游已装配就绪' : '正在装配中…'),
     startedAt: task?.createdAt || new Date().toISOString(),
-    ...(stage2Done
+    ...(isLookdevCheckpoint
       ? {
           resultSummary:
-            `互动文游已直接产出${nodes ? `：${nodes} 幕可玩切片` : ''}，` +
-            '独立入口 text-game/index.html 即刻可试玩；玩家在游戏内修改后续接入。',
-          gameUrl: buildGameUrl(projectId),
+            `已生成 ${lookdevChars} 个角色 / ${lookdevItems} 件道具 / ${lookdevLocations} 个场景的母本图，母本清单已落盘；` +
+            '确认后按场景装配分幕与可玩切片。',
+          nextProposal: {
+            action: 'render_images',
+            targetStage: 'build_text_game',
+            summary: '确认母本图，开始装配互动文游',
+            payload: { runId },
+          } satisfies ActionProposal,
+          nextProposalResolved: Boolean(nextProposalResolved),
         }
-      : {}),
+      : stage2Done
+        ? {
+            resultSummary:
+              `互动文游已直接产出${nodes ? `：${nodes} 幕可玩切片` : ''}，` +
+              '独立入口 text-game/index.html 即刻可试玩；玩家在游戏内修改后续接入。',
+            gameUrl: buildGameUrl(projectId),
+          }
+        : {}),
   };
 }
 
@@ -205,6 +230,9 @@ export function buildRestoredSessionState(
   let streamingContent = '';
 
   const chatList = project.chat || [];
+  const lastIdx = chatList.length - 1;
+  /** 旧版本把报错直接拼进正文，水合时顺手拆出来 */
+  const LEGACY_ERROR_MARK = '[导演总控提示: ';
   const firstIdxByRunStage = new Map<string, number>();
   chatList.forEach((rec, idx) => {
     if (rec.taskRunId) {
@@ -217,6 +245,16 @@ export function buildRestoredSessionState(
   });
 
   const messages: ChatMessage[] = chatList.map((rec, idx) => {
+    let content = rec.content || '';
+    let errorMessage = rec.errorMessage;
+    if (!errorMessage && rec.status === 'error') {
+      const at = content.lastIndexOf(LEGACY_ERROR_MARK);
+      if (at >= 0) {
+        errorMessage = content.slice(at + LEGACY_ERROR_MARK.length).replace(/\]\s*$/, '');
+        content = content.slice(0, at).trimEnd();
+      }
+    }
+
     let taskView: StageTaskView | undefined;
     if (rec.taskRunId) {
       const stage = rec.taskStage || 'plan_gdd';
@@ -238,14 +276,30 @@ export function buildRestoredSessionState(
 
     if (rec.role === 'assistant' && rec.status === 'streaming') {
       streamingMessageId = rec.id;
-      streamingContent = rec.content || '';
+      streamingContent = content;
     }
+
+    /** 只有会话末尾那一轮失败才挂重试按钮；后面又有对话了，旧报错不再残留 */
+    let retryText = '';
+    if (rec.role === 'assistant') {
+      for (let i = idx - 1; i >= 0; i--) {
+        if (chatList[i].role === 'user') {
+          retryText = chatList[i].content || '';
+          break;
+        }
+      }
+    }
+    const error =
+      errorMessage && idx === lastIdx && rec.role === 'assistant'
+        ? { message: `[导演总控提示: ${errorMessage}]`, retryText }
+        : undefined;
 
     return {
       id: rec.id,
       role: rec.role,
-      content: rec.content,
+      content,
       createdAt: rec.createdAt,
+      ...(error ? { error } : {}),
       ...(rec.proposal ? { proposal: rec.proposal } : {}),
       ...(rec.proposalResolved !== undefined ? { proposalResolved: rec.proposalResolved } : {}),
       ...(taskView ? { task: taskView } : {}),

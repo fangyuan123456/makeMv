@@ -11,6 +11,7 @@ import { MediaProviderFactory } from '../../media/providers/MediaProviderFactory
 import { MediaDownloader } from '../../media/MediaDownloader.js';
 import { MediaResolver } from '../../media/MediaResolver.js';
 import { ProjectStore } from '../../project-store/ProjectStore.js';
+import { config } from '../../utils/config.js';
 import { getRunContext, throwIfRunAborted } from '../../workflow-engine/run-context.js';
 
 export const IMAGE_GENERATE_TOOL_ID = 'generate_image';
@@ -34,7 +35,10 @@ export const ImageGenerateInputSchema = z.object({
     ])
     .optional()
     .describe('生图模式'),
-  size: z.string().optional().describe('画幅尺寸，如 1280*720, 1024*1024, 720*1280, 768*1344，默认 1280*720'),
+  size: z
+    .string()
+    .optional()
+    .describe(`画幅尺寸（宽*高），如 ${config.frame.imageSize}、1024*1024；默认跟随全剧画幅配置 GAME_FRAME_ASPECT`),
   subfolder: z.string().optional().describe('存储子目录，如 keyframes, characters, scenes，默认 keyframes'),
   customFilename: z.string().optional().describe('自定义文件名'),
 });
@@ -50,7 +54,7 @@ export const imageGenerateTool = createTool({
       negativePrompt,
       referenceImageUrls,
       mode,
-      size = '1280*720',
+      size = config.frame.imageSize,
       subfolder = 'keyframes',
       customFilename,
     } = context;

@@ -63,7 +63,7 @@ export interface WorkflowStateSnapshot {
   status: 'queued' | 'running' | 'suspended' | 'succeeded' | 'failed' | 'cancelled';
   currentStage: 'plan_gdd' | 'build_text_game' | 'compile_film' | 'completed';
   pendingApproval?: {
-    type: 'gdd_approval' | 'playtest_approval';
+    type: 'gdd_approval' | 'lookdev_approval' | 'playtest_approval';
     title: string;
     description: string;
     data: any;

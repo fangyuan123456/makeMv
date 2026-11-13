@@ -11,6 +11,7 @@ import { z } from 'zod';
 
 export const SpineScriptInputSchema = z.object({
   userPrompt: z.string().describe('创作者输入的创意灵感或故事需求'),
+  userToneOrPreference: z.string().optional().describe('创作者指定的风格偏好或补充要求'),
 });
 
 export const SpineScriptOutputSchema = z.object({

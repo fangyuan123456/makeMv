@@ -29,6 +29,8 @@ import {
   formatStoryScenesToMarkdown,
 } from './markdown-renderer.js';
 import { validateUniversalPrdTopology } from '../topology-validation/validator.js';
+import { generateStructured } from '../../../../utils/llm-diagnostics.js';
+import { STAGE, PLANNER_STEP } from '../../../../project-store/artifact-fs.js';
 
 /**
  * 创建专职游戏主策划 Agent
@@ -57,11 +59,16 @@ export async function executePrdSynthesisStep(
 
   // 2. 调用轻量 AI 仅对基础骨架做“全局增补”
   const prompt = buildPrdSynthesisUserPrompt(input, baseSpec);
-  const response = await agent.generate(prompt, {
-    output: PrdEnhancementOutputSchema,
+  const enhancement = await generateStructured({
+    agent,
+    prompt,
+    schema: PrdEnhancementOutputSchema,
+    stage: STAGE.planner,
+    step: PLANNER_STEP.prd,
+    label: 'PRD 全案增补',
   });
 
-  let lastEnhancement: PrdEnhancementOutput | undefined = response.object as PrdEnhancementOutput | undefined;
+  let lastEnhancement: PrdEnhancementOutput | undefined = enhancement;
   let prd = lastEnhancement ? applyPrdEnhancement(baseSpec, lastEnhancement) : baseSpec;
 
   // 2.5 本地确定性门禁自检：若存在变量未声明或条件不可达，携带上轮草稿 JSON 与精确误差回退重试（最多 2 次）
@@ -80,21 +87,25 @@ export async function executePrdSynthesisStep(
       `[PrdSynthesis] 第 ${attempt} 次静态校验未通过，携带上轮草稿触发自愈重试: ${check.errors.join('; ')}`
     );
     try {
-      const prevDraftBlock = lastEnhancement
+      const prevDraftBlock: string = lastEnhancement
         ? `\n\n【你上一轮输出的待修正草稿 JSON（请直接在此基础上修正问题，避免重头再算错）】：\n${JSON.stringify(
             lastEnhancement,
             null,
             2
           )}`
         : '';
-      const repairPrompt = `${prompt}${prevDraftBlock}\n\n---\n\n【上轮草稿未通过静态图论/可达性门禁校验，请严格参照提示里的可达区间修正后重新完整输出 JSON】：\n${check.errors
+      const repairPrompt: string = `${prompt}${prevDraftBlock}\n\n---\n\n【上轮草稿未通过静态图论/可达性门禁校验，请严格参照提示里的可达区间修正后重新完整输出 JSON】：\n${check.errors
         .map((e, i) => `${i + 1}. ${e}`)
         .join('\n')}`;
-      const retryRes = await agent.generate(repairPrompt, {
-        output: PrdEnhancementOutputSchema,
+      const retriedEnhancement: PrdEnhancementOutput = await generateStructured({
+        agent,
+        prompt: repairPrompt,
+        schema: PrdEnhancementOutputSchema,
+        stage: STAGE.planner,
+        step: PLANNER_STEP.prd,
+        label: `PRD 全案增补（第 ${attempt} 次自愈重试）`,
       });
-      if (retryRes.object) {
-        const retriedEnhancement = retryRes.object as PrdEnhancementOutput;
+      {
         const retriedPrd = applyPrdEnhancement(baseSpec, retriedEnhancement);
         const recheck = validateCandidate(retriedPrd);
         if (recheck.valid || recheck.errors.length <= check.errors.length) {

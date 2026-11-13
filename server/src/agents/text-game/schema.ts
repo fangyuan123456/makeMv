@@ -18,91 +18,81 @@ import {
 } from '../planner/steps/prd-synthesis/schema.js';
 
 /**
- * 单条视听对白台词契约
+ * 剧幕所属场景（地点）引用
+ *
+ * 只带编号与已落盘的场景空镜，不在每幕里重复描述空间——空间由 locationId 唯一确定，
+ * 同一地点跨幕共用同一张母本图，改一次全剧生效。
  */
-export const SceneDialogueLineSchema = z.object({
-  speaker: z.string().describe('说话人名牌，如 "独白", "林烬", "薇拉"'),
-  line: z.string().describe('精炼台词字幕，如 "（咳出一口带铁锈味的血沫）...第七秒才沉下去。"'),
-  emotion: z.string().optional().describe('情绪与语气神态，如 "虚弱痛苦", "冷峻警惕"'),
-  audioClipPath: z.string().optional().describe('未来 TTS 语音合成落盘后的本地音频切片路径'),
+export const SceneLocationRefSchema = z.object({
+  locationId: z.string().describe('场景编号，取自 GlobalEntities.locations[].locationId，如 "loc_living_room"'),
+  name: z.string().describe('场景名称，如 "客厅"'),
+  imagePath: z.string().optional().describe('场景空镜母本的本地相对路径，如 "assets/locations/loc_living_room.png"'),
+  imageUrl: z.string().optional().describe('场景空镜母本的 /media/... URL，前端直接用作背景'),
 });
 
-export type SceneDialogueLine = z.infer<typeof SceneDialogueLineSchema>;
+export type SceneLocationRef = z.infer<typeof SceneLocationRefSchema>;
 
 /**
- * 分支选项与自驱动指针契约
- */
-export const SceneChoiceItemSchema = z.object({
-  choiceId: z.string().describe('选项唯一标识，如 "I_S1_A"'),
-  text: z.string().describe('玩家按钮展示文本，如 "主动递出随身钥匙"'),
-  nextSceneJson: z.string().describe('目标场景 JSON 文件名，如 "S2.json" 或 "S1.1.json"'),
-  stateChange: PrdStateChangeSchema.optional().describe('流外状态变更 ({ add, set })，100% 对齐 PRD'),
-  condition: z.string().nullable().optional().describe('可选前置条件表达式'),
-});
-
-export type SceneChoiceItem = z.infer<typeof SceneChoiceItemSchema>;
-
-/**
- * 单幕自包含原子 JSON 契约 (1:1 锚定未来的单个 MP4 视频切片)
+ * 单幕素材文件契约（scenes/S1.json）
+ *
+ * 把它当成一个「特别格式的视频文件」：里面只有画面和台词，没有任何玩法。
+ * 播放顺序、选择按钮、互动点、状态、结局全部属于播放器逻辑，落在 StoryScript 与代码里，
+ * 不写进这个文件——换图片、改文案时完全不用碰游戏逻辑。
  */
 export const SingleSceneJsonSchema = z.object({
-  sceneId: z.string().describe('场景唯一标识，严格对齐 PRD clips[].id，如 "S1" 或 "S1.1"'),
-  level: z.number().describe('拓扑层级 (1 到 n)'),
-  title: z.string().describe('本幕标题'),
-  targetVideoClipName: z.string().describe('1:1 锚定的未来视频文件名，如 "S1.mp4"'),
-  estimatedDurationSeconds: z.number().default(8).describe('预估视频切片时长 (秒)'),
-  entityIds: z
-    .array(z.string())
-    .optional()
-    .describe('本幕出场的角色/道具 ID，值必须来自 GlobalEntities 的 characterId / itemId；用于注入生图参考图与素材包引用'),
-  entityRefs: z
-    .record(z.string())
-    .optional()
-    .describe('本幕实体母本图的 /media/... URL 映射 (entityId -> url)，落盘后随本幕 JSON 自包含，可人工替换'),
-
-  // 1. 视觉母本 (每一段尾帧定格场景图，须融入本幕全部所需角色与道具)
-  visualAnchor: z.object({
-    endFrameMoment: z.string().describe('本幕播完定格瞬间的尾帧画面描述（角色站位、动作神态与关键道具交互状态，与 onEnded 交互完全对位）'),
-    cameraAngle: z.string().describe('摄影机机位与景别描述，如 "中景特写，微俯视角度，机位慢速推进"'),
-    lighting: z.string().describe('光影与色彩氛围描述，贴合原作题材基调'),
-    promptZh: z.string().describe('尾帧场景中文生图提示词（须将本幕 entityIds 中全部角色与道具融入同一连贯画面，严禁拼贴分格）'),
-    promptEn: z.string().describe('尾帧场景英文高清生图提示词 (忠实原作题材美术风格与光线质感)'),
-    assembledPrompt: z.string().optional().describe('生图时实际拼装的多定妆参考图绑定提示词（含 <image1>..<imageN> 映射说明）'),
-    sceneImagePath: z.string().optional().describe('物理生图落盘后的真实本地路径，如 "assets/scenes/S1_end.png"'),
-    sceneImageUrl: z.string().optional().describe('可直接展示或喂给下游工具的 /media/<projectId>/... URL'),
-  }),
-
-  // 2. 视听演播 (当前逐句字幕，未来 TTS 语音与 I2V 动作描述)
-  screenplay: z.object({
-    storyContext: z.string().describe('场景核心背景与叙事情境'),
-    videoActionDescription: z.string().describe('专门供未来图生视频 (I2V) 消费的动态动作与运镜描述词'),
-    dialogues: z.array(SceneDialogueLineSchema).min(1).describe('逐句对白字幕列表'),
-  }),
-
-  // 3. 交互与自驱动状态机接线 (onEnded)
-  interaction: z.object({
-    steps: z
-      .array(PrdInteractionNodeSchema)
-      .default([])
-      .describe('本幕播完(onEnded)按序执行的互动节点清单（完整对齐 PRD interactions）'),
-    wiring: z
-      .array(PrdWiringEdgeSchema)
-      .default([])
-      .describe('本幕及所属互动点的有序接线出边（按数组顺序匹配首条满足 condition 的连线）'),
-    endings: z
-      .array(PrdEndingNodeSchema)
-      .default([])
-      .describe('本幕接线可抵达的结局定义列表'),
-    choices: z.array(SceneChoiceItemSchema).describe('分支/承接选项列表，直接指向 nextSceneJson'),
-    isEnding: z.boolean().default(false).describe('是否为无后续视频片段的收敛终局'),
-    endingType: z.enum(['HE', 'BE', 'NE', 'TE', 'SE']).optional().describe('默认结局分类标识'),
-    endingTitle: z.string().optional().describe('默认结局名称'),
-    verdict: z.string().optional().describe('深刻命运判词'),
-    rewindTargetScene: z.string().optional().describe('若为负向/BE 结局，回溯重选目标 JSON 文件名，如 "S1.json"'),
-  }),
+  sceneId: z.string().describe('幕号，与文件名一致，如 "S1" / "S6.1"'),
+  title: z.string().describe('本幕标题，HUD 上显示'),
+  background: z.string().describe('画面底图 URL（/media/...），整幕就用这一张'),
+  text: z.string().describe('本幕台词正文，\\n 分段'),
 });
 
 export type SingleSceneJson = z.infer<typeof SingleSceneJsonSchema>;
+
+/**
+ * 播放器剧本（scenes/script.json）
+ *
+ * 素材文件不含玩法，玩法在这里：每一幕播完之后玩家能干什么、往哪走。
+ * 播放器只认三件事：interaction（一处介入）、choices（岔口）、ending（终局），没有就是直接 next。
+ */
+export const ScriptInteractionSchema = z.object({
+  kind: z.string().describe('介入类型：CLICK / HOLD / 其它未知类型由播放器降级为点击确认'),
+  prompt: z.string().describe('给玩家看的一句操作提示'),
+  feedback: z.string().optional().describe('操作完成后的即时反馈文案'),
+  stateChange: PrdStateChangeSchema.optional().describe('完成后的状态变更 { add, set }'),
+});
+
+export const ScriptChoiceSchema = z.object({
+  text: z.string().describe('按钮文案'),
+  to: z.string().describe('目标幕号，如 "S7"'),
+  stateChange: PrdStateChangeSchema.optional().describe('选择后的状态变更'),
+});
+
+export const ScriptEndingSchema = z.object({
+  type: z.enum(['HE', 'BE', 'NE', 'TE', 'SE']).optional().describe('结局分类'),
+  title: z.string().describe('结局名'),
+  verdict: z.string().optional().describe('结局判词'),
+  rewindTo: z.string().optional().describe('可回溯重选的幕号'),
+});
+
+export const ScriptSceneSchema = z.object({
+  sceneId: z.string().describe('对应 scenes/<sceneId>.json'),
+  title: z.string().describe('幕标题，HUD 显示用（与素材里的 title 同值）'),
+  interaction: ScriptInteractionSchema.nullable().optional().describe('本幕播完后的介入点，可缺省'),
+  next: z.string().nullable().optional().describe('介入结束后去的幕号；与 choices / ending 三选一'),
+  choices: z.array(ScriptChoiceSchema).optional().describe('岔口选项，没有这个字段就是没有岔口'),
+  ending: ScriptEndingSchema.nullable().optional().describe('本幕即终局时的结局信息'),
+});
+
+export const StoryScriptSchema = z.object({
+  startSceneId: z.string().describe('起始幕号'),
+  initialState: z.record(PrdStateValueSchema).default({}).describe('玩家状态初值'),
+  scenes: z.array(ScriptSceneSchema).describe('按幕号组织的播放表'),
+});
+
+export type ScriptInteraction = z.infer<typeof ScriptInteractionSchema>;
+export type ScriptChoice = z.infer<typeof ScriptChoiceSchema>;
+export type ScriptScene = z.infer<typeof ScriptSceneSchema>;
+export type StoryScript = z.infer<typeof StoryScriptSchema>;
 
 /**
  * 全局实体（角色与道具定妆）与统一美术画风契约
@@ -110,15 +100,14 @@ export type SingleSceneJson = z.infer<typeof SingleSceneJsonSchema>;
 export const GlobalEntitiesSchema = z.object({
   artStyle: z
     .string()
-    .describe('全剧统一视觉美术风格与摄影质感描述（人物定妆、道具定妆与尾帧场景图共用，确保画风零割裂）'),
+    .describe('全剧统一视觉美术风格与摄影质感描述（角色、道具与场景母本共用，确保画风零割裂）'),
   characters: z.array(
     z.object({
       characterId: z.string().describe('角色标识，如 "char_lin_jin"'),
       name: z.string().describe('角色名称'),
       identity: z.string().describe('身份与立场'),
       appearanceSummary: z.string().describe('固定外观特征描述，锁死长相、发型、服饰与随身配饰'),
-      promptZh: z.string().describe('中文单人定妆生图提示词（单人正面全身站姿、纯中性浅灰无缝背景、无场景元素、无文字水印）'),
-      promptEn: z.string().describe('英文单人定妆生图提示词'),
+      promptZh: z.string().describe('单人定妆生图提示词（单人正面全身站姿、纯中性浅灰无缝背景、无场景元素、无文字水印）'),
       referenceImageUrl: z.string().optional().describe('角色定妆母本图落盘后的 /media/... URL，可人工替换'),
     })
   ).describe('全剧登场核心角色列表'),
@@ -128,11 +117,37 @@ export const GlobalEntitiesSchema = z.object({
       name: z.string().describe('道具名称'),
       description: z.string().describe('道具关键剧情作用与交互点'),
       appearanceSummary: z.string().describe('道具固定视觉外观特征（材质、造型、色彩、刻字或破损细节）'),
-      promptZh: z.string().describe('中文道具定妆特写生图提示词（单个完整道具居中特写、无手部人物入镜、纯中性浅灰无缝背景、无文字水印）'),
-      promptEn: z.string().describe('英文道具定妆特写生图提示词'),
+      promptZh: z.string().describe('道具定妆特写生图提示词（单个完整道具居中特写、无手部人物入镜、纯中性浅灰无缝背景、无文字水印）'),
       referenceImageUrl: z.string().optional().describe('道具定妆母本图落盘后的 /media/... URL，可人工替换'),
     })
   ).describe('全剧关键信物与道具字典'),
+  locations: z
+    .array(
+      z.object({
+        locationId: z
+          .string()
+          .describe('场景编号，同一物理空间全剧只能有一个（如 "loc_living_room"），供每一幕按编号引用'),
+        name: z.string().describe('场景名称，如 "客厅"'),
+        atmosphere: z.string().describe('该空间的光线基调与氛围（潮湿幽闭、冷白顶灯、锈迹反光等）'),
+        appearanceSummary: z
+          .string()
+          .describe('固定空间布局：出入口位置、主要设施与家具方位、墙面管线材质、光源位置，锁死后不得随幕变化'),
+        promptZh: z
+          .string()
+          .describe('空镜场景生图提示词（必须无人物、无剧情动作，只画空间与陈设）'),
+        sceneIds: z
+          .array(z.string())
+          .describe(
+            '属于该场景的剧幕编号（如 ["S1","S4","S8"]）。通常一幕只归一处；只有该幕确实跨两个空间时才两处都列，且第一个是开场所在空间'
+          ),
+        referenceImageUrl: z
+          .string()
+          .optional()
+          .describe('场景空镜母本图落盘后的 /media/... URL，可人工替换'),
+      })
+    )
+    .default([])
+    .describe('全剧场景（地点）清单：只列物理空间，同一空间跨幕共用一条，不按幕重复'),
 });
 
 export type GlobalEntities = z.infer<typeof GlobalEntitiesSchema>;

@@ -5,16 +5,28 @@
 
 export {
   techPlanStep,
-  getStandardTechPlan,
-  validateAndSortClassDag,
+  executeTechPlanStep,
+  normalizeTechPlan,
+  sortFilesByDependency,
+  buildFallbackTechPlan,
+  createTechArchitectAgent,
 } from './step.js';
+
+export {
+  buildRuntimeFactsSection,
+  buildRuntimeBehaviorRules,
+  buildScreeningList,
+} from './runtime-contract.js';
 
 export {
   TechPlanInputSchema,
   TechPlanOutputSchema,
-  TechClassSpecSchema,
+  TechFileSpecSchema,
+  TechSymbolSpecSchema,
   TechMethodSpecSchema,
   type TechPlanInput,
   type TechPlanOutput,
-  type TechClassSpec,
+  type TechFileSpec,
+  type TechSymbolSpec,
+  type TechMethodSpec,
 } from './schema.js';

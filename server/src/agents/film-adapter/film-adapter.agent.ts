@@ -12,6 +12,8 @@ import { LLMProvider } from '../../llm/index.js';
 import type { TextGameArtifact } from '../text-game/schema.js';
 import { FilmAdapterArtifactSchema, type FilmAdapterArtifact } from './schema.js';
 import { FILM_ADAPTER_SYSTEM_PROMPT, buildFilmAdapterUserPrompt } from './prompt.js';
+import { generateStructured } from '../../utils/llm-diagnostics.js';
+import { STAGE, FILM_STEP } from '../../project-store/artifact-fs.js';
 
 export function createFilmAdapterAgent(model?: LanguageModelV1): Agent {
   return new Agent({
@@ -31,9 +33,12 @@ export async function adaptFilmWithAgent(
   agent: Agent = filmAdapterAgent,
 ): Promise<FilmAdapterArtifact> {
   const prompt = buildFilmAdapterUserPrompt(textGame);
-  const result = await agent.generate(prompt, {
-    output: FilmAdapterArtifactSchema,
-  });
-
-  return result.object as FilmAdapterArtifact;
+  return (await generateStructured({
+    agent,
+    prompt,
+    schema: FilmAdapterArtifactSchema,
+    stage: STAGE.filmAdapter,
+    step: FILM_STEP.compile,
+    label: '影视资产转译',
+  })) as FilmAdapterArtifact;
 }

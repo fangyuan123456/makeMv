@@ -185,6 +185,18 @@ export class ProjectStore {
   }
 
   /**
+   * 物理删除单条聊天记录（用于「意图已落到既有任务气泡」时撤销本轮多余回复气泡）
+   */
+  public deleteChatRecord(projectId: string, messageId: string): void {
+    const project = this.getProject(projectId);
+    if (!project.chat || project.chat.length === 0) return;
+    const idx = project.chat.findIndex((m) => m.id === messageId);
+    if (idx < 0) return;
+    project.chat.splice(idx, 1);
+    this.saveProject(project);
+  }
+
+  /**
    * 将尚未授权的历史提案标为已授权
    */
   public markChatProposalsResolved(projectId: string): void {

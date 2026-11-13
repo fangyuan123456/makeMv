@@ -11,9 +11,11 @@ import { createStep } from '@mastra/core/workflows';
 import { z } from 'zod';
 import {
   runTextGameWorkflow,
+  runLookdevWorkflow,
   convertScenesToTextGameArtifact,
   TextGameArtifactSchema,
   type TextGameArtifact,
+  type GlobalEntities,
 } from '../../agents/text-game/index.js';
 import { StoryGraphSvgRenderer } from '../../media/index.js';
 import type { GDDArtifact } from '../../agents/planner/schema.js';
@@ -136,17 +138,18 @@ export function parseUniversalPrdFromMarkdown(prdMarkdown: string): UniversalPrd
   return result.data;
 }
 
-/**
- * 步骤二核心业务扩写装配逻辑 (原生驱动 runTextGameWorkflow，严格仅消费 Step 4 交付物)
- */
-export async function executeBuildTextGameStep(
-  input: BuildTextGameStepInput
-): Promise<BuildTextGameStepOutput> {
-  const { projectId, taskId = 'task_build_text_game' } = input;
-  const store = ProjectStore.getInstance();
-  const report = createProgressReporter(projectId, taskId);
+export interface PlannerDeliverables {
+  prd: UniversalPrdSpec;
+  storyMarkdown: string;
+  title: string;
+}
 
-  // 1. 单一事实来源：严格读取 Stage 1 Step 4 交付文件 prd.md 与 story.md（同进程允许直读内存对象）
+/**
+ * 统一读取 Stage 1 Step 4 交付物（prd.md + story.md），
+ * A1 资源线与游戏线都从这里取同一份策划案，避免两条路各读一套导致漂移。
+ */
+export function loadPlannerDeliverables(projectId: string): PlannerDeliverables {
+  const store = ProjectStore.getInstance();
   const prdMarkdownOnDisk = readArtifactFile(projectId, 'delivery', STAGE.planner, PLANNER_STEP.prd, 'prd.md');
   const storyMarkdownOnDisk = readArtifactFile(projectId, 'delivery', STAGE.planner, PLANNER_STEP.prd, 'story.md');
 
@@ -183,8 +186,66 @@ export async function executeBuildTextGameStep(
 
   const project = store.getProject(projectId);
   const title = prd.gameTitle || project?.meta?.title || gddObj?.title || '互动短剧';
+  return { prd, storyMarkdown, title };
+}
 
-  report(8, '正在启动阶段二互动文游装配流水线 (entity-extract)...');
+export interface LookdevPhaseOutput {
+  projectId: string;
+  entities: GlobalEntities;
+}
+
+/** A1 产物的登记名：确认门禁与中断恢复都靠它判断「A1 是否已跑过」 */
+export const LOOKDEV_DRAFT_ARTIFACT = 'lookdev_draft';
+
+/**
+ * A1 一个工序跑完：提取角色 / 道具定妆描述 + 绘制定妆母本图。
+ * 产完立即返回，由阶段驱动挂起等待创作者确认（lookdev_approval）。
+ */
+export async function executeLookdevPhase(
+  input: BuildTextGameStepInput
+): Promise<LookdevPhaseOutput> {
+  const { projectId, taskId = 'task_lookdev' } = input;
+  const report = createProgressReporter(projectId, taskId);
+  const { prd, storyMarkdown, title } = loadPlannerDeliverables(projectId);
+
+  report(10, '正在提取角色 / 道具 / 场景母本说明并绘制母本图 (lookdev-extract → lookdev-render)...');
+
+  const result = await runLookdevWorkflow(
+    { projectId, title, prd, storyMarkdown, concurrency: 4, force: false },
+    { onProgress: report }
+  );
+  const { entities } = result;
+
+  ProjectStore.getInstance().setArtifact(projectId, LOOKDEV_DRAFT_ARTIFACT, {
+    entities,
+    renderedCount: result.renderedCount,
+    reusedCount: result.reusedCount,
+    failedCount: result.failedCount,
+    updatedAt: new Date().toISOString(),
+  });
+
+  report(
+    100,
+    `定妆母本图已就绪：${entities.characters.length} 个角色 / ${entities.items.length} 件道具（新绘 ${result.renderedCount}、复用 ${result.reusedCount}、失败 ${result.failedCount}），等待创作者确认`
+  );
+
+  return { projectId, entities };
+}
+
+/**
+ * 步骤二核心业务扩写装配逻辑 (原生驱动 runTextGameWorkflow，严格仅消费 Step 4 交付物)
+ */
+export async function executeBuildTextGameStep(
+  input: BuildTextGameStepInput
+): Promise<BuildTextGameStepOutput> {
+  const { projectId, taskId = 'task_build_text_game' } = input;
+  const store = ProjectStore.getInstance();
+  const report = createProgressReporter(projectId, taskId);
+
+  // 1. 单一事实来源：严格读取 Stage 1 Step 4 交付文件 prd.md 与 story.md（同进程允许直读内存对象）
+  const { prd, storyMarkdown, title } = loadPlannerDeliverables(projectId);
+
+  report(8, '正在启动阶段二互动文游装配流水线 (lookdev)...');
 
   // 2. 原生调度阶段二微内核流水线（严格仅传 Step 4 PRD 与 story.md，由 run.watch 实时上报 6 步进度）
   const pipelineOutput = await runTextGameWorkflow(
@@ -204,15 +265,14 @@ export async function executeBuildTextGameStep(
   const textGame = convertScenesToTextGameArtifact(
     title,
     pipelineOutput.scenes,
-    prd,
-    pipelineOutput.entities
+    pipelineOutput.script
   );
   store.setArtifact(projectId, 'text_game', textGame);
 
   // 4. 生成自主绘制纯 SVG 拓扑图谱，按阶段/工序编号落到交付目录
   try {
     const svg = StoryGraphSvgRenderer.renderToSvg(textGame);
-    writeArtifactFile(projectId, 'delivery', STAGE.textGame, TEXT_GAME_STEP.bundler, 'story_graph.svg', svg);
+    writeArtifactFile(projectId, 'delivery', STAGE.textGame, TEXT_GAME_STEP.codegen, 'story_graph.svg', svg);
   } catch (err) {
     console.warn(`[BuildTextGameStep] SVG 故事图谱渲染跳过:`, err);
   }

@@ -13,6 +13,7 @@ import {
   parseStorySections,
   convertScenesToTextGameArtifact,
   type SingleSceneJson,
+  type StoryScript,
   type GlobalEntities,
 } from '../../agents/text-game/index.js';
 import type { UniversalPrdSpec } from '../../agents/planner/steps/prd-synthesis/schema.js';
@@ -164,7 +165,7 @@ function hydrateDiskArtifactsView(projectId: string, baseArtifacts: Record<strin
     if (fs.existsSync(scenesDir)) {
       const files = fs
         .readdirSync(scenesDir)
-        .filter((f) => f.endsWith('.json') && f !== 'entities.json');
+        .filter((f) => f.endsWith('.json') && f !== 'entities.json' && f !== 'script.json');
       if (files.length > 0) {
         const sceneMap = new Map<string, SingleSceneJson>();
         for (const f of files) {
@@ -178,11 +179,18 @@ function hydrateDiskArtifactsView(projectId: string, baseArtifacts: Record<strin
           : [...sceneMap.keys()].sort();
         const orderedScenes = orderedIds.map((id) => sceneMap.get(id)!).filter(Boolean);
         if (orderedScenes.length > 0) {
+          const scriptPath = path.join(scenesDir, 'script.json');
+          const script: StoryScript = fs.existsSync(scriptPath)
+            ? (JSON.parse(fs.readFileSync(scriptPath, 'utf-8')) as StoryScript)
+            : {
+                startSceneId: orderedScenes[0].sceneId,
+                initialState: {},
+                scenes: [],
+              };
           artifacts.text_game = convertScenesToTextGameArtifact(
             parsedPrd?.gameTitle || fallbackTitle || '互动短剧',
             orderedScenes,
-            parsedPrd,
-            entities
+            script
           );
         }
       }

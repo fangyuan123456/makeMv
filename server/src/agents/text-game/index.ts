@@ -18,13 +18,11 @@ export {
 export {
   // 分幕独立切片 SSOT 契约 (1:1 锚定未来独立视频切片)
   SingleSceneJsonSchema,
+  StoryScriptSchema,
   GlobalEntitiesSchema,
-  SceneChoiceItemSchema,
-  SceneDialogueLineSchema,
   type SingleSceneJson,
+  type StoryScript,
   type GlobalEntities,
-  type SceneChoiceItem,
-  type SceneDialogueLine,
 
   // 兼容契约
   TextGameArtifactSchema,
@@ -41,16 +39,19 @@ export {
   createTextGameWorkflow,
   runTextGameWorkflow,
   convertScenesToTextGameArtifact,
+  createLookdevWorkflow,
+  runLookdevWorkflow,
   TextGamePipelineInputSchema,
   TextGamePipelineOutputSchema,
+  LookdevWorkflowInputSchema,
   type TextGamePipelineInput,
   type TextGamePipelineOutput,
+  type LookdevWorkflowInput,
 } from './text-game.workflow.js';
 
 // 子工序 Steps 导出
-export * from './steps/entity-extract/index.js';
-export * from './steps/scene-packaging/index.js';
-export * from './steps/image-gen-pool/index.js';
+export * from './steps/lookdev-extract/index.js';
+export * from './steps/lookdev-render/index.js';
+export * from './steps/scene-assembly/index.js';
 export * from './steps/tech-plan/index.js';
 export * from './steps/codegen/index.js';
-export * from './steps/bundler/index.js';

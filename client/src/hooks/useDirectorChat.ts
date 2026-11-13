@@ -17,6 +17,29 @@ export interface ChatMessage {
   proposalResolved?: boolean;
   /** 确认后这条 AI 回复气泡承载的阶段任务（进度条 / 成果 / 下一个确认意图） */
   task?: StageTaskView;
+  /** 本轮失败：气泡上挂一条带「重试」的错误提示，不写进正文，方便随时摘掉 */
+  error?: {
+    /** 完整展示文案 */
+    message: string;
+    /** 触发本轮失败的创作者原文，点「重试」时原样重发 */
+    retryText: string;
+  };
+}
+
+/** 清掉所有气泡上的错误提示：用户一打字 / 点重试 / 新一轮开始回复，旧报错就不再挂着 */
+function withoutErrors(list: ChatMessage[]): ChatMessage[] {
+  return list.some((m) => m.error)
+    ? list.map((m) => (m.error ? { ...m, error: undefined } : m))
+    : list;
+}
+
+/** 失败气泡前面最近的一条创作者发言，就是本轮要重发的原文 */
+function findRetryText(list: ChatMessage[], targetMsgId: string): string {
+  const idx = list.findIndex((m) => m.id === targetMsgId);
+  for (let i = idx - 1; i >= 0; i--) {
+    if (list[i].role === 'user' && list[i].content.trim()) return list[i].content;
+  }
+  return '';
 }
 
 export interface StartedTaskEvent {
@@ -97,7 +120,12 @@ export function useDirectorChat(projectId: string, options?: UseDirectorChatOpti
 
   /** 共用 SSE 消费循环：支持首连增量 delta，以及断线重连后的全量 snapshot + 后续 delta */
   const consumeSseStream = useCallback(
-    async (response: Response, targetMsgId: string, initialContent: string = '') => {
+    async (
+      response: Response,
+      targetMsgId: string,
+      initialContent: string = '',
+      retryText: string = ''
+    ) => {
       if (!response.body) {
         throw new Error(`流式响应体为空: ${response.statusText}`);
       }
@@ -106,6 +134,13 @@ export function useDirectorChat(projectId: string, options?: UseDirectorChatOpti
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
       let accumulatedText = initialContent;
+      let clearedErrors = false;
+      /** 本轮一旦又开始出内容（打字 / 提案 / 任务），旧的报错提示就撤掉 */
+      const clearStaleErrorsOnce = () => {
+        if (clearedErrors) return;
+        clearedErrors = true;
+        setMessages((prev) => withoutErrors(prev));
+      };
 
       while (true) {
         const { value, done } = await reader.read();
@@ -125,6 +160,7 @@ export function useDirectorChat(projectId: string, options?: UseDirectorChatOpti
 
           try {
             const parsed = JSON.parse(payload);
+            if (parsed.type !== 'error') clearStaleErrorsOnce();
             if (parsed.type === 'snapshot') {
               accumulatedText = typeof parsed.content === 'string' ? parsed.content : '';
               setMessages((prev) =>
@@ -200,10 +236,43 @@ export function useDirectorChat(projectId: string, options?: UseDirectorChatOpti
                 })
               );
               onTaskStartedRef.current?.({ ...t, messageId: ownerMsgId });
+            } else if (parsed.type === 'remove' && parsed.messageId) {
+              // 服务端判定本轮意图已落到既有任务气泡上：整轮撤销。
+              // 服务端记录 id 与前端乐观气泡 id 不同源，因此 turn 级撤销要按本地
+              // 「本轮 assistant 占位 + 其前一条创作者发言」一并回收；
+              // 承载任务面板的气泡永不删除，避免面板凭空消失。
+              const removedId = String(parsed.messageId);
+              setMessages((prev) => {
+                const drop = new Set<string>([removedId]);
+                if (parsed.turn) {
+                  const idx = prev.findIndex((m) => m.id === targetMsgId);
+                  if (idx >= 0) {
+                    drop.add(prev[idx].id);
+                    for (let i = idx - 1; i >= 0; i--) {
+                      if (prev[i].role === 'user') {
+                        drop.add(prev[i].id);
+                        break;
+                      }
+                    }
+                  }
+                }
+                return prev.filter((m) => !drop.has(m.id) || Boolean(m.task));
+              });
             } else if (parsed.type === 'error') {
-              accumulatedText += `\n[导演总控提示: ${parsed.error}]`;
+              // 报错不写进正文：单独挂错误提示 + 重试按钮，后续一有新动作就整块摘掉
+              const original = retryText || findRetryText(messagesRef.current, targetMsgId);
               setMessages((prev) =>
-                prev.map((m) => (m.id === targetMsgId ? { ...m, content: accumulatedText } : m))
+                withoutErrors(prev).map((m) =>
+                  m.id === targetMsgId
+                    ? {
+                        ...m,
+                        error: {
+                          message: `[导演总控提示: ${String(parsed.error || '总控对话异常')}]`,
+                          retryText: original,
+                        },
+                      }
+                    : m
+                )
               );
             }
           } catch {
@@ -215,7 +284,8 @@ export function useDirectorChat(projectId: string, options?: UseDirectorChatOpti
     []
   );
 
-  const sendMessage = useCallback(async (text: string) => {
+  /** 发起一轮对话；baseMessages 由调用方给定，重试时可以先回收失败轮的气泡 */
+  const startTurn = useCallback(async (text: string, baseMessages: ChatMessage[]) => {
     if (!text.trim() || isStreaming || streamingLockRef.current) return;
 
     streamingLockRef.current = true;
@@ -238,7 +308,7 @@ export function useDirectorChat(projectId: string, options?: UseDirectorChatOpti
     };
 
     // 乐观更新消息列表（发给服务端的 history 保留关联任务元数据，让 AI 看见 taskId 与实时状态）
-    const priorHistory = messages
+    const priorHistory = baseMessages
       .filter((m) => m.content.trim().length > 0 || Boolean(m.task))
       .map((m) => ({
         role: m.role,
@@ -255,7 +325,7 @@ export function useDirectorChat(projectId: string, options?: UseDirectorChatOpti
             }
           : {}),
       }));
-    setMessages([...messages, userMsg, assistantMsg]);
+    setMessages([...baseMessages, userMsg, assistantMsg]);
     setIsStreaming(true);
     setActiveProposal(null);
 
@@ -277,13 +347,19 @@ export function useDirectorChat(projectId: string, options?: UseDirectorChatOpti
         throw new Error(`连接总导演中枢失败: ${response.statusText}`);
       }
 
-      await consumeSseStream(response, assistantMsgId);
+      await consumeSseStream(response, assistantMsgId, '', text);
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         setMessages(prev =>
           prev.map(m =>
             m.id === assistantMsgId
-              ? { ...m, content: m.content + `\n[网络或服务异常: ${err.message}]` }
+              ? {
+                  ...m,
+                  error: {
+                    message: `[网络或服务异常: ${err.message}]`,
+                    retryText: text,
+                  },
+                }
               : m
           )
         );
@@ -298,7 +374,38 @@ export function useDirectorChat(projectId: string, options?: UseDirectorChatOpti
         onChatFinishRef.current?.(projectId);
       }
     }
-  }, [projectId, messages, isStreaming, consumeSseStream]);
+  }, [projectId, isStreaming, consumeSseStream]);
+
+  const sendMessage = useCallback(
+    (text: string) => startTurn(text, withoutErrors(messagesRef.current)),
+    [startTurn]
+  );
+
+  /** 点错误提示上的「重试」：回收失败轮的创作者发言 + 错误气泡，原样重发一次 */
+  const retryFailed = useCallback(
+    (messageId: string) => {
+      if (isStreaming || streamingLockRef.current) return;
+      const list = messagesRef.current;
+      const idx = list.findIndex((m) => m.id === messageId);
+      const text = list[idx]?.error?.retryText || findRetryText(list, messageId);
+      if (!text.trim()) return;
+
+      const drop = new Set<string>([messageId]);
+      for (let i = idx - 1; i >= 0; i--) {
+        if (list[i].role === 'user') {
+          drop.add(list[i].id);
+          break;
+        }
+      }
+      return startTurn(text, withoutErrors(list.filter((m) => !drop.has(m.id))));
+    },
+    [isStreaming, startTurn]
+  );
+
+  /** 创作者在下面开始打字：旧报错与重试按钮立即收起 */
+  const dismissErrors = useCallback(() => {
+    setMessages((prev) => withoutErrors(prev));
+  }, []);
 
   /** 刷新恢复中途：若服务端仍在流式生成，自动挂载 GET /stream 续打字直到提案落位 */
   const resumeStream = useCallback(
@@ -324,7 +431,13 @@ export function useDirectorChat(projectId: string, options?: UseDirectorChatOpti
           setMessages((prev) =>
             prev.map((m) =>
               m.id === targetMsgId
-                ? { ...m, content: m.content + `\n[流式续传异常: ${err.message}]` }
+                ? {
+                    ...m,
+                    error: {
+                      message: `[流式续传异常: ${err.message}]`,
+                      retryText: findRetryText(prev, targetMsgId),
+                    },
+                  }
                 : m
             )
           );
@@ -357,6 +470,8 @@ export function useDirectorChat(projectId: string, options?: UseDirectorChatOpti
     isStreaming,
     activeProposal,
     sendMessage,
+    retryFailed,
+    dismissErrors,
     resumeStream,
     clearChat,
     hydrateMessages,

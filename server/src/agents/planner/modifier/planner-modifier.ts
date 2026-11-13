@@ -16,6 +16,7 @@ import {
   STAGE,
   PLANNER_STEP,
 } from '../../../project-store/artifact-fs.js';
+import { generateStructured } from '../../../utils/llm-diagnostics.js';
 import { ProjectStore } from '../../../project-store/ProjectStore.js';
 import type { GDDArtifact } from '../schema.js';
 import {
@@ -82,11 +83,14 @@ export async function runPlannerModify(
     storyContent,
   });
 
-  const response = await agent.generate(prompt, {
-    output: PlannerModifierOutputSchema,
-  });
-
-  const patchOutput = response.object as PlannerModifierOutput | undefined;
+  const patchOutput = (await generateStructured({
+    agent,
+    prompt,
+    schema: PlannerModifierOutputSchema,
+    stage: STAGE.planner,
+    step: '06-modifier',
+    label: '策划案 Patch 精修',
+  })) as PlannerModifierOutput | undefined;
   if (!patchOutput || !Array.isArray(patchOutput.patches)) {
     throw new Error('[PlannerModifier] 大模型未返回合规的 Patch 清单');
   }

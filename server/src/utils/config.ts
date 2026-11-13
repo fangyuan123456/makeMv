@@ -58,6 +58,30 @@ export const config = {
     provider: (process.env.IMAGE_PROVIDER || 'comfyui').toLowerCase(), // 'comfyui' | 'mock'
   },
 
+  // 全剧画幅 SSOT：生图尺寸、成品播放壳、视频首帧一律读这里，任何工序都不得自行决定
+  frame: (() => {
+    const raw = (process.env.GAME_FRAME_ASPECT || '16:9').trim();
+    const [rawW, rawH] = raw.split(':').map((n) => parseInt(n.trim(), 10));
+    const ratioW = Number.isFinite(rawW) && rawW > 0 ? rawW : 16;
+    const ratioH = Number.isFinite(rawH) && rawH > 0 ? rawH : 9;
+    // 宽度基准：显式 GAME_FRAME_WIDTH 优先，否则横屏 1280 / 方形 1024 / 竖屏 720
+    const baseWidth =
+      parseInt(process.env.GAME_FRAME_WIDTH || '', 10) ||
+      (ratioW > ratioH ? 1280 : ratioW === ratioH ? 1024 : 720);
+    // ComfyUI 侧按 8 的整数倍取整，避免 latent 尺寸报错
+    const width = Math.max(8, Math.round(baseWidth / 8) * 8);
+    const height = Math.max(8, Math.round((width * ratioH) / ratioW / 8) * 8);
+    return {
+      aspect: `${ratioW}:${ratioH}`,
+      ratioW,
+      ratioH,
+      width,
+      height,
+      /** 生图工具请求尺寸（宽*高） */
+      imageSize: `${width}*${height}`,
+    };
+  })(),
+
   // 物理数据与项目工程存储路径
   paths: {
     root: serverDir,

@@ -26,6 +26,12 @@ interface DirectorChatProps {
   onApproveProposal: (proposal: ActionProposal, ctx: ProposalApprovalContext) => void;
   onCancelTask?: (runId: string) => void;
   onOpenGame?: (url: string) => void;
+  /** 点报错提示里的「重试」：原样重发失败那一轮的发言 */
+  onRetry: (messageId: string) => void;
+  /** 创作者在下面开始打字：撤掉旧报错与重试按钮 */
+  onDismissErrors: () => void;
+  /** 任务面板执行失败后重试：复用同一 runId 从已完成工序继续 */
+  onRetryTask: (runId: string, messageId: string) => void;
   isExecutingProposal?: boolean;
 }
 
@@ -47,6 +53,7 @@ interface InlineTaskPanelProps {
   task: StageTaskView;
   onOpenGame: (url: string) => void;
   onCancelTask?: (runId: string) => void;
+  onRetryTask?: (runId: string) => void;
 }
 
 /** 气泡内任务面板：排队 / 进度条 / 完成内容 + 已授权标记 / 失败 / 已取消 */
@@ -54,6 +61,7 @@ function InlineTaskPanel({
   task,
   onOpenGame,
   onCancelTask,
+  onRetryTask,
 }: InlineTaskPanelProps) {
   const elapsed = useElapsedSeconds(task.startedAt, task.status === 'running');
   const percent = Math.min(100, Math.max(4, task.percent));
@@ -123,7 +131,24 @@ function InlineTaskPanel({
         </>
       )}
 
-      {task.status === 'failed' && <p className="task-error">{task.note}</p>}
+      {task.status === 'failed' && (
+        <>
+          <p className="task-error">{task.note}</p>
+          {task.runId && onRetryTask && (
+            <div className="task-retry-row">
+              <button
+                type="button"
+                className="btn-retry-inline"
+                title="复用这个任务，从上次完成的工序继续跑"
+                onClick={() => onRetryTask(task.runId)}
+              >
+                ↻ 重试
+              </button>
+              <span className="task-retry-hint">从已完成工序继续，不重跑已有产物</span>
+            </div>
+          )}
+        </>
+      )}
       {task.status === 'cancelled' && <p className="inline-task-note">{task.note}</p>}
     </div>
   );
@@ -137,6 +162,9 @@ export const DirectorChat: React.FC<DirectorChatProps> = ({
   onApproveProposal,
   onCancelTask,
   onOpenGame,
+  onRetry,
+  onDismissErrors,
+  onRetryTask,
   isExecutingProposal = false,
 }) => {
   const [input, setInput] = useState('');
@@ -149,6 +177,11 @@ export const DirectorChat: React.FC<DirectorChatProps> = ({
     (m) => m.task?.status === 'running' || m.task?.status === 'queued'
   );
   const isBusy = isStreaming || isTaskRunning || isExecutingProposal;
+
+  /** 任务已经接管推进，说明旧报错被后续动作盖过了，直接收起提示 */
+  useEffect(() => {
+    if (isTaskRunning) onDismissErrors();
+  }, [isTaskRunning, onDismissErrors]);
 
   /** 检查是否处于流式且最新一条 assistant 消息尚未输出任何内容（思考中） */
   const isThinking = useMemo(() => {
@@ -206,6 +239,7 @@ export const DirectorChat: React.FC<DirectorChatProps> = ({
     e?.preventDefault();
     if (!input.trim() || isBusy) return;
     shouldAutoScrollRef.current = true;
+    onDismissErrors();
     onSendMessage(input);
     setInput('');
   };
@@ -268,7 +302,14 @@ export const DirectorChat: React.FC<DirectorChatProps> = ({
           </div>
         )}
 
-        {messages.map((m) => (
+        {messages.map((m, idx) => {
+          const isLast = idx === messages.length - 1;
+          const isStreamingPlaceholder =
+            isStreaming && isLast && m.role === 'assistant' && !m.content.trim() && !m.task;
+          // 既无正文、任务面板、报错提示的气泡（如服务端已撤销的寒暄回复）不渲染空框
+          if (!m.content.trim() && !m.task && !m.error && !isStreamingPlaceholder) return null;
+
+          return (
           <div key={m.id} className={`message-row ${m.role}`}>
             <div className="message-meta">
               <span>{m.role === 'user' ? '👤 创作者' : '🎬 视听总导演'}</span>
@@ -276,10 +317,10 @@ export const DirectorChat: React.FC<DirectorChatProps> = ({
             </div>
 
             {/* 单气泡：正文 + 已授权记录 + 任务进度 / 成果（未确认操作统一放到输入框发送旁） */}
-            <div className={`message-bubble${m.proposalResolved || m.task ? ' has-panel' : ''}`}>
+            <div className={`message-bubble${m.task ? ' has-panel' : ''}`}>
               {m.content ? (
                 m.content
-              ) : isStreaming && m.role === 'assistant' ? (
+              ) : isStreamingPlaceholder ? (
                 <div className="director-thinking">
                   <div className="thinking-icon-glow">
                     <span className="thinking-sparkle">🧠</span>
@@ -297,8 +338,22 @@ export const DirectorChat: React.FC<DirectorChatProps> = ({
                 ''
               )}
 
-              {m.proposal && m.proposalResolved && (
-                <div className="proposal-resolved">✅ 已授权开工</div>
+              {m.error && (
+                <div className="chat-error">
+                  <span className="chat-error-text">{m.error.message}</span>
+                  <button
+                    type="button"
+                    className="btn-retry-inline"
+                    disabled={isStreaming}
+                    title="重发刚才那句话，重新走一轮总导演推演"
+                    onClick={() => {
+                      shouldAutoScrollRef.current = true;
+                      onRetry(m.id);
+                    }}
+                  >
+                    ↻ 重试
+                  </button>
+                </div>
               )}
 
               {m.task && (
@@ -306,11 +361,17 @@ export const DirectorChat: React.FC<DirectorChatProps> = ({
                   task={m.task}
                   onOpenGame={(url) => onOpenGame?.(url)}
                   onCancelTask={onCancelTask}
+                  onRetryTask={(runId) => {
+                    shouldAutoScrollRef.current = true;
+                    onDismissErrors();
+                    onRetryTask(runId, m.id);
+                  }}
                 />
               )}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <form className="chat-input-area" onSubmit={handleSubmit}>
@@ -325,7 +386,10 @@ export const DirectorChat: React.FC<DirectorChatProps> = ({
                 : '与总导演探讨剧情构思、微调人设或发起工序指令...'
             }
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              if (e.target.value.trim()) onDismissErrors();
+            }}
             onKeyDown={handleKeyDown}
             disabled={isBusy}
           />
@@ -339,6 +403,7 @@ export const DirectorChat: React.FC<DirectorChatProps> = ({
                   title={pendingConfirmation.proposal.summary}
                   onClick={() => {
                     shouldAutoScrollRef.current = true;
+                    onDismissErrors();
                     onApproveProposal(pendingConfirmation.proposal, pendingConfirmation.ctx);
                   }}
                 >

@@ -10,6 +10,7 @@
 import type { LanguageModelV1 } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { MockLanguageModel } from './mock-model.js';
+import { healStructuredObjectText } from '../mastra-compat/jsonHealing.js';
 import { config } from '../utils/config.js';
 import { ConcurrencyPool } from '../workflow-engine/concurrency.js';
 import {
@@ -85,17 +86,29 @@ function isMockModel(model: LanguageModelV1): boolean {
   return model instanceof MockLanguageModel || model.provider === 'mock-provider';
 }
 
-function createCallAbortContext(
-  active: LanguageModelV1,
-  optionsAbortSignal?: AbortSignal
-): { abortSignal?: AbortSignal; cleanup: () => void } {
+/**
+ * 解析本次调用的取消信号：SDK 传入 + 任务取消。
+ * 注意这里只承载「取消」，不含超时 —— 排队也算进超时预算会误杀并发场景。
+ */
+function resolveCancelSignal(optionsAbortSignal?: AbortSignal): AbortSignal | undefined {
   const runCtx = getRunContext();
-  const externalSignal = combineAbortSignals(optionsAbortSignal, runCtx?.abortSignal);
-  if (externalSignal?.aborted) {
+  const cancelSignal = combineAbortSignals(optionsAbortSignal, runCtx?.abortSignal);
+  if (cancelSignal?.aborted) {
     throw new RunAbortedError('[LLMProvider] 模型调用已因任务取消中止');
   }
+  return cancelSignal;
+}
+
+/**
+ * 单次调用超时计时器。必须在拿到算力槽位之后才启动：
+ * 否则 batch 池排队时长会被计进单次请求预算，多工序并发时会莫名超时。
+ */
+function startCallTimeout(active: LanguageModelV1): {
+  timeoutSignal?: AbortSignal;
+  cleanup: () => void;
+} {
   if (isMockModel(active)) {
-    return { abortSignal: externalSignal, cleanup: () => {} };
+    return { cleanup: () => {} };
   }
 
   const timeoutCtrl = new AbortController();
@@ -106,10 +119,7 @@ function createCallAbortContext(
   }, config.llm.timeoutMs);
   timer.unref?.();
 
-  return {
-    abortSignal: combineAbortSignals(externalSignal, timeoutCtrl.signal),
-    cleanup: () => clearTimeout(timer),
-  };
+  return { timeoutSignal: timeoutCtrl.signal, cleanup: () => clearTimeout(timer) };
 }
 
 function wrapStreamLifecycle(
@@ -215,38 +225,54 @@ export class LLMProvider {
           if (prop === 'doGenerate') {
             return async (options: any) => {
               const runCtx = getRunContext();
-              const { abortSignal, cleanup } = createCallAbortContext(active, options?.abortSignal);
-              const nextOptions = abortSignal ? { ...options, abortSignal } : options;
+              const cancelSignal = resolveCancelSignal(options?.abortSignal);
+              let release: (() => void) | undefined;
+              let stopTimeout: () => void = () => {};
               try {
                 if (runCtx?.lane === 'batch') {
-                  return await LLMProvider.batchPool.run(
-                    () => active.doGenerate(nextOptions),
-                    abortSignal
-                  );
+                  // 排队期间只受取消信号约束，不消耗单次调用的超时预算
+                  release = await LLMProvider.batchPool.acquire(cancelSignal);
                 }
-                return await active.doGenerate(nextOptions);
+                if (cancelSignal?.aborted) {
+                  throw new RunAbortedError('[LLMProvider] 模型调用已因任务取消中止');
+                }
+                const timeout = startCallTimeout(active);
+                stopTimeout = timeout.cleanup;
+                const abortSignal = combineAbortSignals(cancelSignal, timeout.timeoutSignal);
+                const nextOptions = abortSignal ? { ...options, abortSignal } : options;
+                const result = await active.doGenerate(nextOptions);
+                // 结构化对象生成：模型写入的 null 可选字段在进入 AI SDK 的 Zod 校验前归一化
+                return healStructuredObjectText(result, nextOptions);
               } finally {
-                cleanup();
+                stopTimeout();
+                release?.();
               }
             };
           }
           if (prop === 'doStream') {
             return async (options: any) => {
               const runCtx = getRunContext();
-              const { abortSignal, cleanup } = createCallAbortContext(active, options?.abortSignal);
-              const nextOptions = abortSignal ? { ...options, abortSignal } : options;
+              const cancelSignal = resolveCancelSignal(options?.abortSignal);
               let release: (() => void) | undefined;
+              let stopTimeout: () => void = () => {};
               try {
                 if (runCtx?.lane === 'batch') {
-                  release = await LLMProvider.batchPool.acquire(abortSignal);
+                  release = await LLMProvider.batchPool.acquire(cancelSignal);
                 }
+                if (cancelSignal?.aborted) {
+                  throw new RunAbortedError('[LLMProvider] 模型调用已因任务取消中止');
+                }
+                const timeout = startCallTimeout(active);
+                stopTimeout = timeout.cleanup;
+                const abortSignal = combineAbortSignals(cancelSignal, timeout.timeoutSignal);
+                const nextOptions = abortSignal ? { ...options, abortSignal } : options;
                 const res = await active.doStream(nextOptions);
                 return wrapStreamLifecycle(res, () => {
-                  cleanup();
+                  stopTimeout();
                   release?.();
                 });
               } catch (err) {
-                cleanup();
+                stopTimeout();
                 release?.();
                 throw err;
               }

@@ -18,6 +18,8 @@ export interface ProjectChatMessage {
   content: string;
   createdAt: string;
   status?: 'streaming' | 'done' | 'error';
+  /** 本轮失败原因：单独存字段，不再拼进聊天正文 */
+  errorMessage?: string;
   proposal?: Record<string, any>;
   proposalResolved?: boolean;
   taskRunId?: string;

@@ -31,12 +31,12 @@ export const PLANNER_STEP = {
 } as const;
 
 export const TEXT_GAME_STEP = {
-  entities: '01-entity-extract',
-  scenes: '02-scene-packaging',
-  images: '03-image-gen-pool',
+  // 定妆拆两步：先定「长什么样」（纯文本），再把它画出来
+  lookdevExtract: '01-lookdev-extract',
+  lookdevRender: '02-lookdev-render',
+  scenes: '03-scene-assembly',
   techPlan: '04-tech-plan',
   codegen: '05-codegen',
-  bundler: '06-bundler',
 } as const;
 
 export const FILM_STEP = {
@@ -121,9 +121,8 @@ export const ARTIFACT_PATHS: Record<
   planner_prd: { scope: 'delivery', stage: STAGE.planner, step: PLANNER_STEP.prd, file: 'prd.md' },
   planner_validation: { scope: 'debug', stage: STAGE.planner, step: PLANNER_STEP.validation, file: 'topology_validation.md' },
   gdd: { scope: 'delivery', stage: STAGE.planner, step: PLANNER_STEP.prd, file: 'prd.md' },
-  text_game: { scope: 'debug', stage: STAGE.textGame, step: TEXT_GAME_STEP.bundler, file: 'text_game_manifest.md' },
-  text_game_manifest: { scope: 'debug', stage: STAGE.textGame, step: TEXT_GAME_STEP.bundler, file: 'text_game_manifest.md' },
-  scene_package: { scope: 'debug', stage: STAGE.textGame, step: TEXT_GAME_STEP.images, file: 'image_gen_pool.md' },
+  text_game: { scope: 'debug', stage: STAGE.textGame, step: TEXT_GAME_STEP.codegen, file: 'text_game_manifest.md' },
+  text_game_manifest: { scope: 'debug', stage: STAGE.textGame, step: TEXT_GAME_STEP.codegen, file: 'text_game_manifest.md' },
   film_spec: { scope: 'delivery', stage: STAGE.filmAdapter, step: FILM_STEP.compile, file: 'film_spec.md' },
 };
 

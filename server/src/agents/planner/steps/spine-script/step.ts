@@ -11,6 +11,8 @@ import { Agent } from '@mastra/core/agent';
 import { z } from 'zod';
 import { LLMProvider } from '../../../../llm/index.js';
 import { runTaskRecordedStep } from '../../../../workflow-engine/TaskStore.js';
+import { generateStructured } from '../../../../utils/llm-diagnostics.js';
+import { STAGE, PLANNER_STEP } from '../../../../project-store/artifact-fs.js';
 import {
   SpineScriptInputSchema,
   SpineScriptOutputSchema,
@@ -45,18 +47,18 @@ export async function executeWriteSpineScriptStep(
   input: SpineScriptInput,
   agent: Agent = createScreenwriterAgent()
 ): Promise<SpineScriptOutput> {
-  const { userPrompt } = input;
+  const { userPrompt, userToneOrPreference } = input;
 
   // 1. 调用专职编剧 Agent 纯粹生成黄金主干短剧
-  const prompt = buildSpineScriptUserPrompt({ userPrompt });
-  const response = await agent.generate(prompt, {
-    output: SpineScriptStructuredOutputSchema,
+  const prompt = buildSpineScriptUserPrompt({ userPrompt, userToneOrPreference });
+  const parsed = await generateStructured({
+    agent,
+    prompt,
+    schema: SpineScriptStructuredOutputSchema,
+    stage: STAGE.planner,
+    step: PLANNER_STEP.spine,
+    label: '主干剧本生成',
   });
-
-  const parsed = response.object || {
-    title: '未命名短剧',
-    spineScript: (response as any).text || userPrompt,
-  };
 
   return {
     title: parsed.title,
@@ -76,7 +78,9 @@ export const writeSpineScriptStep = createStep({
     return await runTaskRecordedStep('write-spine-script', async () => {
       const ctx = (context as any) || {};
       const userPrompt = ctx.userPrompt || ctx.triggerData?.userPrompt || '';
-      return await executeWriteSpineScriptStep({ userPrompt });
+      const userToneOrPreference =
+        ctx.userToneOrPreference || ctx.triggerData?.userToneOrPreference;
+      return await executeWriteSpineScriptStep({ userPrompt, userToneOrPreference });
     });
   },
 });

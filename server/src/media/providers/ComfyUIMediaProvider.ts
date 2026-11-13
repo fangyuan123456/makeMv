@@ -361,8 +361,8 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
     let refImageUrl = options?.referenceImageUrl;
     if (!refImageUrl) {
       console.log(`[ComfyUIMediaProvider] 未传入首帧图，正在自动生成首帧基准画面...`);
-      refImageUrl = await this.generateImage(`互动影游电影分镜基准帧，${prompt}，高保真特写，16:9`, {
-        size: '1280*720',
+      refImageUrl = await this.generateImage(`互动影游电影分镜基准帧，${prompt}，高保真特写，${config.frame.aspect}`, {
+        size: config.frame.imageSize,
         abortSignal: options?.abortSignal,
       });
     }

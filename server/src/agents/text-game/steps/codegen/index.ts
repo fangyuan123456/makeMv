@@ -1,17 +1,12 @@
 /**
  * agents/text-game/steps/codegen/index.ts
- * 互动文游代码生成工序总装出口 (SSOT)
+ * 互动影游代码生成工序总装出口 (SSOT)
  */
 
-export {
-  codegenStep,
-  executeCodegenStep,
-  getSceneTypesCode,
-  getStateBlackboardCode,
-  getSceneLoaderCode,
-  getInteractiveShellCode,
-  getMainEntryCode,
-} from './step.js';
+export { codegenStep, executeCodegenStep, generateIndexHtml, type CodegenDeps } from './step.js';
+export { VirtualFS } from './vfs.js';
+export { parseDrafts, parseFileDrafts, applyDrafts, buildSymbolSummary } from './tools.js';
+export { buildCodegenSystemPrompt } from './prompt.js';
 
 export {
   CodegenInputSchema,

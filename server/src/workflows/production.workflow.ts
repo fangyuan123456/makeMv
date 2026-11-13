@@ -12,9 +12,15 @@
 import { Workflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 import { planGddStep, executePlanGddStep } from './steps/plan-gdd.step.js';
-import { buildTextGameStep, executeBuildTextGameStep } from './steps/build-text-game.step.js';
+import {
+  buildTextGameStep,
+  executeBuildTextGameStep,
+  executeLookdevPhase,
+  LOOKDEV_DRAFT_ARTIFACT,
+} from './steps/build-text-game.step.js';
 import { compileFilmStep, executeCompileFilmStep } from './steps/compile-film.step.js';
 import { TaskStore } from '../workflow-engine/TaskStore.js';
+import { dumpRunFailure } from '../utils/run-failure-log.js';
 import { ProjectStore } from '../project-store/ProjectStore.js';
 import { ProjectLaneScheduler } from '../workflow-engine/concurrency.js';
 import {
@@ -48,7 +54,7 @@ export interface WorkflowRunStateSnapshot {
   status: 'queued' | 'running' | 'suspended' | 'succeeded' | 'failed' | 'cancelled';
   currentStage: 'plan_gdd' | 'build_text_game' | 'compile_film' | 'completed';
   pendingApproval?: {
-    type: 'gdd_approval' | 'playtest_approval';
+    type: 'gdd_approval' | 'lookdev_approval' | 'playtest_approval';
     title: string;
     description: string;
     data: any;
@@ -150,8 +156,19 @@ export class ProductionWorkflowEngine {
           }
           return;
         }
+        // 任何未预料的失败都留一份证据：错误栈 + 失败瞬间的进度，供事后直接定位
+        const failureDir = dumpRunFailure(
+          {
+            projectId,
+            runId,
+            workflowKey: String((taskStore.getTask(projectId, runId) as any)?.workflowKey || ''),
+            stageNote: (taskStore.getTask(projectId, runId) as any)?.progress?.note,
+          },
+          err
+        );
+        const baseMessage = err?.message || '流水线执行异常';
         taskStore.setStatus(projectId, runId, 'failed', {
-          error: err?.message || '流水线执行异常',
+          error: failureDir ? `${baseMessage}\n失败现场：${failureDir}/error.md` : baseMessage,
         });
       })
       .finally(() => {
@@ -365,7 +382,14 @@ export class ProductionWorkflowEngine {
       return this.getState(projectId, runId);
     }
 
-    if (currentPending === 'gdd_approval' || (isInterrupted && interruptedStage === 'build_text_game')) {
+    const store = ProjectStore.getInstance();
+    const hasLookdevDraft = Boolean(store.getArtifact(projectId, LOOKDEV_DRAFT_ARTIFACT));
+
+    // 阶段二 · A1：实体字典 + 定妆母本图，产完挂起等创作者确认
+    if (
+      currentPending === 'gdd_approval' ||
+      (isInterrupted && interruptedStage === 'build_text_game' && !hasLookdevDraft)
+    ) {
       this.enqueueStageExecution({
         projectId,
         runId,
@@ -374,7 +398,44 @@ export class ProductionWorkflowEngine {
           percent: 0,
           current: 0,
           total: 100,
-          note: '正在启动互动文游装配 (text-game)...',
+          note: '正在提取角色与道具并绘制定妆母本图...',
+        },
+        execute: async () => {
+          const stepResult = await executeLookdevPhase({ projectId, taskId: runId });
+          const { entities } = stepResult;
+
+          return {
+            status: 'suspended',
+            result: {
+              currentStage: 'build_text_game',
+              pendingApproval: {
+                type: 'lookdev_approval',
+                title: '角色 / 道具 / 场景母本图待确认',
+                description: `已生成 ${entities.characters.length} 个角色 / ${entities.items.length} 件道具 / ${entities.locations?.length || 0} 个场景的母本图；确认后按场景装配分幕与可玩切片`,
+                data: entities,
+              },
+            },
+          };
+        },
+      });
+
+      return this.getState(projectId, runId);
+    }
+
+    // 阶段二 · A2/A3：确认后逐幕出尾帧并装配可玩切片（A1 靠工序缓存跳过，不重跑）
+    if (
+      currentPending === 'lookdev_approval' ||
+      (isInterrupted && interruptedStage === 'build_text_game')
+    ) {
+      this.enqueueStageExecution({
+        projectId,
+        runId,
+        runningStage: 'build_text_game',
+        initialProgress: {
+          percent: 0,
+          current: 0,
+          total: 100,
+          note: '正在绘制定妆母本图并装配互动文游 (text-game)...',
         },
         execute: async () => {
           const stepResult = await executeBuildTextGameStep({

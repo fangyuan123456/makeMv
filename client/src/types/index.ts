@@ -237,6 +237,8 @@ export interface ProjectChatRecord {
   content: string;
   createdAt: string;
   status?: 'streaming' | 'done' | 'error';
+  /** 本轮失败原因：单独存字段，不再拼进正文（前端据此挂可重试的错误提示） */
+  errorMessage?: string;
   proposal?: ActionProposal;
   proposalResolved?: boolean;
   taskRunId?: string;

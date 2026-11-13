@@ -264,6 +264,45 @@ body {
   max-width: 100%;
 }
 
+/* 单轮失败提示：错误文案 + 重试按钮，新一轮一有动作就整块摘掉 */
+.chat-error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.08);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.chat-error-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #ff859b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.btn-retry-inline {
+  flex-shrink: 0;
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #fecdd3;
+  background: rgba(239, 68, 68, 0.16);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+}
+.btn-retry-inline:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.3);
+}
+.btn-retry-inline:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* 总导演思考中过渡动效 (Thinking Indicator) */
 .director-thinking {
   display: inline-flex;
@@ -438,6 +477,18 @@ body {
   margin-top: 8px;
   color: #ff859b;
   font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.task-retry-row {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.task-retry-hint {
+  font-size: 11px;
+  color: var(--text-muted);
 }
 .task-artifact-row {
   margin-top: 10px;

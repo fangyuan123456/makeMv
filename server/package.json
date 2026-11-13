@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-runtime-assets.mjs",
     "start": "node dist/index.js",
     "test": "tsx tests/smoke.test.ts && tsx tests/api.test.ts && tsx tests/workflow-concurrency.test.ts && tsx tests/comfyui-media-and-svg.test.ts && tsx tests/test-stage2-real-probe.ts && tsx tests/universal-planner.test.ts && tsx tests/universal-gating-runtime.test.ts && tsx tests/media-confirm-ui.test.ts"
   },

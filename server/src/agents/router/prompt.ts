@@ -35,12 +35,21 @@ export function buildRouterPrompt(projectId?: string): string {
             t.status === 'suspended' &&
             (t.result as any)?.pendingApproval?.type === 'gdd_approval'
         );
+      const suspendedLookdevTask = [...taskStore.listTasks(projectId)]
+        .reverse()
+        .find(
+          (t) =>
+            t.status === 'suspended' &&
+            (t.result as any)?.pendingApproval?.type === 'lookdev_approval'
+        );
 
       const taskStatusLine = runningTask
         ? `- 当前任务态: 🔄 执行中 (${runningTask.taskId})`
-        : suspendedGddTask
-          ? `- 当前任务态: ⏸️ 阶段一已完稿，等待审批推进阶段二 (${suspendedGddTask.taskId})`
-          : '- 当前任务态: ⚪ 空闲';
+        : suspendedLookdevTask
+          ? `- 当前任务态: ⏸️ 角色道具定妆已提取，等待确认出图 (${suspendedLookdevTask.taskId})`
+          : suspendedGddTask
+            ? `- 当前任务态: ⏸️ 阶段一已完稿，等待审批推进阶段二 (${suspendedGddTask.taskId})`
+            : '- 当前任务态: ⚪ 空闲';
 
       const ledgerLines = formatProjectTaskLedgerLines(projectId, 6);
       const ledgerSection =

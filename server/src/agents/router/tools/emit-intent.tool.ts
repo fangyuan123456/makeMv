@@ -195,6 +195,8 @@ interface HydratedRouterContext {
   hasFilmSpec: boolean;
   runningTask: Task | null;
   suspendedGddTask: Task | undefined;
+  /** 挂起在阶段二「定妆确认点」的任务：提取完角色/道具，等确认后出母本图 */
+  suspendedLookdevTask: Task | undefined;
   tasks: Task[];
   priorStartProposal: ProjectChatMessage | undefined;
   priorPendingStartProposal: ProjectChatMessage | undefined;
@@ -268,6 +270,7 @@ function hydrateRouterContext(runtimeCtx?: RouterIntentToolContext): HydratedRou
       hasFilmSpec: false,
       runningTask: null,
       suspendedGddTask: undefined,
+      suspendedLookdevTask: undefined,
       tasks: [],
       priorStartProposal: undefined,
       priorPendingStartProposal: undefined,
@@ -292,6 +295,13 @@ function hydrateRouterContext(runtimeCtx?: RouterIntentToolContext): HydratedRou
       (t) =>
         t.status === 'suspended' &&
         (t.result as any)?.pendingApproval?.type === 'gdd_approval'
+    );
+  const suspendedLookdevTask = [...allTasks]
+    .reverse()
+    .find(
+      (t) =>
+        t.status === 'suspended' &&
+        (t.result as any)?.pendingApproval?.type === 'lookdev_approval'
     );
 
   const priorChat = getPriorChatRecords(project?.chat || [], latestUserMessage);
@@ -318,6 +328,7 @@ function hydrateRouterContext(runtimeCtx?: RouterIntentToolContext): HydratedRou
     hasFilmSpec,
     runningTask,
     suspendedGddTask,
+    suspendedLookdevTask,
     tasks: allTasks,
     priorStartProposal,
     priorPendingStartProposal,
@@ -552,9 +563,11 @@ function buildCohesiveToolDescription(runtimeCtx?: RouterIntentToolContext): str
 
   const taskFact = ctx.runningTask
     ? `运行中任务=${ctx.runningTask.taskId}`
-    : ctx.suspendedGddTask
-      ? `挂起待审批推进阶段二=${ctx.suspendedGddTask.taskId}(gdd_approval)`
-      : recoverableTasks.length > 0
+    : ctx.suspendedLookdevTask
+      ? `挂起待确认定妆=${ctx.suspendedLookdevTask.taskId}(lookdev_approval)`
+      : ctx.suspendedGddTask
+        ? `挂起待审批推进阶段二=${ctx.suspendedGddTask.taskId}(gdd_approval)`
+        : recoverableTasks.length > 0
         ? `存在可恢复任务=${recoverableTasks
             .map((t) => `${t.taskId}(${t.stage}/${t.status})`)
             .join('、')}`
@@ -659,8 +672,10 @@ export function evaluateRouterIntentFunnel(
     }
 
     const ledgerItem = toTaskLedgerItem(targetTask);
+    const pendingType = (targetTask.result as any)?.pendingApproval?.type;
     const effectiveStage =
-      targetTask.status === 'suspended' && (targetTask.result as any)?.pendingApproval?.type === 'gdd_approval'
+      targetTask.status === 'suspended' &&
+      (pendingType === 'gdd_approval' || pendingType === 'lookdev_approval')
         ? 'build_text_game'
         : ledgerItem.stage;
 
@@ -672,7 +687,7 @@ export function evaluateRouterIntentFunnel(
       ...(Object.keys(rawPayload).length > 0 ? { payload: rawPayload } : {}),
       verdict: 'resume_task_ready',
       intercepted: false,
-      guidance: `已锚定目标任务 [${targetTask.taskId}]（阶段：${effectiveStage}），系统将沿用该任务记录恢复流水线并从已完成步骤后继续执行，进度将在本消息中实时展示。请用一句话沉稳告知创作者已恢复执行。`,
+      guidance: `已锚定目标任务 [${targetTask.taskId}]（阶段：${effectiveStage}），系统将沿用该任务记录恢复流水线并从已完成步骤后继续执行，进度与状态由系统任务面板直接呈现。正文请留空——不要输出任何确认、寒暄或进度说明。`,
     };
   }
 
@@ -687,7 +702,20 @@ export function evaluateRouterIntentFunnel(
         payload: Object.keys(rawPayload).length > 0 ? rawPayload : undefined,
         verdict: 'attach_running',
         intercepted: false,
-        guidance: '项目已有任务正在后台执行，进度将挂载到本条消息中。请简短告知创作者正在继续推进。',
+        guidance: '项目已有任务正在后台执行，进度已挂载到既有任务面板。正文请留空——不要输出任何确认、寒暄或进度说明。',
+      };
+    }
+
+    if (ctx.suspendedLookdevTask) {
+      return {
+        action: 'approve_stage',
+        targetStage: 'build_text_game',
+        summary: rawSignal.summary || '已确认角色与道具定妆描述，批量生成定妆母本图',
+        payload: Object.keys(rawPayload).length > 0 ? rawPayload : undefined,
+        verdict: 'resume_to_stage2',
+        intercepted: false,
+        guidance:
+          '定妆描述已就绪，本次授权将批量生成定妆母本图并继续装配互动文游，进度由系统任务面板直接呈现。正文请留空——不要输出任何确认、寒暄或进度说明，也不要提示用户点击确认按钮。',
       };
     }
 
@@ -700,7 +728,7 @@ export function evaluateRouterIntentFunnel(
         verdict: 'resume_to_stage2',
         intercepted: false,
         guidance:
-          '阶段一策划案已就绪，本次授权将立即唤醒并启动阶段二互动文游装配（build_text_game）。请用一句话沉稳确认已开始生成文游，不要再提示用户点击确认按钮。',
+          '阶段一策划案已就绪，本次授权将立即唤醒并启动阶段二互动文游装配（build_text_game），进度由系统任务面板直接呈现。正文请留空——不要输出任何确认、寒暄或进度说明，也不要提示用户点击确认按钮。',
       };
     }
 
@@ -755,7 +783,7 @@ export function evaluateRouterIntentFunnel(
       verdict: 'approved_to_start_stage1',
       intercepted: false,
       guidance:
-        '创作者已明确确认立项方案，系统将在本轮同步启动阶段一全案策划推演（plan_gdd）并在本消息内实时展示进度。请用一句话沉稳确认已开始推演，严禁再提示用户点确认按钮。',
+        '创作者已明确确认立项方案，系统将在本轮同步启动阶段一全案策划推演（plan_gdd），进度由系统任务面板直接呈现。正文请留空——不要输出任何确认、寒暄或进度说明，也不要提示用户点击确认按钮。',
     };
   }
 

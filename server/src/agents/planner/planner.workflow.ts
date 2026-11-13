@@ -335,7 +335,7 @@ export async function runPlannerWorkflow(
   input: PlannerPipelineInput,
   options?: { onProgress?: ProgressReporter }
 ): Promise<PlannerPipelineOutput> {
-  const { projectId, userPrompt } = input;
+  const { projectId, userPrompt, userToneOrPreference } = input;
   throwIfRunAborted('PlannerWorkflow');
   console.log(`[PlannerWorkflow] >>> 启动阶段一微内核工作流: 项目 [${projectId}]`);
 
@@ -349,7 +349,7 @@ export async function runPlannerWorkflow(
   );
   let res: Awaited<ReturnType<typeof run.start>>;
   try {
-    res = await run.start({ triggerData: input });
+    res = await run.start({ triggerData: { userPrompt, userToneOrPreference } });
   } finally {
     stopWatch();
   }

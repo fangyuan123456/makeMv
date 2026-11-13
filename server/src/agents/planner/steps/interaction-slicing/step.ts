@@ -12,6 +12,10 @@ import { createStep } from '@mastra/core/workflows';
 import { Agent } from '@mastra/core/agent';
 import { LLMProvider } from '../../../../llm/index.js';
 import { runTaskRecordedStep } from '../../../../workflow-engine/TaskStore.js';
+import { generateStructured } from '../../../../utils/llm-diagnostics.js';
+import { asyncPool } from '../../../../utils/async-pool.js';
+import { config } from '../../../../utils/config.js';
+import { STAGE, PLANNER_STEP } from '../../../../project-store/artifact-fs.js';
 import {
   SliceInteractionsInputSchema,
   SliceInteractionsOutputSchema,
@@ -198,10 +202,14 @@ async function generateSingleTagInteraction(
 ): Promise<ClipInteraction> {
   const userPrompt = buildSingleTagGameplayUserPrompt({ title, context: ctx });
   if (ctx.category === 'ACTION') {
-    const resp = await gameplayAgent.generate(userPrompt, {
-      output: ActionGameplayOutputSchema,
-    });
-    const out = resp.object as ActionGameplayOutput | undefined;
+    const out = (await generateStructured({
+      agent: gameplayAgent,
+      prompt: userPrompt,
+      schema: ActionGameplayOutputSchema,
+      stage: STAGE.planner,
+      step: PLANNER_STEP.slices,
+      label: `玩法实现（ACTION / 标签 ${ctx.tagId}）`,
+    })) as ActionGameplayOutput | undefined;
     if (!out?.actionType?.trim() || !out?.prompt?.trim()) {
       throw new Error(`[SliceInteractions] 标签 [${ctx.tagId}] 缺少合法的 ACTION 玩法实现`);
     }
@@ -213,10 +221,14 @@ async function generateSingleTagInteraction(
     };
   }
 
-  const resp = await gameplayAgent.generate(userPrompt, {
-    output: ChoiceGameplayOutputSchema,
-  });
-  const out = resp.object as ChoiceGameplayOutput | undefined;
+  const out = (await generateStructured({
+    agent: gameplayAgent,
+    prompt: userPrompt,
+    schema: ChoiceGameplayOutputSchema,
+    stage: STAGE.planner,
+    step: PLANNER_STEP.slices,
+    label: `玩法实现（CHOICE / 标签 ${ctx.tagId}）`,
+  })) as ChoiceGameplayOutput | undefined;
   if (!out?.mainlineChoice?.trim() || !out?.branchChoice?.trim()) {
     throw new Error(`[SliceInteractions] 标签 [${ctx.tagId}] 缺少合法的 CHOICE 玩法实现`);
   }
@@ -269,11 +281,16 @@ export async function executeSliceInteractionsStep(
 
   const patchAgent = agent || createInteractiveDirectorAgent(buildInteractionTagPatchSystemPrompt());
   const patchPrompt = buildInteractionTagPatchUserPrompt({ spineScript });
-  const patchResp = await patchAgent.generate(patchPrompt, {
-    output: InteractionTagPatchPlanSchema,
-  });
+  const patchObject = (await generateStructured({
+    agent: patchAgent,
+    prompt: patchPrompt,
+    schema: InteractionTagPatchPlanSchema,
+    stage: STAGE.planner,
+    step: PLANNER_STEP.slices,
+    label: '互动切口切分',
+  })) as InteractionTagPatchPlan | undefined;
 
-  const patchPlan: InteractionTagPatchPlan = (patchResp.object as InteractionTagPatchPlan | undefined) || {
+  const patchPlan: InteractionTagPatchPlan = patchObject || {
     title: '未命名短剧',
     endingTitle: '终局收束',
     patches: [],
@@ -308,8 +325,11 @@ export async function executeSliceInteractionsStep(
   }));
 
   const gameplayAgent = agent || createInteractiveDirectorAgent(buildInteractionGameplaySystemPrompt());
-  const interactions = await Promise.all(
-    contexts.map((ctx) => generateSingleTagInteraction(title, ctx, gameplayAgent))
+  const interactions = await asyncPool(
+    Math.min(4, config.llm.maxConcurrency),
+    contexts,
+    (ctx) => generateSingleTagInteraction(title, ctx, gameplayAgent),
+    'SliceInteractions'
   );
 
   const clips: SlicedClipNode[] = contexts.map((ctx, idx) => ({

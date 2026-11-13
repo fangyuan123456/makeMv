@@ -38,7 +38,8 @@ workflowRouter.post('/:projectId/start', async (req, res) => {
     });
     store.appendChatRecord(req.params.projectId, {
       role: 'assistant',
-      content: '收到，开始推演全案策划案。这一阶段的进度会在这条消息里实时更新。',
+      // 正文留空：这一段的信息全部由任务面板承载，寒暄只会与面板重复
+      content: '',
       taskRunId: runId,
       taskStage: 'plan_gdd',
     });
@@ -72,10 +73,16 @@ workflowRouter.post('/:projectId/:runId/resume', async (req, res) => {
       });
       store.appendChatRecord(req.params.projectId, {
         role: 'assistant',
-        content: '收到，直接装配可玩的 index.html 互动文游；角色定妆与关键帧不再单独确认。',
+        // 正文留空：进度与成果由同一个任务面板承载
+        content: '',
         taskRunId: req.params.runId,
         taskStage: 'build_text_game',
       });
+    }
+
+    // 定妆确认：任务在同一个气泡上原地续跑，不再追加聊天记录，只标记该轮提案已处理
+    if (Boolean(approved) && prevPending === 'lookdev_approval') {
+      store.markTaskNextProposalResolved(req.params.projectId, req.params.runId);
     }
 
     sendSuccess(res, snapshot, '审批信号已注入，状态机推进中');

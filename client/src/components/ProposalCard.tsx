@@ -29,7 +29,7 @@ export function getProposalButtonLabel(proposal: ActionProposal): string {
     case 'modify_asset':
       return '确认定向精修';
     case 'render_images':
-      return '确认批量生成关键帧';
+      return '确认母本图并装配';
     default:
       return '确认并启动';
   }
