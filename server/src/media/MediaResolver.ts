@@ -158,7 +158,7 @@ export class MediaResolver {
         return 'application/json';
       case '.svg':
         return 'image/svg+xml';
-      // 独立可玩文游 text-game/index.html + bundle.js 需要以正确 MIME 返回，
+      // 互动游戏组装器 game-assembly/index.html + bundle.js 需要以正确 MIME 返回，
       // 否则 /media/ 下会被当成 application/octet-stream 下载，iframe 无法渲染。
       case '.html':
       case '.htm':

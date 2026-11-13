@@ -9,7 +9,7 @@ import { Router } from 'express';
 import { ProjectStore } from '../../project-store/ProjectStore.js';
 import { TextGameRuntimeEngine, type PlayerGameState } from '../../runtime/state-engine.js';
 import type { GDDArtifact } from '../../agents/planner/schema.js';
-import type { TextGameArtifact } from '../../agents/text-game/schema.js';
+import type { TextGameArtifact } from '../../agents/game-assembly/schema.js';
 import { sendSuccess, sendError } from '../helpers.js';
 
 export const runtimeRouter = Router();

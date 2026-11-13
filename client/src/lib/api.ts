@@ -139,7 +139,7 @@ export async function fetchTask(projectId: string, taskId: string): Promise<Task
 
 /** 阶段二直接产出的独立可玩 index.html 游戏入口（走 /media 安全沙箱） */
 export function buildGameUrl(projectId: string): string {
-  return `/media/${encodeURIComponent(projectId)}/text-game/index.html`;
+  return `/media/${encodeURIComponent(projectId)}/game-assembly/index.html`;
 }
 
 export async function initRuntimeGame(projectId: string): Promise<{ state: PlayerGameState; node: TextGameNode }> {

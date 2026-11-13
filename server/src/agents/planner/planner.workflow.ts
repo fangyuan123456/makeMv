@@ -31,6 +31,7 @@ import {
 
 import { SpineScriptInputSchema } from './steps/spine-script/schema.js';
 import { writeSpineScriptStep } from './steps/spine-script/step.js';
+import { interactiveOutlineStep } from './steps/interactive-outline/step.js';
 import {
   sliceInteractionsStep,
   SlicedClipNodeSchema,
@@ -99,7 +100,8 @@ export function createPlannerWorkflow() {
     name: 'planner-sub-workflow',
     triggerSchema: SpineScriptInputSchema,
   })
-    .step(writeSpineScriptStep)
+    .step(interactiveOutlineStep)
+    .then(writeSpineScriptStep)
     .then(sliceInteractionsStep)
     .then(deriveBranchesStep)
     .then(prdSynthesisStep)
@@ -301,29 +303,30 @@ export function convertPlannerOutputToGdd(params: {
 }
 
 const PLANNER_PROGRESS_STEPS: ReadonlyArray<WorkflowStepProgressConfig> = [
+  { stepId: 'interactive-outline', percent: 8, note: '正在生成互动影游主线与支线大纲...' },
   {
     stepId: 'write-spine-script',
-    percent: 15,
+    percent: 20,
     note: '正在构思黄金主干剧情与核心戏剧冲突 (write-spine-script)...',
   },
   {
     stepId: 'slice-interactions',
-    percent: 35,
+    percent: 40,
     note: '正在将主干剧本切分为高保真视听切片与互动切口 (slice-interactions)...',
   },
   {
     stepId: 'derive-branches',
-    percent: 55,
+    percent: 60,
     note: '正在执行逆向拓扑分支推演与结局图鉴收敛 (derive-branches)...',
   },
   {
     stepId: 'prd-synthesis-step',
-    percent: 75,
+    percent: 78,
     note: '正在装配全案 GDD PRD 与 StoryGraph 状态机拓扑 (prd-synthesis)...',
   },
   {
     stepId: 'validate-topology-step',
-    percent: 92,
+    percent: 94,
     note: '正在执行三幕关卡与分支网络的图论静态拓扑门禁校验 (validate-topology)...',
   },
 ];
@@ -349,7 +352,7 @@ export async function runPlannerWorkflow(
   );
   let res: Awaited<ReturnType<typeof run.start>>;
   try {
-    res = await run.start({ triggerData: { userPrompt, userToneOrPreference } });
+    res = await run.start({ triggerData: { projectId, userPrompt, userToneOrPreference } });
   } finally {
     stopWatch();
   }
@@ -365,6 +368,7 @@ export async function runPlannerWorkflow(
     }
   }
 
+  const outlineResult = (res.results['interactive-outline'] as any)?.output;
   const spineResult = (res.results['write-spine-script'] as any)?.output as {
     title: string;
     spineScript: string;
@@ -420,12 +424,10 @@ export async function runPlannerWorkflow(
   };
 
   // 运行时黑板：接口不变，但产物正文不再写进 project.json
+  // Each planner step persists its successful artifact directly. The workflow
+  // only orchestrates execution and returns the assembled result.
   const store = ProjectStore.getInstance();
-  store.setArtifact(projectId, 'planner_spine', spineResult);
-  store.setArtifact(projectId, 'planner_clips', sliceResult);
-  store.setArtifact(projectId, 'planner_branches', branchResult);
-  store.setArtifact(projectId, 'planner_prd', prdResult);
-  store.setArtifact(projectId, 'planner_validation', finalValidation);
+  // gdd is the workflow-level projection assembled from the validated planner artifacts.
   store.setArtifact(projectId, 'gdd', gdd);
 
   // 阶段二从 meta.title 取剧名，这里回填，否则下游文档标题还是占位名

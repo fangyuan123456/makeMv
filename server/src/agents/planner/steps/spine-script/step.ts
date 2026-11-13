@@ -7,6 +7,7 @@
  */
 
 import { createStep } from '@mastra/core/workflows';
+import { ProjectStore } from '../../../../project-store/ProjectStore.js';
 import { Agent } from '@mastra/core/agent';
 import { z } from 'zod';
 import { LLMProvider } from '../../../../llm/index.js';
@@ -47,10 +48,10 @@ export async function executeWriteSpineScriptStep(
   input: SpineScriptInput,
   agent: Agent = createScreenwriterAgent()
 ): Promise<SpineScriptOutput> {
-  const { userPrompt, userToneOrPreference } = input;
+  const { userPrompt, userToneOrPreference, outlineSummary } = input;
 
   // 1. 调用专职编剧 Agent 纯粹生成黄金主干短剧
-  const prompt = buildSpineScriptUserPrompt({ userPrompt, userToneOrPreference });
+  const prompt = buildSpineScriptUserPrompt({ userPrompt, userToneOrPreference, outlineSummary });
   const parsed = await generateStructured({
     agent,
     prompt,
@@ -80,7 +81,11 @@ export const writeSpineScriptStep = createStep({
       const userPrompt = ctx.userPrompt || ctx.triggerData?.userPrompt || '';
       const userToneOrPreference =
         ctx.userToneOrPreference || ctx.triggerData?.userToneOrPreference;
-      return await executeWriteSpineScriptStep({ userPrompt, userToneOrPreference });
+      const projectId = ctx.projectId || ctx.triggerData?.projectId;
+      const outline = projectId ? ProjectStore.getInstance().getArtifact<any>(projectId, 'planner_outline') : null;
+      const result = await executeWriteSpineScriptStep({ userPrompt, userToneOrPreference, outlineSummary: outline ? JSON.stringify(outline, null, 2) : undefined });
+      if (projectId) ProjectStore.getInstance().setArtifact(projectId, 'planner_spine', result);
+      return result;
     });
   },
 });

@@ -383,6 +383,39 @@ export function applyPrdEnhancement(
   const referencedTargets = new Set(wiring.map((w) => w.to));
   endings = endings.filter((e) => referencedTargets.has(e.id));
 
+  // 状态只在被路线条件读取时才有意义。未被读取的初值/变更会制造“只写不读”的假状态，
+  // 直接在 PRD 合流源头移除，避免下游把它误当成可玩的分支变量。
+  const conditionText = wiring.map((edge) => edge.condition || '').join(' ');
+  const readableStateKeys = new Set<string>();
+  for (const key of new Set([
+    ...Object.keys(base.initialState || {}),
+    ...Object.keys(enhancement.initialState || {}),
+  ])) {
+    if (new RegExp(`\\b${key.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\b`).test(conditionText)) {
+      readableStateKeys.add(key);
+    }
+  }
+  const initialState = Object.fromEntries(
+    Object.entries(enhancement.initialState || base.initialState || {}).filter(([key]) =>
+      readableStateKeys.has(key)
+    )
+  );
+  for (const interaction of interactions) {
+    for (const outcome of interaction.outcomes) {
+      if (!outcome.stateChange) continue;
+      if (outcome.stateChange.add) {
+        outcome.stateChange.add = Object.fromEntries(
+          Object.entries(outcome.stateChange.add).filter(([key]) => readableStateKeys.has(key))
+        );
+      }
+      if (outcome.stateChange.set) {
+        outcome.stateChange.set = Object.fromEntries(
+          Object.entries(outcome.stateChange.set).filter(([key]) => readableStateKeys.has(key))
+        );
+      }
+    }
+  }
+
   return {
     gameTitle: base.gameTitle,
     genre: enhancement.genre || base.genre,
@@ -396,7 +429,7 @@ export function applyPrdEnhancement(
         ? enhancement.uiPagesSummary
         : base.uiPagesSummary,
     startNodeId: base.startNodeId,
-    initialState: enhancement.initialState || base.initialState,
+    initialState,
     clips: base.clips,
     interactions,
     endings,

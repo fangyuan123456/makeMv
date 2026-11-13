@@ -4,7 +4,7 @@
  * 彻底杜绝第三方重型拓扑图表库，纯数学计算节点与贝塞尔曲线
  */
 
-import type { TextGameArtifact, TextGameNode } from '../../agents/text-game/schema.js';
+import type { TextGameArtifact, TextGameNode } from '../../agents/game-assembly/schema.js';
 
 export interface DagEdge {
   from: string;

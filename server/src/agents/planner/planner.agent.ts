@@ -12,7 +12,7 @@ import type { LanguageModelV1 } from 'ai';
 import { LLMProvider } from '../../llm/index.js';
 import { buildPlannerSystemPrompt } from './prompt.js';
 import { runPlannerWorkflow } from './planner.workflow.js';
-import type { GDDArtifact } from './schema.js';
+import type { GDDArtifact } from '../../project-store/contracts/planner/index.js';
 
 export interface PlannerAgentOptions {
   model?: LanguageModelV1;

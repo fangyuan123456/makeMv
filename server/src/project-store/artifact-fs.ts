@@ -8,7 +8,7 @@
  * 3. <阶段>/<工序>/ 只放最终交付物，且保持真实形态（md / 图片 / html / ts ...）；
  * 4. 阶段与工序目录一律带两位编号，编号即执行顺序。
  *
- * 运行时资源目录（scenes/、text-game/、assets/）不在此收编：它们被生成的 SceneLoader、
+ * 运行时资源目录（scenes/、game-assembly/、assets/）不在此收编：它们被生成的 SceneLoader、
  * 前端 iframe 的 /media/:projectId/... URL 与媒体沙箱按原路径硬引用，改动会直接弄坏可玩产物。
  */
 
@@ -18,11 +18,14 @@ import { config } from '../utils/config.js';
 
 export const STAGE = {
   planner: '01-planner',
-  textGame: '02-text-game',
-  filmAdapter: '03-film-adapter',
+  /** 第二阶段负责视觉资产与视频分镜生产 */
+  filmAdapter: '02-film-production',
+  /** 第三阶段只负责把成品视频组装成可玩的互动播放器 */
+  textGame: '03-game-assembly',
 } as const;
 
 export const PLANNER_STEP = {
+  outline: '00-interactive-outline',
   spine: '01-write-spine-script',
   slices: '02-slice-interactions',
   branches: '03-derive-branches',
@@ -115,6 +118,7 @@ export const ARTIFACT_PATHS: Record<
   string,
   { scope: ArtifactScope; stage: string; step: string; file: string }
 > = {
+  planner_outline: { scope: 'debug', stage: STAGE.planner, step: PLANNER_STEP.outline, file: 'interactive_outline.md' },
   planner_spine: { scope: 'debug', stage: STAGE.planner, step: PLANNER_STEP.spine, file: 'planner_spine.md' },
   planner_clips: { scope: 'debug', stage: STAGE.planner, step: PLANNER_STEP.slices, file: 'planner_clips.md' },
   planner_branches: { scope: 'debug', stage: STAGE.planner, step: PLANNER_STEP.branches, file: 'planner_branches.md' },

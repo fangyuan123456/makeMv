@@ -206,7 +206,7 @@ function buildRestoredTaskView(
         ? {
             resultSummary:
               `互动文游已直接产出${nodes ? `：${nodes} 幕可玩切片` : ''}，` +
-              '独立入口 text-game/index.html 即刻可试玩；玩家在游戏内修改后续接入。',
+              '独立入口 game-assembly/index.html 即刻可试玩；玩家在游戏内修改后续接入。',
             gameUrl: buildGameUrl(projectId),
           }
         : {}),

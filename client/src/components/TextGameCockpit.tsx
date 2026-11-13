@@ -1,9 +1,9 @@
 /**
  * client/src/components/TextGameCockpit.tsx
- * 独立可玩文游 (index.html) 预览 + 0-Token 本地试玩座舱
+ * 互动游戏组装器 (index.html) 预览 + 0-Token 本地试玩座舱
  *
  * 角色定妆 / 关键帧批量渲染已内聚到阶段二，不再需要客户端确认；
- * 阶段二直接产出 text-game/index.html，默认以 iframe 呈现，玩家在游戏内修改后续接入。
+ * 阶段二直接产出 game-assembly/index.html，默认以 iframe 呈现，玩家在游戏内修改后续接入。
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -153,7 +153,7 @@ export const TextGameCockpit: React.FC<TextGameCockpitProps> = ({
               key={frameKey}
               className="standalone-game-frame"
               src={`${src}?t=${frameKey}`}
-              title={`${textGame.title} - 独立可玩文游`}
+              title={`${textGame.title} - 互动游戏组装器`}
             />
           </div>
         </div>

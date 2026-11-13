@@ -9,6 +9,7 @@
  */
 
 import { createStep } from '@mastra/core/workflows';
+import { ProjectStore } from '../../../../project-store/ProjectStore.js';
 import { Agent } from '@mastra/core/agent';
 import { LLMProvider } from '../../../../llm/index.js';
 import { runTaskRecordedStep } from '../../../../workflow-engine/TaskStore.js';
@@ -363,12 +364,13 @@ export const sliceInteractionsStep = createStep({
   execute: async ({ context }) => {
     return await runTaskRecordedStep('slice-interactions', async () => {
       const ctx = (context as any) || {};
-      const spineScript =
-        ctx.spineScript ||
-        ctx.steps?.['write-spine-script']?.output?.spineScript ||
-        ctx.triggerData?.spineScript ||
-        '';
-      return await executeSliceInteractionsStep({ spineScript });
+      const projectId = ctx.projectId || ctx.triggerData?.projectId;
+      const store = ProjectStore.getInstance();
+      const spine = projectId ? store.getArtifact<any>(projectId, 'planner_spine') : null;
+      const spineScript = ctx.spineScript || ctx.triggerData?.spineScript || spine?.spineScript || '';
+      const result = await executeSliceInteractionsStep({ spineScript });
+      if (projectId) store.setArtifact(projectId, 'planner_clips', result);
+      return result;
     });
   },
 });

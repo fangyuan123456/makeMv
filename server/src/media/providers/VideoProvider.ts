@@ -5,6 +5,8 @@
 
 export interface VideoGenerationOptions {
   referenceImageUrl?: string;
+  lastFrameImageUrl?: string;
+  audioPrompt?: string;
   duration?: number;
   fps?: number;
   resolution?: '480P' | '720P' | '1080P' | string;

@@ -8,20 +8,29 @@ import path from 'path';
 import { Router } from 'express';
 import { ProjectStore } from '../../project-store/ProjectStore.js';
 import { STAGE, PLANNER_STEP, readArtifactFile } from '../../project-store/artifact-fs.js';
-import { parseUniversalPrdFromMarkdown } from '../../workflows/steps/build-text-game.step.js';
+import { parseUniversalPrdFromMarkdown } from '../../workflows/steps/build-game-assembly.step.js';
 import {
-  parseStorySections,
-  convertScenesToTextGameArtifact,
+  convertScenesToGameAssemblyArtifact,
   type SingleSceneJson,
   type StoryScript,
   type GlobalEntities,
-} from '../../agents/text-game/index.js';
-import type { UniversalPrdSpec } from '../../agents/planner/steps/prd-synthesis/schema.js';
+} from '../../agents/game-assembly/index.js';
+import type { UniversalPrdSpec } from '../../project-store/contracts/planner/index.js';
 import type { GDDArtifact, NarrativeBeat, CharacterSpec } from '../../agents/planner/schema.js';
 import { sendError } from '../helpers.js';
 
 export const projectsRouter = Router();
 const store = ProjectStore.getInstance();
+
+function parseStorySections(markdown: string): Map<string, { title: string; narrativeText: string }> {
+  const map = new Map<string, { title: string; narrativeText: string }>();
+  for (const block of markdown.split(/(?=^##\s+)/m)) {
+    const heading = block.match(/^##\s+([^\n]+)/)?.[1]?.trim() || '';
+    const id = heading.match(/\b(S\d+(?:\.\d+)?)\b/i)?.[1];
+    if (id) map.set(id, { title: heading || id, narrativeText: block.replace(/^##[^\n]*\n?/, '').trim() });
+  }
+  return map;
+}
 
 function buildGddViewFromPrd(
   prd: UniversalPrdSpec,
@@ -187,7 +196,7 @@ function hydrateDiskArtifactsView(projectId: string, baseArtifacts: Record<strin
                 initialState: {},
                 scenes: [],
               };
-          artifacts.text_game = convertScenesToTextGameArtifact(
+          artifacts.text_game = convertScenesToGameAssemblyArtifact(
             parsedPrd?.gameTitle || fallbackTitle || '互动短剧',
             orderedScenes,
             script
@@ -197,7 +206,7 @@ function hydrateDiskArtifactsView(projectId: string, baseArtifacts: Record<strin
     }
   }
 
-  const indexHtmlPath = path.join(projectDir, 'text-game', 'index.html');
+  const indexHtmlPath = path.join(projectDir, 'game-assembly', 'index.html');
   artifacts.hasStandaloneGame = fs.existsSync(indexHtmlPath);
   return artifacts;
 }

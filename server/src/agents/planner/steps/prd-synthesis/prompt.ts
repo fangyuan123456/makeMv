@@ -33,6 +33,7 @@ export function buildPrdSynthesisSystemPrompt(): string {
    - 若你在 endingEnhancements 里为末幕设置了条件结局（如 varA >= N），**必须验算前序主干路径加减分**：确保玩家走正常路线确实能攒够条件（最大可达值 ≥ 门槛），严禁出现“理论上限低于门槛”的死局！
    - 凡拆出条件型结局的片段，**必须同时附带一条 condition: null 的兜底结局**，确保任何数值都能收口；
    - **gameplayAndVictorySummary（第 4 章胜负规则）的文字描述必须与第 3 章 endingEnhancements 的实际条件字段及逻辑严格一致**，严禁自然语言写“A高于B”而实际条件却完全是另一套表达式，也必须如实反映兜底结局所属的 END_* 类型。
+   - **终局正文必须在终局事件处收束**：若某个分支或片段已经通过 wiring 进入 ending，就不得在该片段正文继续描写主线后续航程、后续调查或另一个结局之后的剧情；后续内容必须放到另一个可达 clip 中。
 4. 【超时参数由剧情决定】：
    - 若互动场景需要紧迫感，按需设置合理 \`timeoutSec\` 与 \`defaultOutcomeKey\`（如 \`"B"\` 或 \`"SKIP"\`）；
    - 若属于需要长考的抉择或默认无倒计时，将 \`timeoutSec\` 与 \`defaultOutcomeKey\` 设为 \`null\`（无限等待不代选）。

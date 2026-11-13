@@ -33,6 +33,7 @@ export const BranchDerivationInputSchema = z.object({
   title: z.string().describe('短剧中文标题'),
   clips: z.array(SlicedClipNodeSchema).describe('Step 2 产出的结构化视听演播片段清单'),
   spineScript: z.string().optional().describe('Step 1 产出的黄金主干剧本全文（供分支编剧 Agent 注入全剧记忆，防止失忆吃书、死人复活、捏造人物）'),
+  outlineSummary: z.string().optional().describe('Step 0 互动剧情大纲'),
 });
 
 export const BranchDerivationOutputSchema = z.object({

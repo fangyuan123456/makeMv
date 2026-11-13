@@ -17,8 +17,10 @@ export function buildInteractionTagPatchSystemPrompt(): string {
 3. 按故事先后顺序排列，通常全剧插入 4~8 个互动标签即可，结尾需留出一整段承载结局正文，且全剧包含至少 1~2 处 CHOICE 分支与若干 ACTION 按钮节点。`;
 }
 
-export function buildInteractionTagPatchUserPrompt(input: { spineScript: string }): string {
+export function buildInteractionTagPatchUserPrompt(input: { spineScript: string; outlineSummary?: string }): string {
   return `请通读以下剧本，决定在哪些位置插入互动标签（输出 \`InteractionTagPatchPlan\` JSON）：
+
+${input.outlineSummary ? `【互动大纲参考（软约束）】\n${input.outlineSummary}\n请优先让切口对应大纲中的关键节点；若主干实际内容有合理变化，可以调整，但不要丢失核心互动因果。\n` : ''}
 
 【原剧本正文】
 ${input.spineScript}

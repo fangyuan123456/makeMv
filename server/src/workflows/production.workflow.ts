@@ -13,11 +13,9 @@ import { Workflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 import { planGddStep, executePlanGddStep } from './steps/plan-gdd.step.js';
 import {
-  buildTextGameStep,
-  executeBuildTextGameStep,
-  executeLookdevPhase,
-  LOOKDEV_DRAFT_ARTIFACT,
-} from './steps/build-text-game.step.js';
+  buildGameAssemblyStep,
+  executeBuildGameAssemblyStep,
+} from './steps/build-game-assembly.step.js';
 import { compileFilmStep, executeCompileFilmStep } from './steps/compile-film.step.js';
 import { TaskStore } from '../workflow-engine/TaskStore.js';
 import { dumpRunFailure } from '../utils/run-failure-log.js';
@@ -43,8 +41,8 @@ export function createProductionWorkflow() {
     triggerSchema: ProductionTriggerSchema,
   })
     .step(planGddStep)
-    .then(buildTextGameStep)
     .then(compileFilmStep)
+    .then(buildGameAssemblyStep)
     .commit();
 }
 
@@ -383,37 +381,34 @@ export class ProductionWorkflowEngine {
     }
 
     const store = ProjectStore.getInstance();
-    const hasLookdevDraft = Boolean(store.getArtifact(projectId, LOOKDEV_DRAFT_ARTIFACT));
 
-    // 阶段二 · A1：实体字典 + 定妆母本图，产完挂起等创作者确认
+    // 阶段二：film-production 先完成视觉资产与真实视频订单，再由 game-assembly 组装互动入口。
     if (
       currentPending === 'gdd_approval' ||
-      (isInterrupted && interruptedStage === 'build_text_game' && !hasLookdevDraft)
+      (isInterrupted && (interruptedStage === 'build_text_game' || interruptedStage === 'compile_film'))
     ) {
       this.enqueueStageExecution({
         projectId,
         runId,
-        runningStage: 'build_text_game',
+        runningStage: 'compile_film',
         initialProgress: {
           percent: 0,
           current: 0,
           total: 100,
-          note: '正在提取角色与道具并绘制定妆母本图...',
+          note: 'film-production：正在提取角色、道具、场景并生成真实视频...',
         },
         execute: async () => {
-          const stepResult = await executeLookdevPhase({ projectId, taskId: runId });
-          const { entities } = stepResult;
-
+          // film-production 统一负责资产提取、分镜与视频订单；完成后才进入 game-assembly。
+          await executeCompileFilmStep({ projectId, taskId: runId });
+          const buildResult = await executeBuildGameAssemblyStep({
+            projectId,
+            taskId: runId,
+          });
           return {
-            status: 'suspended',
+            status: 'succeeded',
             result: {
-              currentStage: 'build_text_game',
-              pendingApproval: {
-                type: 'lookdev_approval',
-                title: '角色 / 道具 / 场景母本图待确认',
-                description: `已生成 ${entities.characters.length} 个角色 / ${entities.items.length} 件道具 / ${entities.locations?.length || 0} 个场景的母本图；确认后按场景装配分幕与可玩切片`,
-                data: entities,
-              },
+              currentStage: 'completed',
+              textGame: buildResult.textGame,
             },
           };
         },
@@ -422,37 +417,33 @@ export class ProductionWorkflowEngine {
       return this.getState(projectId, runId);
     }
 
-    // 阶段二 · A2/A3：确认后逐幕出尾帧并装配可玩切片（A1 靠工序缓存跳过，不重跑）
+    // 阶段二续跑：已有 film-production 资产时直接生成视频订单并组装游戏
     if (
       currentPending === 'lookdev_approval' ||
-      (isInterrupted && interruptedStage === 'build_text_game')
+      (isInterrupted && (interruptedStage === 'build_text_game' || interruptedStage === 'compile_film'))
     ) {
       this.enqueueStageExecution({
         projectId,
         runId,
-        runningStage: 'build_text_game',
+        runningStage: 'compile_film',
         initialProgress: {
           percent: 0,
           current: 0,
           total: 100,
-          note: '正在绘制定妆母本图并装配互动文游 (text-game)...',
+          note: '正在完成 film-production，并装配真实视频互动游戏 (game-assembly)...',
         },
         execute: async () => {
-          const stepResult = await executeBuildTextGameStep({
+          await executeCompileFilmStep({ projectId, taskId: runId });
+          const stepResult = await executeBuildGameAssemblyStep({
             projectId,
             taskId: runId,
           });
 
           return {
-            status: 'suspended',
+            status: 'succeeded',
             result: {
-              currentStage: 'build_text_game',
-              pendingApproval: {
-                type: 'playtest_approval',
-                title: '互动文游已装配就绪，等待试玩验收',
-                description: `文游《${stepResult.textGame.title}》已生成共 ${stepResult.textGame.nodes.length} 个节点，支持即刻试玩`,
-                data: stepResult.textGame,
-              },
+              currentStage: 'completed',
+              textGame: stepResult.textGame,
             },
           };
         },

@@ -70,9 +70,17 @@ const FINISHED_STREAM_TTL_MS = 60_000;
  * 首字超时：上游连第一个 token 都不给，前端就会一直转圈且没有任何提示。
  * 到点直接掐断本轮，交给下面的重试 / 报错路径，让失败可见。
  */
-const FIRST_TOKEN_TIMEOUT_MS = 90_000;
+// Router 首 token 单独限时。Planner 的长任务仍使用 LLM_CALL_TIMEOUT_MS，不能让两者互相拖住。
+// 可通过环境变量调节，避免上游无响应时前端永久停在“思考中”。
+const FIRST_TOKEN_TIMEOUT_MS = Math.max(
+  10_000,
+  Number.parseInt(process.env.ROUTER_FIRST_TOKEN_TIMEOUT_MS || '45_000', 10) || 45_000
+);
 /** 字间空闲超时：已经开吐之后卡住同样不放过（一次完整回复不该停顿这么久）。 */
-const STREAM_IDLE_TIMEOUT_MS = 45_000;
+const STREAM_IDLE_TIMEOUT_MS = Math.max(
+  10_000,
+  Number.parseInt(process.env.ROUTER_STREAM_IDLE_TIMEOUT_MS || '45_000', 10) || 45_000
+);
 
 /**
  * 上游 SSE 可能在首个 delta 之后断流，AI SDK 会把断流当成正常结束（不抛错）。
@@ -554,9 +562,11 @@ export class ChatStreamManager {
         // 看门狗：上游迟迟不给首字 / 中途卡住，都在这里掐断，避免无限期挂着
         const watchdog = new AbortController();
         let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
+        let watchdogReason = '';
         const armWatchdog = (ms: number, reason: string) => {
           if (watchdogTimer) clearTimeout(watchdogTimer);
           watchdogTimer = setTimeout(() => {
+            watchdogReason = reason;
             watchdog.abort(new DOMException(reason, 'TimeoutError'));
           }, ms);
           watchdogTimer.unref?.();
@@ -665,7 +675,7 @@ export class ChatStreamManager {
         } catch (attemptErr: any) {
           disarmWatchdog();
           lastErr = attemptErr;
-          const errText = String(attemptErr?.message || '');
+          const errText = String(attemptErr?.message || watchdogReason || '');
           // 看门狗掐断属于网络/网关侧卡死，换一次连接往往就好了，值得重试
           const isWatchdogTimeout =
             watchdog.signal.aborted ||
@@ -724,7 +734,10 @@ export class ChatStreamManager {
       flushToDisk('done');
       this.broadcastDoneAndClose(stream);
     } catch (err: any) {
-      const errMsg = err?.message || '总控对话推演异常';
+      const errMsg =
+        err?.name === 'TimeoutError' || String(err?.message || '').includes('AbortError')
+          ? `上游模型响应超时：${Math.round(FIRST_TOKEN_TIMEOUT_MS / 1000)} 秒内没有返回有效内容。请检查 LLM_BASE_URL、LLM_MODEL 和网络连接后重试。`
+          : err?.message || '总控对话推演异常';
       stream.status = 'error';
       stream.errorMessage = errMsg;
       // 只保留已流出的正文，失败原因单独落字段：前端据此挂带「重试」的提示块，一轮新动作就能摘掉

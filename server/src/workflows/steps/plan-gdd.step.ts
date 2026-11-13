@@ -5,7 +5,7 @@
 
 import { createStep } from '@mastra/core/workflows';
 import { z } from 'zod';
-import { GDDSchema } from '../../agents/planner/schema.js';
+import { GDDSchema } from '../../project-store/contracts/planner/index.js';
 import { runPlannerWorkflow } from '../../agents/planner/planner.workflow.js';
 import { createProgressReporter } from '../../workflow-engine/progress.js';
 

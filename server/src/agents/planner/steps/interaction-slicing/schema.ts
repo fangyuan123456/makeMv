@@ -112,6 +112,7 @@ export type SlicedClipNode = z.infer<typeof SlicedClipNodeSchema>;
 
 export const SliceInteractionsInputSchema = z.object({
   spineScript: z.string().describe('Step 1 产出的高纯度黄金主干剧本纯文本'),
+  outlineSummary: z.string().optional().describe('Step 0 互动剧情大纲'),
 });
 
 /**

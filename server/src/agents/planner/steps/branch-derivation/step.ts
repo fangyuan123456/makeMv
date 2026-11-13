@@ -8,6 +8,7 @@
  */
 
 import { createStep } from '@mastra/core/workflows';
+import { ProjectStore } from '../../../../project-store/ProjectStore.js';
 import { Agent } from '@mastra/core/agent';
 import { LLMProvider } from '../../../../llm/index.js';
 import { runTaskRecordedStep } from '../../../../workflow-engine/TaskStore.js';
@@ -38,8 +39,8 @@ export async function executeDeriveBranchesStep(
   input: BranchDerivationInput,
   agent: Agent = createBranchDramatistAgent()
 ): Promise<BranchDerivationOutput> {
-  const { title, clips, spineScript } = input;
-  const branches = await runTopologyBranchDerivation(title, clips, agent, spineScript);
+  const { title, clips, spineScript, outlineSummary } = input;
+  const branches = await runTopologyBranchDerivation(title, clips, agent, spineScript, outlineSummary);
   return {
     title,
     clips,
@@ -57,8 +58,10 @@ export const deriveBranchesStep = createStep({
   execute: async ({ context }) => {
     return await runTaskRecordedStep('derive-branches', async () => {
       const ctx = (context as any) || {};
-      const sliceOutput = ctx.steps?.['slice-interactions']?.output;
-      const spineOutput = ctx.steps?.['write-spine-script']?.output;
+      const projectId = ctx.projectId || ctx.triggerData?.projectId;
+      const store = ProjectStore.getInstance();
+      const sliceOutput = projectId ? store.getArtifact<any>(projectId, 'planner_clips') : null;
+      const spineOutput = projectId ? store.getArtifact<any>(projectId, 'planner_spine') : null;
       const trigger = ctx.triggerData || {};
       const title =
         ctx.title ||
@@ -72,7 +75,10 @@ export const deriveBranchesStep = createStep({
         spineOutput?.spineScript ||
         trigger.spineScript ||
         '';
-      return await executeDeriveBranchesStep({ title, clips, spineScript });
+      const outline = projectId ? store.getArtifact<any>(projectId, 'planner_outline') : null;
+      const result = await executeDeriveBranchesStep({ title, clips, spineScript, outlineSummary: outline ? JSON.stringify(outline, null, 2) : undefined });
+      if (projectId) store.setArtifact(projectId, 'planner_branches', result);
+      return result;
     });
   },
 });

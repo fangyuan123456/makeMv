@@ -18,7 +18,7 @@ import {
 } from '../../../project-store/artifact-fs.js';
 import { generateStructured } from '../../../utils/llm-diagnostics.js';
 import { ProjectStore } from '../../../project-store/ProjectStore.js';
-import type { GDDArtifact } from '../schema.js';
+import type { GDDArtifact } from '../../../project-store/contracts/planner/index.js';
 import {
   buildPlannerModifierSystemPrompt,
   buildPlannerModifierUserPrompt,

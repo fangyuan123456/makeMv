@@ -50,7 +50,8 @@ export async function runTopologyBranchDerivation(
   title: string,
   clips: SlicedClipNode[],
   agent: Agent,
-  spineScript: string = ''
+  spineScript: string = '',
+  outlineSummary: string = ''
 ): Promise<DerivedBranchNode[]> {
   // 1. 初始化已收敛集合 S_resolved：仅主干片段允许作为 REJOIN 合流目标，防止误指其他支线引起跳线撕裂
   const mainlineIds = new Set(clips.map((c) => c.clipId));
@@ -125,7 +126,11 @@ export async function runTopologyBranchDerivation(
             : spineScript
         }\n\n`
       : '';
-    const prompt = spineContext + buildSingleBranchUserPrompt({
+    const prompt = (outlineSummary ? `【S0 分支设计参考（结合实际剧本调整）】
+${outlineSummary}
+请优先吸收 S0 中规划的分支动机、选择差异和结局意图；但如果实际主干切片的选择点、人物状态或因果已经不同，必须以实际切片为准重新落地，不要强行改写剧本或制造不存在的节点。
+
+` : '') + spineContext + buildSingleBranchUserPrompt({
       cutId: currentCut.cutId,
       sourceClipId: currentCut.sourceClipId,
       level: currentCut.level,

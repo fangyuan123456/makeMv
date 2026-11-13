@@ -4,6 +4,7 @@
  */
 
 import { createStep } from '@mastra/core/workflows';
+import { ProjectStore } from '../../../../project-store/ProjectStore.js';
 import { Agent } from '@mastra/core/agent';
 import { LLMProvider } from '../../../../llm/index.js';
 import { runTaskRecordedStep } from '../../../../workflow-engine/TaskStore.js';
@@ -141,9 +142,11 @@ export const prdSynthesisStep = createStep({
     return await runTaskRecordedStep('prd-synthesis-step', async () => {
       const ctx = (context as any) || {};
       const trigger = ctx.triggerData || ctx;
-      const spineOutput = ctx.steps?.['write-spine-script']?.output;
-      const sliceOutput = ctx.steps?.['slice-interactions']?.output;
-      const branchOutput = ctx.steps?.['derive-branches']?.output;
+      const projectId = ctx.projectId || ctx.triggerData?.projectId;
+      const store = ProjectStore.getInstance();
+      const spineOutput = projectId ? store.getArtifact<any>(projectId, 'planner_spine') : null;
+      const sliceOutput = projectId ? store.getArtifact<any>(projectId, 'planner_clips') : null;
+      const branchOutput = projectId ? store.getArtifact<any>(projectId, 'planner_branches') : null;
 
       const title =
         ctx.title ||
@@ -172,13 +175,15 @@ export const prdSynthesisStep = createStep({
         ctx.userToneOrPreference ||
         trigger.userToneOrPreference;
 
-      return await executePrdSynthesisStep({
+      const result = await executePrdSynthesisStep({
         title,
         spineScript,
         clips,
         branches,
         userToneOrPreference,
       });
+      if (projectId) store.setArtifact(projectId, 'planner_prd', result);
+      return result;
     });
   },
 });

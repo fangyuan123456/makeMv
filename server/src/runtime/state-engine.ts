@@ -8,7 +8,7 @@
  * 3. 产生可持久化的玩家试玩存档 (PlayerSession)。
  */
 
-import type { TextGameArtifact, TextGameNode, TextGameChoice } from '../agents/text-game/schema.js';
+import type { TextGameArtifact, TextGameNode, TextGameChoice } from '../agents/game-assembly/schema.js';
 import type { GDDArtifact, GlobalStateMachine } from '../agents/planner/schema.js';
 
 export interface PlayerGameState {

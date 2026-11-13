@@ -350,7 +350,7 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
    * 通用图生视频
    */
   public async generateVideo(prompt: string, options?: VideoGenerationOptions): Promise<string> {
-    const templatePath = this.resolveTemplatePath('comfyui_i2v.json');
+    const templatePath = this.resolveTemplatePath('comfyui_h3_first_last_8step.json');
     if (!fs.existsSync(templatePath)) {
       throw new Error(`[ComfyUIMediaProvider] 未找到通用生视频工作流模板: ${templatePath}`);
     }

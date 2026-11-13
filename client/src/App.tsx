@@ -277,7 +277,7 @@ export function App() {
                 : 0;
               next.resultSummary =
                 `互动文游已直接产出${nodes ? `：${nodes} 幕可玩切片` : ''}，` +
-                '独立入口 text-game/index.html 即刻可试玩；玩家在游戏内修改后续接入。';
+                '独立入口 game-assembly/index.html 即刻可试玩；玩家在游戏内修改后续接入。';
               next.gameUrl = buildGameUrl(currentProjectId);
             }
           }
@@ -636,7 +636,7 @@ export function App() {
               onClick={() => setActiveTab('text_game')}
             >
               <span>🎮</span>
-              <span>独立可玩文游 (index.html)</span>
+              <span>互动游戏组装器 (index.html)</span>
               {projectData?.artifacts?.text_game && <span style={{ color: 'var(--accent-emerald)', fontSize: '11px' }}>●</span>}
             </button>
 

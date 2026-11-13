@@ -12,6 +12,8 @@ import { z } from 'zod';
 export const SpineScriptInputSchema = z.object({
   userPrompt: z.string().describe('创作者输入的创意灵感或故事需求'),
   userToneOrPreference: z.string().optional().describe('创作者指定的风格偏好或补充要求'),
+  projectId: z.string().optional().describe('项目标识（仅用于产物落盘，不参与文学生成）'),
+  outlineSummary: z.string().optional().describe('Step 0 互动剧情大纲'),
 });
 
 export const SpineScriptOutputSchema = z.object({

@@ -9,6 +9,7 @@
  */
 
 import { createStep } from '@mastra/core/workflows';
+import { ProjectStore } from '../../../../project-store/ProjectStore.js';
 import { runTaskRecordedStep } from '../../../../workflow-engine/TaskStore.js';
 import {
   TopologyValidationInputSchema,
@@ -72,9 +73,11 @@ export const validateTopologyStep = createStep({
   execute: async ({ context }) => {
     return await runTaskRecordedStep('validate-topology-step', async () => {
       const ctx = (context as any) || {};
-      const sliceOutput = ctx.steps?.['slice-interactions']?.output;
-      const branchOutput = ctx.steps?.['derive-branches']?.output;
-      const prdOutput = ctx.steps?.['prd-synthesis-step']?.output;
+      const projectId = ctx.projectId || ctx.triggerData?.projectId;
+      const store = ProjectStore.getInstance();
+      const sliceOutput = projectId ? store.getArtifact<any>(projectId, 'planner_clips') : null;
+      const branchOutput = projectId ? store.getArtifact<any>(projectId, 'planner_branches') : null;
+      const prdOutput = projectId ? store.getArtifact<any>(projectId, 'planner_prd') : null;
 
       const title =
         ctx.title ||
@@ -94,13 +97,15 @@ export const validateTopologyStep = createStep({
       const prd = ctx.prd || prdOutput?.prd;
       const gdd = ctx.gdd;
 
-      return await executeValidateTopologyStep({
+      const result = await executeValidateTopologyStep({
         title,
         clips,
         branches,
         prd,
         gdd,
       });
+      if (projectId) store.setArtifact(projectId, 'planner_validation', result);
+      return result;
     });
   },
 });
