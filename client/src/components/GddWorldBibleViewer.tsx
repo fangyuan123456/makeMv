@@ -214,7 +214,7 @@ export const GddWorldBibleViewer: React.FC<GddWorldBibleViewerProps> = ({
     return (
       <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
         <div style={{ fontSize: '48px', marginBottom: '16px' }}>🗺️</div>
-        <h3 style={{ color: '#fff', marginBottom: '8px' }}>暂未生成第一阶段策划案</h3>
+        <h3 style={{ color: 'var(--text-main)', marginBottom: '8px' }}>暂未生成第一阶段策划案</h3>
         <p>请在左侧对话框向 AI 视听总导演描述创意，并授权推演第一阶段策划与故事流向。</p>
       </div>
     );
@@ -602,18 +602,19 @@ export const GddWorldBibleViewer: React.FC<GddWorldBibleViewerProps> = ({
                     <div
                       key={beat.beatId}
                       style={{
-                        background: 'var(--bg-elevated)',
+                        background: '#f8fafc',
+                        border: '1px solid var(--border-subtle)',
                         padding: '12px 14px',
                         borderRadius: '6px',
                         borderLeft: beat.isEnding
                           ? '3px solid var(--accent-amber)'
-                          : '3px solid var(--accent-cyan)',
+                          : '3px solid var(--accent-blue)',
                       }}
                     >
-                      <div style={{ fontWeight: 600, color: '#fff', marginBottom: '4px' }}>
+                      <div style={{ fontWeight: 600, color: 'var(--text-main)', marginBottom: '4px' }}>
                         [{beat.act}] {beat.title} ({beat.beatId})
                       </div>
-                      <div style={{ fontSize: '12px', color: '#cbd5e1' }}>{beat.dramaticGoal}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{beat.dramaticGoal}</div>
                     </div>
                   ))}
                 </div>

@@ -186,9 +186,9 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
         subtitle: storySnippet,
         shortTag: isStart ? '起点' : undefined,
         badge: isStart ? '起点片段' : '剧情片段',
-        badgeColor: '#0f766e',
-        accentColor: '#38bdf8',
-        bgColor: '#0f1b2d',
+        badgeColor: '#0284c7',
+        accentColor: '#0284c7',
+        bgColor: '#f0f9ff',
         isStart,
       };
       nodeList.push(node);
@@ -211,9 +211,9 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
           typeof inter.timeoutSec === 'number'
             ? `互动 ⏱️${inter.timeoutSec}s`
             : `互动 (${outcomeCount}结果)`,
-        badgeColor: '#b45309',
-        accentColor: '#f59e0b',
-        bgColor: '#221a0f',
+        badgeColor: '#d97706',
+        accentColor: '#d97706',
+        bgColor: '#fffbeb',
         hasStateChange,
         timeoutSec: inter.timeoutSec,
       };
@@ -237,9 +237,9 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
         ),
         shortTag: ending.endingType,
         badge: `${ending.endingType} · ${isVictory ? '通关' : '终局'}`,
-        badgeColor: isVictory ? '#059669' : '#be123c',
-        accentColor: isVictory ? '#10b981' : '#f43f5e',
-        bgColor: isVictory ? '#0d221c' : '#24121b',
+        badgeColor: isVictory ? '#059669' : '#e11d48',
+        accentColor: isVictory ? '#059669' : '#e11d48',
+        bgColor: isVictory ? '#ecfdf5' : '#fff1f2',
         isVictory,
       };
       nodeList.push(node);
@@ -389,7 +389,57 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
       }
     }
 
-    // 2.3 同行节点按语义与出现顺序排序分配列号 col
+    // 2.2.1 智能抽取故事黄金主干路径 (Golden Spine Extraction)
+    // 采用反向 DP + 故事权重评估，从 startRoot 寻找一条通往终局（优先胜利结局）的核心链路
+    const nodeMap = new Map<string, PlannerTopoNode>(nodes.map((n) => [n.id, n]));
+    const bestScore = new Map<string, number>();
+    const bestNext = new Map<string, string>();
+
+    // 逆拓扑序计算最优主干分值
+    for (const u of dfsOrder) {
+      const uNode = nodeMap.get(u);
+      const isTerminal = (dagOut.get(u) || []).length === 0;
+      if (isTerminal) {
+        const terminalScore = uNode?.isVictory ? 200 : uNode?.kind === 'ending' ? 60 : 30;
+        bestScore.set(u, terminalScore);
+      } else {
+        let maxS = -Infinity;
+        let chosenNext = '';
+        for (const v of dagOut.get(u) || []) {
+          const vNode = nodeMap.get(v);
+          const edgeObj = forwardEdges.find((e) => e.from === u && e.to === v);
+          let edgeWeight = 10;
+          if (edgeObj?.kind === 'normal') edgeWeight = 30; // 剧情片段平滑顺向推进
+          else if (edgeObj?.kind === 'choice') edgeWeight = 15;
+          else if (edgeObj?.kind === 'conditional') edgeWeight = 10;
+          else if (edgeObj?.kind === 'timeout') edgeWeight = -25; // 超时通常非主线
+          
+          if (vNode?.isVictory) edgeWeight += 60;
+          else if (vNode?.kind === 'ending' && !vNode?.isVictory) edgeWeight -= 40; // 失败结局避开主干
+
+          const totalCandidate = edgeWeight + (bestScore.get(v) ?? 0);
+          if (totalCandidate > maxS) {
+            maxS = totalCandidate;
+            chosenNext = v;
+          }
+        }
+        bestScore.set(u, maxS);
+        if (chosenNext) bestNext.set(u, chosenNext);
+      }
+    }
+
+    // 正向追踪组装主干集合
+    const backboneSet = new Set<string>();
+    let currTrack: string | undefined = startRoot;
+    const visitedInTrack = new Set<string>();
+    while (currTrack && !visitedInTrack.has(currTrack)) {
+      backboneSet.add(currTrack);
+      visitedInTrack.add(currTrack);
+      currTrack = bestNext.get(currTrack);
+    }
+
+    // 2.3 依据主干中轴与跨行交替均衡策略，为同行节点分配居中及左右对称的槽位 (Slots)
+    // slot = 0 为正中主轴，负数为左翼分支 (-1, -2...)，正数为右翼分支 (+1, +2...)
     const rows = new Map<number, PlannerTopoNode[]>();
     nodes.forEach((n) => {
       const r = rank.get(n.id) ?? 0;
@@ -397,23 +447,109 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
       rows.get(r)!.push(n);
     });
 
-    const nodePriority = (n: PlannerTopoNode): number => {
-      if (n.kind === 'clip') return 0;
-      if (n.kind === 'interaction') return 1;
-      if (n.kind === 'ending' && n.isVictory) return 2;
-      return 3;
-    };
-
     const sortedRows = [...rows.keys()].sort((a, b) => a - b);
-    sortedRows.forEach((r) => {
-      rows.get(r)!.sort((a, b) => {
-        const diff = nodePriority(a) - nodePriority(b);
-        if (diff !== 0) return diff;
-        return (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0);
-      });
+    const nodeSlots = new Map<string, number>();
+
+    // 全局分支左右翼累计计数，用于跨行交替对称平衡
+    let globalLeftBranchCount = 0;
+    let globalRightBranchCount = 0;
+
+    sortedRows.forEach((rowIdx) => {
+      const rowNodes = rows.get(rowIdx)!;
+      if (rowNodes.length === 1) {
+        // 单个节点直接锁定居中中轴线 slot = 0
+        nodeSlots.set(rowNodes[0].id, 0);
+        return;
+      }
+
+      // 多节点行：找出主干节点（若有）
+      const bbIndex = rowNodes.findIndex((n) => backboneSet.has(n.id));
+
+      if (bbIndex !== -1) {
+        // 存在主干节点：主干锁定居中 slot = 0
+        const bbNode = rowNodes[bbIndex];
+        nodeSlots.set(bbNode.id, 0);
+
+        const branches = rowNodes.filter((_, idx) => idx !== bbIndex);
+        const leftPool: PlannerTopoNode[] = [];
+        const rightPool: PlannerTopoNode[] = [];
+
+        branches.forEach((bNode) => {
+          const isBadEnding = bNode.kind === 'ending' && !bNode.isVictory;
+          const isTimeout = Boolean(bNode.shortTag?.includes('⏱') || bNode.badge.includes('⏱'));
+          if (isBadEnding || isTimeout) {
+            leftPool.push(bNode);
+            globalLeftBranchCount++;
+          } else if (bNode.isVictory) {
+            rightPool.push(bNode);
+            globalRightBranchCount++;
+          } else {
+            // 普通分支：根据全局配重交替分配至左翼或右翼，避免单侧堆积
+            if (globalLeftBranchCount <= globalRightBranchCount) {
+              leftPool.push(bNode);
+              globalLeftBranchCount++;
+            } else {
+              rightPool.push(bNode);
+              globalRightBranchCount++;
+            }
+          }
+        });
+
+        // 均衡两翼数量，保持同行左右对称
+        while (leftPool.length > rightPool.length + 1) {
+          rightPool.unshift(leftPool.pop()!);
+        }
+        while (rightPool.length > leftPool.length + 1) {
+          leftPool.unshift(rightPool.pop()!);
+        }
+
+        leftPool.forEach((n, i) => {
+          nodeSlots.set(n.id, -(i + 1));
+        });
+        rightPool.forEach((n, i) => {
+          nodeSlots.set(n.id, i + 1);
+        });
+      } else {
+        // 本行无主干节点（如同级分歧推进）：围绕 0 轴左右对称展开
+        const total = rowNodes.length;
+        if (total % 2 === 1) {
+          const half = Math.floor(total / 2);
+          rowNodes.forEach((n, i) => {
+            nodeSlots.set(n.id, i - half);
+          });
+        } else {
+          // 偶数个：[-half, ..., -1, +1, ..., +half]
+          const half = total / 2;
+          rowNodes.forEach((n, i) => {
+            const slot = i < half ? i - half : i - half + 1;
+            nodeSlots.set(n.id, slot);
+          });
+        }
+      }
     });
 
-    const maxCols = Math.max(...sortedRows.map((r) => rows.get(r)!.length), 1);
+    // 2.4 计算全局槽位极值与严格几何中心轴 X 坐标
+    let minSlot = 0;
+    let maxSlot = 0;
+    nodeSlots.forEach((s) => {
+      if (s < minSlot) minSlot = s;
+      if (s > maxSlot) maxSlot = s;
+    });
+
+    const leftSpan = Math.abs(Math.min(0, minSlot));
+    const rightSpan = Math.max(0, maxSlot);
+    const maxHalfSlots = Math.max(leftSpan, rightSpan, 1);
+
+    const reverseEdgeCount = edges.filter(
+      (e) => e.kind === 'rewind' || (rank.get(e.to) ?? 0) <= (rank.get(e.from) ?? 0)
+    ).length;
+    const corridorReserve = Math.max(48, reverseEdgeCount * 44 + 48);
+
+    // 严密对称计算：让主干正处于 50% 绝对几何正中央
+    const wingWidth = maxHalfSlots * (NW + COL_GAP);
+    const sidePadding = Math.max(PAD_X + LEFT_CORRIDOR, PAD_X + corridorReserve);
+    const CenterX = sidePadding + wingWidth + NW / 2;
+    const totalW = CenterX * 2; // 画布总宽恒为 CenterX 的两倍，主干百分百居中
 
     const posMap = new Map<string, PositionedNode>();
     const positionedNodes: PositionedNode[] = [];
@@ -421,16 +557,16 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
     sortedRows.forEach((rowIdx) => {
       const rowNodes = rows.get(rowIdx)!;
 
-      rowNodes.forEach((node, idx) => {
-        const colIdx = idx;
+      rowNodes.forEach((node) => {
+        const slot = nodeSlots.get(node.id) ?? 0;
         const item: PositionedNode = {
           node,
-          x: PAD_X + LEFT_CORRIDOR + colIdx * (NW + COL_GAP),
+          x: CenterX + slot * (NW + COL_GAP) - NW / 2,
           y: PAD_Y + rowIdx * (NH + ROW_GAP),
           w: NW,
           h: NH,
           row: rowIdx,
-          col: colIdx,
+          col: slot,
         };
         posMap.set(node.id, item);
         positionedNodes.push(item);
@@ -446,7 +582,7 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
       }
     });
 
-    // 2.4 计算垂直流向边 + 局部不碰撞右侧回溯轨道
+    // 2.5 计算垂直流向边 + 局部不碰撞右侧回溯轨道
     const outgoingEdgesMap = new Map<string, PlannerTopoEdge[]>();
     const pairEdgesMap = new Map<string, PlannerTopoEdge[]>();
     edges.forEach((e) => {
@@ -461,7 +597,6 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
     const positionedEdges: PositionedEdge[] = [];
     // 右侧回溯轨道占用记录：[minRow, maxRow, corridorX]
     const reverseTracks: Array<{ minRow: number; maxRow: number; corridorX: number }> = [];
-    let maxCanvasRight = PAD_X + LEFT_CORRIDOR + maxCols * NW + Math.max(0, maxCols - 1) * COL_GAP + PAD_X;
 
     edges.forEach((edge) => {
       const fromPos = posMap.get(edge.from);
@@ -492,7 +627,6 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
           corridorX = localRight + 54 + trackIdx * 48;
         }
         reverseTracks.push({ minRow, maxRow, corridorX });
-        maxCanvasRight = Math.max(maxCanvasRight, corridorX + 76);
 
         const fromAnchors = getShapeAnchors(fromPos.node.shape, fromPos.w, fromPos.h);
         const toAnchors = getShapeAnchors(toPos.node.shape, toPos.w, toPos.h);
@@ -547,7 +681,7 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
       const ex = toPos.x + toPos.w / 2 + pairSpread * 0.35;
       const ey = toPos.y;
 
-      // 跨越多行的垂直边若同列中间有其它卡片阻挡，向左侧绕避走廊平滑弯曲
+      // 跨越多行的垂直边若同列中间有其它卡片阻挡，向外侧平滑弯曲避障
       let bypassXShift = pairSpread;
       if (toPos.row - fromPos.row > 1 && Math.abs(pairSpread) < 1) {
         const minMidX = Math.min(sx, ex) - 24;
@@ -560,7 +694,8 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
             pn.x <= maxMidX
         );
         if (hasMiddleCollision) {
-          bypassXShift = -(NW * 0.5 + LEFT_CORRIDOR * 0.7);
+          const outwardDir = sx >= CenterX ? 1 : -1;
+          bypassXShift = outwardDir * (NW * 0.52 + COL_GAP * 0.4);
         }
       }
 
@@ -593,10 +728,19 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
       360,
       PAD_Y * 2 + sortedRows.length * NH + Math.max(0, sortedRows.length - 1) * ROW_GAP
     );
-    const totalW = Math.max(760, maxCanvasRight);
 
     return { positionedNodes, positionedEdges, width: totalW, height: totalH };
   }, [nodes, edges, forwardEdges, prd.startNodeId]);
+
+  // 初始加载或画布尺寸变化时，自动将中轴主干平滑居中在视窗可视区域正中央
+  useEffect(() => {
+    if (scrollRef.current && layout.width > 0) {
+      const containerWidth = scrollRef.current.clientWidth;
+      if (layout.width > containerWidth) {
+        scrollRef.current.scrollLeft = Math.round((layout.width - containerWidth) / 2);
+      }
+    }
+  }, [layout.width]);
 
   const focusNodeId = hoveredNodeId || selectedNodeId || null;
 
@@ -619,31 +763,31 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
     switch (kind) {
       case 'choice':
         return {
-          stroke: highlighted ? '#38bdf8' : '#0284c7',
+          stroke: highlighted ? '#0284c7' : '#38bdf8',
           marker: highlighted ? 'url(#p-arrow-active)' : 'url(#p-arrow-choice)',
           dash: undefined,
         };
       case 'conditional':
         return {
-          stroke: highlighted ? '#fbbf24' : '#d97706',
+          stroke: highlighted ? '#d97706' : '#f59e0b',
           marker: 'url(#p-arrow-amber)',
           dash: '6 3',
         };
       case 'timeout':
         return {
-          stroke: '#f43f5e',
+          stroke: '#e11d48',
           marker: 'url(#p-arrow-rose)',
           dash: '5 4',
         };
       case 'rewind':
         return {
-          stroke: '#c084fc',
+          stroke: '#7c3aed',
           marker: 'url(#p-arrow-violet)',
           dash: '6 4',
         };
       default:
         return {
-          stroke: highlighted ? '#00d2ff' : '#475569',
+          stroke: highlighted ? '#2563eb' : '#94a3b8',
           marker: highlighted ? 'url(#p-arrow-active)' : 'url(#p-arrow-normal)',
           dash: undefined,
         };
@@ -655,15 +799,15 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
       <div className="topo-toolbar">
         <div className="topo-legend">
           <span className="topo-legend-item">
-            <TopoLegendIcon shape="rect" stroke="#38bdf8" fill="#0f1b2d" /> 剧情 ({prd.clips.length})
+            <TopoLegendIcon shape="rect" stroke="#0284c7" fill="#f0f9ff" /> 剧情 ({prd.clips.length})
           </span>
           <span className="topo-legend-item">
-            <TopoLegendIcon shape="hexagon" stroke="#f59e0b" fill="#221a0f" /> 互动 ({prd.interactions.length})
+            <TopoLegendIcon shape="hexagon" stroke="#d97706" fill="#fffbeb" /> 互动 ({prd.interactions.length})
           </span>
           <span className="topo-legend-item">
-            <TopoLegendIcon shape="octagon" stroke="#10b981" fill="#0d221c" doubleBorder /> 结局 ({prd.endings.length})
+            <TopoLegendIcon shape="octagon" stroke="#059669" fill="#ecfdf5" doubleBorder /> 结局 ({prd.endings.length})
           </span>
-          <span className="topo-legend-item" style={{ color: '#c084fc' }}>
+          <span className="topo-legend-item" style={{ color: '#7c3aed' }}>
             ┄ 回溯
           </span>
         </div>
@@ -714,28 +858,28 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
         >
           <defs>
             <pattern id="planner-topo-grid" width="28" height="28" patternUnits="userSpaceOnUse">
-              <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#1e293b" strokeWidth="0.6" strokeOpacity="0.55" />
+              <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#e2e8f0" strokeWidth="0.8" strokeOpacity="0.8" />
             </pattern>
             <filter id="planner-node-glow" x="-25%" y="-25%" width="150%" height="150%">
-              <feDropShadow dx="0" dy="0" stdDeviation="5" floodColor="#00d2ff" floodOpacity="0.75" />
+              <feDropShadow dx="0" dy="2" stdDeviation="4" floodColor="#2563eb" floodOpacity="0.3" />
             </filter>
             <marker id="p-arrow-normal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 1 L 10 5 L 0 9 z" fill="#475569" />
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="#94a3b8" />
             </marker>
             <marker id="p-arrow-active" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 1 L 10 5 L 0 9 z" fill="#00d2ff" />
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="#2563eb" />
             </marker>
             <marker id="p-arrow-choice" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
               <path d="M 0 1 L 10 5 L 0 9 z" fill="#0284c7" />
             </marker>
             <marker id="p-arrow-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 1 L 10 5 L 0 9 z" fill="#f59e0b" />
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="#d97706" />
             </marker>
             <marker id="p-arrow-rose" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 1 L 10 5 L 0 9 z" fill="#f43f5e" />
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="#e11d48" />
             </marker>
             <marker id="p-arrow-violet" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 1 L 10 5 L 0 9 z" fill="#c084fc" />
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="#7c3aed" />
             </marker>
           </defs>
 
@@ -775,7 +919,7 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
                       width={pillW}
                       height={20}
                       rx={10}
-                      fill="#0b1120"
+                      fill="#ffffff"
                       stroke={style.stroke}
                       strokeWidth={1}
                     />
@@ -783,7 +927,7 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
                       x={0}
                       y={3.5}
                       textAnchor="middle"
-                      fill="#e2e8f0"
+                      fill="#334155"
                       fontSize="9.5"
                       fontWeight={600}
                       fontFamily="sans-serif"
@@ -803,7 +947,7 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
             const isPulsing = pulsingNodeId === node.id;
             const isRelated = focusNodeId ? relatedNodeIds.has(node.id) : true;
             const isInteraction = node.kind === 'interaction';
-            const strokeColor = isSelected ? '#00d2ff' : isHovered ? '#ffffff' : node.accentColor;
+            const strokeColor = isSelected ? '#2563eb' : isHovered ? '#0f172a' : node.accentColor;
 
             return (
               <g
@@ -835,7 +979,7 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
                         w={w + 14}
                         h={h + 14}
                         fill="none"
-                        stroke="#00d2ff"
+                        stroke="#2563eb"
                         strokeWidth={2.5}
                       />
                     </g>
@@ -857,7 +1001,7 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
                 <text
                   x={w / 2}
                   y={19}
-                  fill={isSelected ? '#00d2ff' : '#94a3b8'}
+                  fill={isSelected ? '#2563eb' : '#64748b'}
                   fontSize="10"
                   fontWeight={700}
                   fontFamily="monospace"
@@ -871,7 +1015,7 @@ export const PlannerTopologyDiagram: React.FC<PlannerTopologyDiagramProps> = ({
                 <text
                   x={w / 2}
                   y={38}
-                  fill="#ffffff"
+                  fill="#0f172a"
                   fontSize="12.5"
                   fontWeight={700}
                   fontFamily="sans-serif"

@@ -30,7 +30,7 @@ export const StatusHudSvg: React.FC<StatusHudSvgProps> = ({ state }) => {
   const svgHeight = 64;
 
   return (
-    <div style={{ width: '100%', overflowX: 'auto', background: 'rgba(10, 13, 20, 0.75)', borderRadius: '8px', border: '1px solid var(--border-subtle)', padding: '6px' }}>
+    <div style={{ width: '100%', overflowX: 'auto', background: '#ffffff', borderRadius: '8px', border: '1px solid var(--border-subtle)', boxShadow: 'var(--shadow-xs)', padding: '6px' }}>
       <svg
         viewBox={`0 0 ${svgWidth} ${svgHeight}`}
         style={{ width: '100%', height: 'auto', display: 'block', minHeight: '54px' }}
@@ -38,20 +38,20 @@ export const StatusHudSvg: React.FC<StatusHudSvgProps> = ({ state }) => {
         <defs>
           {/* 青色渐变 */}
           <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#06b6d4" />
-            <stop offset="100%" stopColor="#3b82f6" />
+            <stop offset="0%" stopColor="#0284c7" />
+            <stop offset="100%" stopColor="#2563eb" />
           </linearGradient>
 
           {/* 红色警报渐变 */}
           <linearGradient id="dangerGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#f59e0b" />
-            <stop offset="100%" stopColor="#ef4444" />
+            <stop offset="0%" stopColor="#d97706" />
+            <stop offset="100%" stopColor="#dc2626" />
           </linearGradient>
 
           {/* 紫色神经负荷渐变 */}
           <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#8b5cf6" />
-            <stop offset="100%" stopColor="#ec4899" />
+            <stop offset="0%" stopColor="#7c3aed" />
+            <stop offset="100%" stopColor="#db2777" />
           </linearGradient>
 
           {/* 翡翠绿渐变 */}
@@ -62,7 +62,7 @@ export const StatusHudSvg: React.FC<StatusHudSvgProps> = ({ state }) => {
 
           {/* 阴影滤镜 */}
           <filter id="hudGlow" x="-20%" y="-20%" width="140%" height="140%">
-            <feDropShadow dx="0" dy="1" stdDeviation="2" floodColor="#00d2ff" floodOpacity="0.3" />
+            <feDropShadow dx="0" dy="1" stdDeviation="2" floodColor="#2563eb" floodOpacity="0.2" />
           </filter>
         </defs>
 
@@ -85,8 +85,8 @@ export const StatusHudSvg: React.FC<StatusHudSvgProps> = ({ state }) => {
                 width={itemWidth}
                 height={itemHeight}
                 rx="6"
-                fill="rgba(18, 23, 34, 0.85)"
-                stroke="rgba(255, 255, 255, 0.08)"
+                fill="#f8fafc"
+                stroke="#e2e8f0"
                 strokeWidth="1"
               />
 
@@ -94,7 +94,7 @@ export const StatusHudSvg: React.FC<StatusHudSvgProps> = ({ state }) => {
               <text
                 x="8"
                 y="16"
-                fill="#94a3b8"
+                fill="#64748b"
                 fontSize="11"
                 fontWeight="600"
                 fontFamily="sans-serif"
@@ -106,7 +106,7 @@ export const StatusHudSvg: React.FC<StatusHudSvgProps> = ({ state }) => {
               <text
                 x={itemWidth - 8}
                 y="16"
-                fill="#ffffff"
+                fill="#0f172a"
                 fontSize="12"
                 fontWeight="700"
                 fontFamily="monospace"
@@ -122,7 +122,7 @@ export const StatusHudSvg: React.FC<StatusHudSvgProps> = ({ state }) => {
                 width={itemWidth - 16}
                 height="6"
                 rx="3"
-                fill="rgba(255, 255, 255, 0.06)"
+                fill="#e2e8f0"
               />
 
               {/* 动态进度条 */}
@@ -147,7 +147,7 @@ export const StatusHudSvg: React.FC<StatusHudSvgProps> = ({ state }) => {
 
       {/* 旗标与物品微观徽章栏 */}
       {(flagEntries.length > 0 || inventory.length > 0) && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '6px 12px 2px', borderTop: '1px solid rgba(255, 255, 255, 0.04)', alignItems: 'center' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '6px 12px 2px', borderTop: '1px solid #e2e8f0', alignItems: 'center' }}>
           {inventory.map((item, idx) => (
             <span
               key={`inv-${idx}`}
@@ -158,10 +158,11 @@ export const StatusHudSvg: React.FC<StatusHudSvgProps> = ({ state }) => {
                 fontSize: '11px',
                 padding: '2px 8px',
                 borderRadius: '4px',
-                background: 'rgba(245, 158, 11, 0.15)',
-                border: '1px solid rgba(245, 158, 11, 0.4)',
-                color: '#fbbf24',
+                background: '#fffbeb',
+                border: '1px solid #fde68a',
+                color: '#b45309',
                 fontFamily: 'var(--font-mono)',
+                fontWeight: 600,
               }}
             >
               🗝️ {item}
@@ -178,10 +179,11 @@ export const StatusHudSvg: React.FC<StatusHudSvgProps> = ({ state }) => {
                 fontSize: '11px',
                 padding: '2px 8px',
                 borderRadius: '4px',
-                background: val ? 'rgba(16, 185, 129, 0.15)' : 'rgba(100, 116, 139, 0.15)',
-                border: val ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(100, 116, 139, 0.3)',
-                color: val ? '#34d399' : '#94a3b8',
+                background: val ? '#ecfdf5' : '#f1f5f9',
+                border: val ? '1px solid #a7f3d0' : '1px solid #e2e8f0',
+                color: val ? '#047857' : '#64748b',
                 fontFamily: 'var(--font-mono)',
+                fontWeight: 500,
               }}
             >
               <span style={{ fontSize: '9px' }}>{val ? '●' : '○'}</span> {flag}

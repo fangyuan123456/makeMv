@@ -221,19 +221,19 @@ export const StoryGraphSvgDiagram: React.FC<StoryGraphSvgDiagramProps> = ({
   }, [nodes, edges, startId, visitedNodeIds]);
 
   return (
-    <div style={{ width: '100%', overflowX: 'auto', background: '#090d16', borderRadius: '8px', border: '1px solid var(--border-subtle)', padding: '10px' }}>
-      <div className="topo-legend" style={{ marginBottom: '8px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+    <div style={{ width: '100%', overflowX: 'auto', background: '#ffffff', borderRadius: '8px', border: '1px solid var(--border-subtle)', boxShadow: 'var(--shadow-card)', padding: '12px' }}>
+      <div className="topo-legend" style={{ marginBottom: '8px', paddingBottom: '8px', borderBottom: '1px solid #e2e8f0' }}>
         <span className="topo-legend-item">
-          <TopoLegendIcon shape="stadium" stroke="#00d2ff" fill="#162234" /> 起点幕
+          <TopoLegendIcon shape="stadium" stroke="#2563eb" fill="#eff6ff" /> 起点幕
         </span>
         <span className="topo-legend-item">
-          <TopoLegendIcon shape="rect" stroke="#475569" fill="#121722" /> 剧情幕
+          <TopoLegendIcon shape="rect" stroke="#64748b" fill="#f8fafc" /> 剧情幕
         </span>
         <span className="topo-legend-item">
-          <TopoLegendIcon shape="hexagon" stroke="#38bdf8" fill="#121c2c" /> 多分歧抉择
+          <TopoLegendIcon shape="hexagon" stroke="#0284c7" fill="#f0f9ff" /> 多分歧抉择
         </span>
         <span className="topo-legend-item">
-          <TopoLegendIcon shape="octagon" stroke="#f59e0b" fill="#1c1722" doubleBorder /> 结局
+          <TopoLegendIcon shape="octagon" stroke="#d97706" fill="#fffbeb" doubleBorder /> 结局
         </span>
         <span className="topo-legend-tip">💡 点击节点跳转试玩该幕</span>
       </div>
@@ -243,10 +243,10 @@ export const StoryGraphSvgDiagram: React.FC<StoryGraphSvgDiagramProps> = ({
       >
         <defs>
           <filter id="svgCurrentGlow" x="-30%" y="-30%" width="160%" height="160%">
-            <feDropShadow dx="0" dy="0" stdDeviation="5" floodColor="#00d2ff" floodOpacity="0.8" />
+            <feDropShadow dx="0" dy="1" stdDeviation="4" floodColor="#2563eb" floodOpacity="0.3" />
           </filter>
           <filter id="endingGlow" x="-20%" y="-20%" width="140%" height="140%">
-            <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="#f59e0b" floodOpacity="0.5" />
+            <feDropShadow dx="0" dy="1" stdDeviation="3" floodColor="#d97706" floodOpacity="0.25" />
           </filter>
           <marker
             id="arrow"
@@ -257,7 +257,7 @@ export const StoryGraphSvgDiagram: React.FC<StoryGraphSvgDiagramProps> = ({
             markerHeight="6"
             orient="auto-start-reverse"
           >
-            <path d="M 0 1 L 10 5 L 0 9 z" fill="#475569" />
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#94a3b8" />
           </marker>
           <marker
             id="arrowActive"
@@ -268,7 +268,7 @@ export const StoryGraphSvgDiagram: React.FC<StoryGraphSvgDiagramProps> = ({
             markerHeight="6"
             orient="auto-start-reverse"
           >
-            <path d="M 0 1 L 10 5 L 0 9 z" fill="#00d2ff" />
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#2563eb" />
           </marker>
         </defs>
 
@@ -278,7 +278,7 @@ export const StoryGraphSvgDiagram: React.FC<StoryGraphSvgDiagramProps> = ({
             key={`edge-${idx}`}
             d={e.path}
             fill="none"
-            stroke={e.isTraversed ? '#00d2ff' : '#334155'}
+            stroke={e.isTraversed ? '#2563eb' : '#cbd5e1'}
             strokeWidth={e.isTraversed ? 2.5 : 1.5}
             strokeDasharray={e.isTraversed ? 'none' : '4 3'}
             markerEnd={e.isTraversed ? 'url(#arrowActive)' : 'url(#arrow)'}
@@ -292,29 +292,29 @@ export const StoryGraphSvgDiagram: React.FC<StoryGraphSvgDiagramProps> = ({
           const isVisited = visitedNodeIds.includes(node.id);
           const isHovered = node.id === hoveredNodeId;
 
-          let strokeColor = shape === 'hexagon' ? '#38bdf8' : '#334155';
-          let fillColor = shape === 'hexagon' ? '#121c2c' : '#121722';
+          let strokeColor = shape === 'hexagon' ? '#0284c7' : '#94a3b8';
+          let fillColor = shape === 'hexagon' ? '#f0f9ff' : '#ffffff';
           let strokeWidth = 1.3;
           let filter: string | undefined;
 
           if (isCurrent) {
-            strokeColor = '#00d2ff';
-            fillColor = '#162234';
+            strokeColor = '#2563eb';
+            fillColor = '#eff6ff';
             strokeWidth = 2.4;
             filter = 'url(#svgCurrentGlow)';
           } else if (node.isEnding) {
-            strokeColor = node.endingType === 'BE' ? '#ef4444' : '#f59e0b';
-            fillColor = '#1c1722';
+            strokeColor = node.endingType === 'BE' ? '#e11d48' : '#d97706';
+            fillColor = node.endingType === 'BE' ? '#fff1f2' : '#fffbeb';
             strokeWidth = 1.8;
             filter = 'url(#endingGlow)';
           } else if (isVisited) {
-            strokeColor = '#10b981';
-            fillColor = '#101d22';
+            strokeColor = '#059669';
+            fillColor = '#ecfdf5';
             strokeWidth = 1.6;
           }
 
           if (isHovered && !isCurrent) {
-            strokeColor = '#38bdf8';
+            strokeColor = '#2563eb';
             strokeWidth = 2;
           }
 
@@ -352,7 +352,7 @@ export const StoryGraphSvgDiagram: React.FC<StoryGraphSvgDiagramProps> = ({
               <text
                 x={w / 2}
                 y={18}
-                fill={isCurrent ? '#00d2ff' : '#94a3b8'}
+                fill={isCurrent ? '#2563eb' : '#64748b'}
                 fontSize="10"
                 fontWeight="700"
                 fontFamily="monospace"
@@ -364,7 +364,7 @@ export const StoryGraphSvgDiagram: React.FC<StoryGraphSvgDiagramProps> = ({
               <text
                 x={w / 2}
                 y={37}
-                fill="#ffffff"
+                fill="#0f172a"
                 fontSize="12"
                 fontWeight="700"
                 fontFamily="sans-serif"
@@ -374,7 +374,7 @@ export const StoryGraphSvgDiagram: React.FC<StoryGraphSvgDiagramProps> = ({
               </text>
 
               {isCurrent && (
-                <circle cx={14} cy={h / 2} r="4" fill="#00d2ff">
+                <circle cx={14} cy={h / 2} r="4" fill="#2563eb">
                   <animate attributeName="r" values="3;5.5;3" dur="1.5s" repeatCount="indefinite" />
                   <animate attributeName="opacity" values="1;0.4;1" dur="1.5s" repeatCount="indefinite" />
                 </circle>

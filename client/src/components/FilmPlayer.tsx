@@ -17,7 +17,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({ slices = [] }) => {
     return (
       <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
         <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎬</div>
-        <h3 style={{ color: '#fff', marginBottom: '8px' }}>暂未编译影游视听切片</h3>
+        <h3 style={{ color: 'var(--text-main)', marginBottom: '8px' }}>暂未编译影游视听切片</h3>
         <p>在文游分支试玩验证闭环后，向 AI 总导演下发“编译影游视听切片”指令。</p>
       </div>
     );
@@ -33,14 +33,15 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({ slices = [] }) => {
           style={{
             width: '100%',
             height: '420px',
-            background: '#000',
-            borderRadius: '8px',
+            background: '#090d16',
+            borderRadius: '9px',
             border: '1px solid var(--border-subtle)',
             overflow: 'hidden',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             position: 'relative',
+            boxShadow: 'var(--shadow-sm)',
           }}
         >
           {currentSlice.videoUrl ? (
@@ -58,7 +59,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({ slices = [] }) => {
               style={{ width: '100%', height: '100%', objectFit: 'contain' }}
             />
           ) : (
-            <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+            <div style={{ textAlign: 'center', color: '#94a3b8' }}>
               <div style={{ fontSize: '42px', marginBottom: '10px' }}>🎞️</div>
               <div>【视听切片：{currentSlice.title}】</div>
               <div style={{ fontSize: '12px', marginTop: '6px' }}>
@@ -71,7 +72,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({ slices = [] }) => {
         {/* 当前切片视听指标 */}
         <div className="panel-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-            <h3 style={{ color: 'var(--accent-cyan)', fontSize: '16px' }}>
+            <h3 style={{ color: 'var(--accent-blue)', fontSize: '16px', fontWeight: 700 }}>
               {currentSlice.title}
             </h3>
             <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
@@ -80,22 +81,22 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({ slices = [] }) => {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', fontSize: '12.5px' }}>
-            <div style={{ background: 'var(--bg-elevated)', padding: '10px', borderRadius: '4px' }}>
+            <div style={{ background: '#f8fafc', border: '1px solid var(--border-subtle)', padding: '10px 12px', borderRadius: '6px' }}>
               <strong style={{ color: 'var(--accent-amber)' }}>🎥 运镜机位：</strong>
-              <div style={{ marginTop: '4px', color: '#cbd5e1' }}>{currentSlice.cameraMovement || '特写缓慢推进，营造压迫张力'}</div>
+              <div style={{ marginTop: '4px', color: 'var(--text-secondary)' }}>{currentSlice.cameraMovement || '特写缓慢推进，营造压迫张力'}</div>
             </div>
 
-            <div style={{ background: 'var(--bg-elevated)', padding: '10px', borderRadius: '4px' }}>
-              <strong style={{ color: 'var(--accent-cyan)' }}>💡 光影色温：</strong>
-              <div style={{ marginTop: '4px', color: '#cbd5e1' }}>{currentSlice.lighting || '低饱和冷调，局部轮廓光'}</div>
+            <div style={{ background: '#f8fafc', border: '1px solid var(--border-subtle)', padding: '10px 12px', borderRadius: '6px' }}>
+              <strong style={{ color: 'var(--accent-blue)' }}>💡 光影色温：</strong>
+              <div style={{ marginTop: '4px', color: 'var(--text-secondary)' }}>{currentSlice.lighting || '低饱和冷调，局部轮廓光'}</div>
             </div>
 
             {currentSlice.soundEffects && currentSlice.soundEffects.length > 0 && (
-              <div style={{ background: 'var(--bg-elevated)', padding: '10px', borderRadius: '4px', gridColumn: '1 / -1' }}>
+              <div style={{ background: '#f8fafc', border: '1px solid var(--border-subtle)', padding: '10px 12px', borderRadius: '6px', gridColumn: '1 / -1' }}>
                 <strong style={{ color: 'var(--accent-violet)' }}>🔊 音画设计与音效：</strong>
                 <div style={{ marginTop: '4px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   {currentSlice.soundEffects.map((snd, i) => (
-                    <span key={i} style={{ background: 'rgba(0,0,0,0.4)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px' }}>
+                    <span key={i} style={{ background: '#ffffff', border: '1px solid var(--border-subtle)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', color: 'var(--text-secondary)' }}>
                       🎵 {snd}
                     </span>
                   ))}
@@ -120,23 +121,24 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({ slices = [] }) => {
                 key={slice.sceneId || idx}
                 onClick={() => setSelectedIndex(idx)}
                 style={{
-                  background: isSelected ? 'rgba(0, 210, 255, 0.12)' : 'var(--bg-elevated)',
-                  border: isSelected ? '1px solid var(--accent-cyan)' : '1px solid var(--border-subtle)',
-                  borderRadius: '6px',
+                  background: isSelected ? '#eff6ff' : '#ffffff',
+                  border: isSelected ? '1px solid var(--accent-blue)' : '1px solid var(--border-subtle)',
+                  borderRadius: '7px',
                   padding: '12px',
                   cursor: 'pointer',
                   transition: 'all 0.15s',
+                  boxShadow: isSelected ? 'var(--shadow-xs)' : 'none',
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                  <span style={{ fontWeight: 600, color: isSelected ? 'var(--accent-cyan)' : '#fff', fontSize: '13px' }}>
+                  <span style={{ fontWeight: 600, color: isSelected ? 'var(--accent-blue)' : 'var(--text-main)', fontSize: '13px' }}>
                     {slice.title}
                   </span>
                   <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                     #{idx + 1}
                   </span>
                 </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
                   {slice.cameraMovement || '分镜切片渲染就绪'}
                 </div>
               </div>

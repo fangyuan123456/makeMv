@@ -98,7 +98,7 @@ export const TextGameCockpit: React.FC<TextGameCockpitProps> = ({
     return (
       <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
         <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎮</div>
-        <h3 style={{ color: '#fff', marginBottom: '8px' }}>暂未生成互动文游资产</h3>
+        <h3 style={{ color: 'var(--text-main)', marginBottom: '8px' }}>暂未生成互动文游资产</h3>
         <p>在左侧对话里确认策划案后，再授权「生成可玩文游」即可直接产出 index.html 游戏。</p>
         {gameUrl && (
           <a className="btn btn-primary" style={{ marginTop: '16px' }} href={gameUrl} target="_blank" rel="noreferrer">
@@ -163,10 +163,10 @@ export const TextGameCockpit: React.FC<TextGameCockpitProps> = ({
       {/* 主演视窗 */}
       <div className="stage-main">
         {/* 顶部控制栏 */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-surface)', padding: '10px 16px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#ffffff', padding: '10px 16px', borderRadius: '8px', border: '1px solid var(--border-subtle)', boxShadow: 'var(--shadow-xs)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '18px' }}>🎮</span>
-            <span style={{ fontWeight: 700, color: '#fff' }}>{textGame.title}</span>
+            <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>{textGame.title}</span>
             <span className="brand-badge" style={{ fontSize: '10px' }}>0-Token 纯本地试玩</span>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -252,7 +252,7 @@ export const TextGameCockpit: React.FC<TextGameCockpitProps> = ({
           )}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-            <h3 style={{ color: 'var(--accent-cyan)', fontSize: '17px', margin: 0 }}>
+            <h3 style={{ color: 'var(--accent-blue)', fontSize: '17px', margin: 0, fontWeight: 700 }}>
               {currentNode?.title || '正在加载节点...'}
             </h3>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -260,16 +260,16 @@ export const TextGameCockpit: React.FC<TextGameCockpitProps> = ({
             </span>
           </div>
 
-          <div style={{ whiteSpace: 'pre-wrap', marginBottom: '16px', fontSize: '15px', lineHeight: 1.8, color: '#f1f5f9' }}>
+          <div style={{ whiteSpace: 'pre-wrap', marginBottom: '16px', fontSize: '15px', lineHeight: 1.8, color: 'var(--text-main)' }}>
             {currentNode?.narrativeText}
           </div>
 
           {/* 终局通知 */}
           {currentNode?.isEnding && (
-            <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid var(--accent-emerald)', borderRadius: '6px', padding: '14px', textAlign: 'center', color: '#fff', margin: '14px 0' }}>
+            <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '7px', padding: '14px', textAlign: 'center', color: '#065f46', margin: '14px 0' }}>
               <div style={{ fontSize: '20px', marginBottom: '4px' }}>🏆</div>
               <div style={{ fontWeight: 700, fontSize: '16px' }}>达成终局：[{currentNode.endingType || '故事收束'}]</div>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              <div style={{ fontSize: '12px', color: '#047857', marginTop: '4px' }}>
                 当前支线推演完毕。您可以点击右上角「重启试玩」体验其他分歧路线。
               </div>
             </div>
@@ -304,7 +304,7 @@ export const TextGameCockpit: React.FC<TextGameCockpitProps> = ({
                     style={{
                       opacity: isLocked ? 0.5 : 1,
                       cursor: isLocked ? 'not-allowed' : 'pointer',
-                      borderLeft: isLocked ? '3px solid #64748b' : '3px solid var(--accent-cyan)',
+                      borderLeft: isLocked ? '3px solid #64748b' : '3px solid var(--accent-blue)',
                     }}
                     onClick={() => handleChoice(choice.id)}
                   >
@@ -314,7 +314,7 @@ export const TextGameCockpit: React.FC<TextGameCockpitProps> = ({
                         {choice.text}
                       </div>
                       {isLocked && (
-                        <span style={{ fontSize: '11px', color: '#f43f5e', fontFamily: 'var(--font-mono)' }}>
+                        <span style={{ fontSize: '11px', color: '#dc2626', fontFamily: 'var(--font-mono)' }}>
                           未满足: {missingConditions.join(', ')}
                         </span>
                       )}
@@ -324,15 +324,15 @@ export const TextGameCockpit: React.FC<TextGameCockpitProps> = ({
                     {choice.stateMutation && (
                       <div style={{ display: 'flex', gap: '8px', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
                         {choice.stateMutation.variables && Object.entries(choice.stateMutation.variables).map(([k, v]) => (
-                          <span key={k} style={{ color: (v as number) >= 0 ? '#38bdf8' : '#fb7185' }}>
+                          <span key={k} style={{ color: (v as number) >= 0 ? '#0284c7' : '#e11d48' }}>
                             {k} {(v as number) > 0 ? `+${v}` : v}
                           </span>
                         ))}
                         {choice.stateMutation.inventoryAdd && choice.stateMutation.inventoryAdd.map((item) => (
-                          <span key={item} style={{ color: '#fbbf24' }}>+持有 [{item}]</span>
+                          <span key={item} style={{ color: '#d97706' }}>+持有 [{item}]</span>
                         ))}
                         {choice.stateMutation.inventoryRemove && choice.stateMutation.inventoryRemove.map((item) => (
-                          <span key={item} style={{ color: '#94a3b8' }}>-消耗 [{item}]</span>
+                          <span key={item} style={{ color: '#64748b' }}>-消耗 [{item}]</span>
                         ))}
                       </div>
                     )}
@@ -353,7 +353,7 @@ export const TextGameCockpit: React.FC<TextGameCockpitProps> = ({
             <div className="panel-card-title">
               <span>🗺️ 全剧分层 DAG 拓扑图谱 (纯原生自主绘制 SVG)</span>
               <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                青色高光表示当前节点，绿色边线表示已探索足迹
+                蓝色高光表示当前节点，绿色边线表示已探索足迹
               </span>
             </div>
             <StoryGraphSvgDiagram
@@ -386,17 +386,18 @@ export const TextGameCockpit: React.FC<TextGameCockpitProps> = ({
                   onClick={() => setCurrentNode(node)}
                   style={{
                     padding: '8px 10px',
-                    borderRadius: '4px',
+                    borderRadius: '6px',
                     cursor: 'pointer',
-                    background: isCurrent ? 'rgba(0, 210, 255, 0.15)' : 'var(--bg-elevated)',
-                    border: isCurrent ? '1px solid var(--accent-cyan)' : '1px solid transparent',
+                    background: isCurrent ? '#eff6ff' : '#f8fafc',
+                    border: isCurrent ? '1px solid var(--accent-blue)' : '1px solid var(--border-subtle)',
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     fontSize: '12px',
+                    transition: 'all 0.15s ease',
                   }}
                 >
-                  <span style={{ color: isCurrent ? 'var(--accent-cyan)' : (isVisited ? '#10b981' : '#cbd5e1') }}>
+                  <span style={{ color: isCurrent ? 'var(--accent-blue)' : (isVisited ? '#059669' : 'var(--text-main)'), fontWeight: isCurrent ? 600 : 400 }}>
                     {node.title}
                   </span>
                   <span style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
