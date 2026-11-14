@@ -14,5 +14,9 @@ if (!existsSync(new URL('../dist/', import.meta.url))) {
   process.exit(1);
 }
 
-cpSync(from, to, { recursive: true });
-console.log('[copy-runtime-assets] 播放底座已复制到 dist');
+if (existsSync(from)) {
+  cpSync(from, to, { recursive: true });
+  console.log('[copy-runtime-assets] 播放底座已复制到 dist');
+} else {
+  console.log('[copy-runtime-assets] 源目录不存在，跳过拷贝:', from.pathname);
+}

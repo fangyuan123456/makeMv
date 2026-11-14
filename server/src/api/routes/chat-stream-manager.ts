@@ -38,7 +38,7 @@ export interface ChatHistoryTurnInput {
 
 export interface ActiveChatTask {
   runId: string;
-  stage: 'plan_gdd' | 'build_text_game';
+  stage: 'plan_gdd' | 'extract_visual_spec' | 'build_text_game' | 'compile_film';
   title: string;
   status: 'running';
   /** 若该 (runId, stage) 之前已在聊天记录中创建过任务气泡，则指向既有气泡就地更新，不再新建第二个任务框 */
@@ -373,7 +373,7 @@ export class ChatStreamManager {
     }
 
     // 2. 阶段二推进：若存在挂起在「策划案 / 定妆」确认点的任务，直接 resume 往下走
-    //    （具体走哪一段由引擎按 pendingApproval.type 判定：gdd→提取实体，lookdev→出图+装配）
+    //    （gdd_approval -> extract_visual_spec 提取实物与场景；lookdev_approval -> compile_film 视频工坊渲染装配）
     const allTasks = taskStore.listTasks(projectId);
     const suspendedApprovalTask = [...allTasks]
       .reverse()
@@ -386,15 +386,18 @@ export class ChatStreamManager {
       });
 
     if (suspendedApprovalTask) {
+      const pendingType = (suspendedApprovalTask.result as any)?.pendingApproval?.type;
       await ProductionWorkflowEngine.resume(projectId, suspendedApprovalTask.taskId, {
         approved: true,
       });
       this.store.markTaskNextProposalResolved(projectId, suspendedApprovalTask.taskId);
       this.store.markChatProposalsResolved(projectId);
+      const stage: ActiveChatTask['stage'] =
+        pendingType === 'gdd_approval' ? 'extract_visual_spec' : 'compile_film';
       return {
         runId: suspendedApprovalTask.taskId,
-        stage: 'build_text_game',
-        title: '装配互动文游 (index.html)',
+        stage,
+        title: stage === 'extract_visual_spec' ? '提取全剧实物与场景设定' : '视频工坊·视频生成与装配',
         status: 'running',
       };
     }

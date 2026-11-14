@@ -35,6 +35,7 @@ import { DirectorChat } from './components/DirectorChat.js';
 import { GddWorldBibleViewer } from './components/GddWorldBibleViewer.js';
 import { TextGameCockpit } from './components/TextGameCockpit.js';
 import { FilmPlayer } from './components/FilmPlayer.js';
+import { VideoStudio } from './components/VideoStudio.js';
 
 export function App() {
   const initialUrlPid = readProjectIdFromUrl();
@@ -44,7 +45,7 @@ export function App() {
   );
   const [isProjectPersisted, setIsProjectPersisted] = useState<boolean>(() => Boolean(initialUrlPid));
   const [projectData, setProjectData] = useState<ProjectData | null>(null);
-  const [activeTab, setActiveTab] = useState<'gdd' | 'text_game' | 'film'>('gdd');
+  const [activeTab, setActiveTab] = useState<'gdd' | 'video_studio' | 'text_game' | 'film'>('gdd');
   const [isExecutingProposal, setIsExecutingProposal] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [activeWatch, setActiveWatch] = useState<ActiveWatchTarget | null>(null);
@@ -70,9 +71,23 @@ export function App() {
   }, []);
 
   const handleTaskStartedFromChat = useCallback(
-    ({ runId, stage, messageId }: { runId: string; stage: 'plan_gdd' | 'build_text_game'; messageId: string }) => {
+    ({
+      runId,
+      stage,
+      messageId,
+    }: {
+      runId: string;
+      stage: 'plan_gdd' | 'extract_visual_spec' | 'build_text_game' | 'compile_film';
+      messageId: string;
+    }) => {
       setCurrentRunId(runId);
-      setActiveTab(stage === 'build_text_game' ? 'text_game' : 'gdd');
+      if (stage === 'extract_visual_spec' || stage === 'compile_film') {
+        setActiveTab('video_studio');
+      } else if (stage === 'build_text_game') {
+        setActiveTab('text_game');
+      } else {
+        setActiveTab('gdd');
+      }
       setActiveWatch({ runId, stage, messageId });
     },
     []
@@ -467,13 +482,18 @@ export function App() {
     }
 
     const isResumeTask = proposal.action === 'resume_task';
+    const isExtractStage =
+      proposal.targetStage === 'extract_visual_spec' ||
+      (proposal.action === 'approve_stage' && Boolean(currentRunId) && Boolean(projectData?.artifacts?.gdd) && !projectData?.artifacts?.lookdev_entities);
     const isStage2 =
       proposal.action === 'build_text_game' ||
       proposal.targetStage === 'build_text_game' ||
+      proposal.targetStage === 'compile_film' ||
+      isExtractStage ||
       (proposal.action === 'approve_stage' && Boolean(currentRunId));
 
     if (!isResumeTask && isStage2 && !currentRunId) {
-      alert('尚未完成策划案推演，无法进入文游装配');
+      alert('尚未完成策划案推演，无法进入后续视听工坊');
       return;
     }
     if (isResumeTask && !(proposal.taskId || currentRunId)) {
@@ -498,7 +518,12 @@ export function App() {
     const uid = Math.random().toString(36).slice(2, 8);
     const userMsgId = `msg_confirm_${Date.now()}_${uid}`;
     const taskMsgId = `msg_task_${Date.now()}_${uid}`;
-    const stage: ActiveWatchTarget['stage'] = isStage2 ? 'build_text_game' : 'plan_gdd';
+    const stage: ActiveWatchTarget['stage'] = isExtractStage
+      ? 'extract_visual_spec'
+      : (proposal.targetStage === 'compile_film' ? 'compile_film' : (isStage2 ? 'build_text_game' : 'plan_gdd'));
+    const stageTitle = isExtractStage
+      ? '提取全剧实物与场景设定'
+      : (stage === 'compile_film' ? '视频工坊·视频生成与装配' : (isStage2 ? '装配互动文游 (index.html)' : '推演游戏策划案 (GDD)'));
     const candidateRunId = (isResumeTask ? proposal.taskId : undefined) || currentRunId || '';
     const existingOwner = isResumeTask && candidateRunId
       ? messages.find((m) => m.task?.runId === candidateRunId && m.task?.stage === stage)
@@ -540,7 +565,7 @@ export function App() {
           task: {
             runId: '',
             stage,
-            title: isStage2 ? '装配互动文游 (index.html)' : '推演游戏策划案 (GDD)',
+            title: stageTitle,
             status: 'queued',
             percent: 0,
             note: '已授权，等待流水线接管…',
@@ -558,7 +583,13 @@ export function App() {
           summary: proposal.summary,
         });
         setCurrentRunId(runId);
-        setActiveTab(isStage2 ? 'text_game' : 'gdd');
+        if (isExtractStage || stage === 'compile_film') {
+          setActiveTab('video_studio');
+        } else if (isStage2) {
+          setActiveTab('text_game');
+        } else {
+          setActiveTab('gdd');
+        }
       } else if (!isStage2) {
         const prompt = proposal.payload?.userPrompt || proposal.summary || '推进策划案';
         const res = await startWorkflow(currentProjectId, prompt, proposal.summary);
@@ -570,7 +601,11 @@ export function App() {
           approved: true,
           summary: proposal.summary,
         });
-        setActiveTab('text_game');
+        if (isExtractStage || stage === 'compile_film') {
+          setActiveTab('video_studio');
+        } else {
+          setActiveTab('text_game');
+        }
       }
 
       patchMessage(watchMsgId, (m) => ({
@@ -613,6 +648,7 @@ export function App() {
           onRetryTask={handleRetryTask}
           onApproveProposal={handleApproveProposal}
           onCancelTask={handleCancelTask}
+          onOpenStudio={() => setActiveTab('video_studio')}
           onOpenGame={(url) => {
             setGameUrl(url);
             setActiveTab('text_game');
@@ -632,6 +668,17 @@ export function App() {
             </button>
 
             <button
+              className={`tab-button ${activeTab === 'video_studio' ? 'active' : ''}`}
+              onClick={() => setActiveTab('video_studio')}
+            >
+              <span>🎬</span>
+              <span>视频工坊</span>
+              {Boolean(projectData?.artifacts?.lookdev_entities) && (
+                <span style={{ color: 'var(--accent-emerald)', fontSize: '11px' }}>●</span>
+              )}
+            </button>
+
+            <button
               className={`tab-button ${activeTab === 'text_game' ? 'active' : ''}`}
               onClick={() => setActiveTab('text_game')}
             >
@@ -644,7 +691,7 @@ export function App() {
               className={`tab-button ${activeTab === 'film' ? 'active' : ''}`}
               onClick={() => setActiveTab('film')}
             >
-              <span>🎬</span>
+              <span>🎥</span>
               <span>影游切片播放器与视听总监</span>
               {projectData?.artifacts?.film_spec?.slices?.length ? (
                 <span style={{ color: 'var(--accent-emerald)', fontSize: '11px' }}>●</span>
@@ -655,6 +702,32 @@ export function App() {
           <div className="workspace-content">
             {activeTab === 'gdd' && (
               <GddWorldBibleViewer gdd={projectData?.artifacts?.gdd} />
+            )}
+
+            {activeTab === 'video_studio' && (
+              <VideoStudio
+                projectId={currentProjectId}
+                taskId={currentRunId || undefined}
+                prd={projectData?.artifacts?.gdd?.prd}
+                storySections={projectData?.artifacts?.gdd?.storySections}
+                lookdevEntities={projectData?.artifacts?.lookdev_entities}
+                filmSpec={projectData?.artifacts?.film_spec}
+                filmSlices={projectData?.artifacts?.film_spec?.slices}
+                onRefresh={reloadData}
+                onStartRender={async () => {
+                  if (currentRunId) {
+                    try {
+                      await resumeWorkflow(currentProjectId, currentRunId, {
+                        approved: true,
+                        summary: '启动全剧分镜视频生成与渲染',
+                      });
+                      reloadData();
+                    } catch (err: any) {
+                      alert(`启动视频渲染失败: ${err.message}`);
+                    }
+                  }
+                }}
+              />
             )}
 
             {activeTab === 'text_game' && (

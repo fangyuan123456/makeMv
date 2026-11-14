@@ -13,6 +13,7 @@ import { Router } from 'express';
 import { ProductionWorkflowEngine } from '../../workflows/production.workflow.js';
 import { ProjectStore } from '../../project-store/ProjectStore.js';
 import { sendSuccess, sendError } from '../helpers.js';
+import { dispatchStudioAction } from '../../agents/film-production/index.js';
 
 export const workflowRouter = Router();
 const store = ProjectStore.getInstance();
@@ -69,14 +70,14 @@ workflowRouter.post('/:projectId/:runId/resume', async (req, res) => {
       store.markTaskNextProposalResolved(req.params.projectId, req.params.runId);
       store.appendChatRecord(req.params.projectId, {
         role: 'user',
-        content: `✅ 批准：${(typeof summary === 'string' && summary.trim()) || '直接生成可玩的 index.html 互动文游'}`,
+        content: `✅ 批准：${(typeof summary === 'string' && summary.trim()) || '进入视频工坊 Step 1：提取全剧实物与场景'}`,
       });
       store.appendChatRecord(req.params.projectId, {
         role: 'assistant',
-        // 正文留空：进度与成果由同一个任务面板承载
+        // 正文留空：进度与成果由任务面板和随后的结构化汇报承载
         content: '',
         taskRunId: req.params.runId,
-        taskStage: 'build_text_game',
+        taskStage: 'extract_visual_spec',
       });
     }
 
@@ -121,3 +122,32 @@ workflowRouter.get('/:projectId/:runId/state', async (req, res) => {
     sendError(res, 404, err.message);
   }
 });
+
+/**
+ * 视频制作工坊统一调度网关 (单一入口，发 taskId 加参数自动路由到具体重做步骤)
+ * 支持创作者手动调整提示词 (customPrompt) 与垫参考图 (referenceImageUrls)
+ */
+workflowRouter.post('/:projectId/studio/action', async (req, res) => {
+  const { projectId } = req.params;
+  try {
+    const result = await dispatchStudioAction(projectId, req.body);
+    sendSuccess(res, result, result.note);
+  } catch (err: any) {
+    sendError(res, 500, err.message);
+  }
+});
+
+/**
+ * 查询视频工坊多维工序任务树快照 (ProjectStudioTaskRegistry SSOT)
+ */
+workflowRouter.get('/:projectId/studio/tasks', async (req, res) => {
+  const { projectId } = req.params;
+  try {
+    const tasks = store.getStudioTasks(projectId);
+    sendSuccess(res, tasks);
+  } catch (err: any) {
+    sendError(res, 500, err.message);
+  }
+});
+
+

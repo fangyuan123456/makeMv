@@ -3,7 +3,13 @@
  * 客户端标准 API 网关总线 (API Gateway SSOT)
  */
 
-import type { ProjectMetadata, ProjectData, PlayerGameState, TextGameNode } from '../types/index.js';
+import type {
+  ProjectMetadata,
+  ProjectData,
+  PlayerGameState,
+  TextGameNode,
+  ProjectStudioTaskRegistry,
+} from '../types/index.js';
 
 const API_BASE = '/api';
 
@@ -175,6 +181,54 @@ export async function fetchRuntimeGraph(projectId: string): Promise<any> {
   const data = await res.json();
   if (!res.ok || !data.success) {
     throw new Error(data.error || '获取图谱失败');
+  }
+  return data.data;
+}
+
+export interface StudioActionPayload {
+  taskId?: string;
+  actionType:
+    | 'character_portrait'
+    | 'prop_lookdev'
+    | 'scene_atmosphere'
+    | 'shot_keyframe'
+    | 'shot_video'
+    | 'act_batch';
+  targetId: string;
+  clipId?: string;
+  customPrompt?: string;
+  customNegativePrompt?: string;
+  referenceImageUrls?: string[];
+  force?: boolean;
+}
+
+/**
+ * 视频工坊统一调度网关：发 taskId 加参数自动路由到具体工序重做
+ */
+export async function executeStudioAction(
+  projectId: string,
+  payload: StudioActionPayload
+): Promise<any> {
+  const res = await fetch(`${API_BASE}/workflow/${encodeURIComponent(projectId)}/studio/action`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || '执行工坊重做操作失败');
+  }
+  return data.data;
+}
+
+/**
+ * 查询视频工坊多维工序任务树快照 (ProjectStudioTaskRegistry SSOT)
+ */
+export async function fetchStudioTasks(projectId: string): Promise<ProjectStudioTaskRegistry> {
+  const res = await fetch(`${API_BASE}/workflow/${encodeURIComponent(projectId)}/studio/tasks`);
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || '获取多维任务树失败');
   }
   return data.data;
 }

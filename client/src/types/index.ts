@@ -220,6 +220,41 @@ export interface TextGameArtifact {
   nodes: TextGameNode[];
 }
 
+export interface ExtractedCharacter {
+  characterId: string;
+  name: string;
+  identity: string;
+  appearanceSummary: string;
+  promptZh: string;
+  referenceImageUrl?: string;
+}
+
+export interface ExtractedItem {
+  itemId: string;
+  name: string;
+  description: string;
+  appearanceSummary: string;
+  promptZh: string;
+  referenceImageUrl?: string;
+}
+
+export interface ExtractedLocation {
+  locationId: string;
+  name: string;
+  atmosphere: string;
+  appearanceSummary: string;
+  promptZh: string;
+  sceneIds: string[];
+  referenceImageUrl?: string;
+}
+
+export interface LookdevEntitiesArtifact {
+  artStyle: string;
+  characters: ExtractedCharacter[];
+  items: ExtractedItem[];
+  locations: ExtractedLocation[];
+}
+
 export interface FilmSliceArtifact {
   sceneId: string;
   title: string;
@@ -229,6 +264,46 @@ export interface FilmSliceArtifact {
   lighting?: string;
   soundEffects?: string[];
   durationSeconds?: number;
+}
+
+export interface CinematicShotOrder {
+  shotId: string;
+  clipId: string;
+  shotIndex: number;
+  durationSec: number;
+  shotType: string;
+  cameraMovement: string;
+  generationMode?: 'first_frame' | 'first_last_frame';
+  characters?: string[];
+  items?: string[];
+  backgroundImageUrl?: string;
+  characterReferenceImageUrls?: string[];
+  firstFramePrompt: string;
+  lastFramePrompt?: string;
+  videoPrompt: string;
+  audioPrompt: string;
+  firstFrameImageUrl?: string;
+  lastFrameImageUrl?: string;
+  videoUrl?: string;
+  dialogue?: string;
+  ambience?: string;
+  transitionAnchor?: string;
+}
+
+export interface CinematicClipOrder {
+  clipId: string;
+  sourceNodeId: string;
+  targetDurationSec?: number;
+  shots: CinematicShotOrder[];
+  videoUrl?: string;
+}
+
+export interface FilmAdapterArtifact {
+  projectId?: string;
+  schemaVersion?: string;
+  projectTitle: string;
+  clips: CinematicClipOrder[];
+  slices?: FilmSliceArtifact[];
 }
 
 export interface ProjectChatRecord {
@@ -242,7 +317,7 @@ export interface ProjectChatRecord {
   proposal?: ActionProposal;
   proposalResolved?: boolean;
   taskRunId?: string;
-  taskStage?: 'plan_gdd' | 'build_text_game';
+  taskStage?: 'plan_gdd' | 'extract_visual_spec' | 'build_text_game' | 'compile_film';
   nextProposalResolved?: boolean;
 }
 
@@ -251,13 +326,44 @@ export interface ProjectData {
   artifacts: {
     gdd?: GDDArtifact;
     text_game?: TextGameArtifact;
+    lookdev_entities?: LookdevEntitiesArtifact;
     hasStandaloneGame?: boolean;
-    film_spec?: {
-      slices: FilmSliceArtifact[];
-    };
+    film_spec?: FilmAdapterArtifact;
+    studio_tasks?: ProjectStudioTaskRegistry;
     [key: string]: any;
   };
   chat?: ProjectChatRecord[];
+}
+
+export interface ProjectStudioTaskRegistry {
+  projectId: string;
+  masterPipelineRunId?: string;
+  stages: {
+    planGddTaskId?: string;
+    assetExtractionTaskId?: string;
+    storyboardPlanningTaskId?: string;
+    studioMasterTaskId?: string;
+  };
+  lookdev: {
+    stageTaskId?: string;
+    characters: Record<string, string>;
+    items: Record<string, string>;
+    locations: Record<string, string>;
+  };
+  acts: Record<
+    string,
+    {
+      actTaskId?: string;
+      shots: Record<
+        string,
+        {
+          keyframeTaskId?: string;
+          videoTaskId?: string;
+        }
+      >;
+    }
+  >;
+  updatedAt: string;
 }
 
 export interface ActionProposal {
@@ -269,7 +375,7 @@ export interface ActionProposal {
     | 'build_text_game'
     | 'start_pipeline'
     | string;
-  targetStage?: 'plan_gdd' | 'build_text_game' | 'compile_film' | string;
+  targetStage?: 'plan_gdd' | 'extract_visual_spec' | 'build_text_game' | 'compile_film' | string;
   taskId?: string;
   summary: string;
   payload?: Record<string, any>;
@@ -283,7 +389,7 @@ export interface ActionProposal {
  */
 export interface StageTaskView {
   runId: string;
-  stage: 'plan_gdd' | 'build_text_game';
+  stage: 'plan_gdd' | 'extract_visual_spec' | 'build_text_game' | 'compile_film';
   title: string;
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
   percent: number;

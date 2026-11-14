@@ -43,6 +43,7 @@ export const TEXT_GAME_STEP = {
 } as const;
 
 export const FILM_STEP = {
+  extract: '00-extract-entities',
   compile: '01-compile-film',
 } as const;
 

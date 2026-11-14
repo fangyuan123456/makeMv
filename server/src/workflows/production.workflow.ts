@@ -13,10 +13,19 @@ import { Workflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 import { planGddStep, executePlanGddStep } from './steps/plan-gdd.step.js';
 import {
+  extractVisualSpecStep,
+  executeExtractVisualSpecStep,
+} from './steps/extract-visual-spec.step.js';
+import {
   buildGameAssemblyStep,
   executeBuildGameAssemblyStep,
 } from './steps/build-game-assembly.step.js';
 import { compileFilmStep, executeCompileFilmStep } from './steps/compile-film.step.js';
+import {
+  executeAssetExtractionStep,
+  executeStoryboardPlanningStep,
+  executeStudioMasterWorkflow,
+} from '../agents/film-production/index.js';
 import { TaskStore } from '../workflow-engine/TaskStore.js';
 import { dumpRunFailure } from '../utils/run-failure-log.js';
 import { ProjectStore } from '../project-store/ProjectStore.js';
@@ -41,6 +50,7 @@ export function createProductionWorkflow() {
     triggerSchema: ProductionTriggerSchema,
   })
     .step(planGddStep)
+    .then(extractVisualSpecStep)
     .then(compileFilmStep)
     .then(buildGameAssemblyStep)
     .commit();
@@ -50,7 +60,7 @@ export interface WorkflowRunStateSnapshot {
   runId: string;
   projectId: string;
   status: 'queued' | 'running' | 'suspended' | 'succeeded' | 'failed' | 'cancelled';
-  currentStage: 'plan_gdd' | 'build_text_game' | 'compile_film' | 'completed';
+  currentStage: 'plan_gdd' | 'extract_visual_spec' | 'build_text_game' | 'compile_film' | 'completed';
   pendingApproval?: {
     type: 'gdd_approval' | 'lookdev_approval' | 'playtest_approval';
     title: string;
@@ -82,7 +92,7 @@ export class ProductionWorkflowEngine {
   private static enqueueStageExecution(params: {
     projectId: string;
     runId: string;
-    runningStage: 'plan_gdd' | 'build_text_game' | 'compile_film';
+    runningStage: 'plan_gdd' | 'extract_visual_spec' | 'build_text_game' | 'compile_film';
     initialProgress: { percent: number; current: number; total: number; note: string };
     execute: () => Promise<{ status: 'suspended' | 'succeeded'; result: any }>;
   }): void {
@@ -218,6 +228,7 @@ export class ProductionWorkflowEngine {
         note: '正在初始化全案策划流水线 (plan-gdd)...',
       },
       execute: async () => {
+        ProjectStore.getInstance().updateStudioStageTask(projectId, 'planGddTaskId', task.taskId);
         const stepResult = await executePlanGddStep({
           projectId,
           userPrompt,
@@ -382,33 +393,95 @@ export class ProductionWorkflowEngine {
 
     const store = ProjectStore.getInstance();
 
-    // 阶段二：film-production 先完成视觉资产与真实视频订单，再由 game-assembly 组装互动入口。
+    // 阶段二：影视生成前序工序（Step 1 资产提取 + Step 2 分镜台本规划，纯文字 LLM 推演，零出图出视频算力）
     if (
       currentPending === 'gdd_approval' ||
-      (isInterrupted && (interruptedStage === 'build_text_game' || interruptedStage === 'compile_film'))
+      (isInterrupted && interruptedStage === 'extract_visual_spec')
     ) {
       this.enqueueStageExecution({
         projectId,
         runId,
-        runningStage: 'compile_film',
+        runningStage: 'extract_visual_spec',
         initialProgress: {
           percent: 0,
           current: 0,
           total: 100,
-          note: 'film-production：正在提取角色、道具、场景并生成真实视频...',
+          note: '视频 Agent Step 1：正在提炼全剧实物与场景特征（纯文本提取，不消耗生图算力）...',
         },
         execute: async () => {
-          // film-production 统一负责资产提取、分镜与视频订单；完成后才进入 game-assembly。
-          await executeCompileFilmStep({ projectId, taskId: runId });
-          const buildResult = await executeBuildGameAssemblyStep({
-            projectId,
-            taskId: runId,
+          const gdd = store.getArtifact<any>(projectId, 'gdd');
+          const plannerPrd = store.getArtifact<any>(projectId, 'planner_prd');
+          const prd = plannerPrd?.prd || gdd?.prd;
+          const title = gdd?.title || prd?.gameTitle || store.getProject(projectId).meta.title;
+          const storyMarkdown = gdd?.storyMarkdown || '';
+
+          if (!prd) {
+            throw new Error(`[WorkflowEngine] 项目 [${projectId}] 缺少策划案 PRD，无法启动视听前序规划`);
+          }
+
+          // 1. Step 1: 视觉资产提取 (纯文字 LLM)
+          store.updateStudioStageTask(projectId, 'assetExtractionTaskId', runId);
+          taskStore.updateProgress(projectId, runId, {
+            percent: 25,
+            current: 25,
+            total: 100,
+            note: '影视生产 Step 1：正在提炼角色、实物道具与场景外观设定 (纯文字提取)...',
           });
+          const { entities } = await executeAssetExtractionStep({
+            projectId,
+            title,
+            prd,
+            storyMarkdown,
+          });
+
+          // 2. Step 2: 分镜台本规划 (纯文字 LLM，各幕分镜切片与镜头台本拆解)
+          store.updateStudioStageTask(projectId, 'storyboardPlanningTaskId', runId);
+          taskStore.updateProgress(projectId, runId, {
+            percent: 65,
+            current: 65,
+            total: 100,
+            note: '影视生产 Step 2：正在依据剧本与视觉资产规划全剧分镜台本 (纯文字拆解)...',
+          });
+          const filmSpec = await executeStoryboardPlanningStep({
+            projectId,
+            title,
+            prd,
+            storyMarkdown,
+            entities,
+          });
+
+          const charNames = entities.characters.map((c) => c.name).join('、') || '主角';
+          const itemNames = entities.items.map((i) => i.name).join('、') || '暂无专属道具';
+          const locNames = entities.locations.map((l) => l.name).join('、') || '核心场景';
+          const totalShots = filmSpec.clips.reduce((sum, c) => sum + (c.shots?.length || 0), 0);
+
+          const summaryText = `已成功完成视听前序规划：提炼出 ${entities.characters.length} 位角色（${charNames}）、${entities.items.length} 件实物道具（${itemNames}）、${entities.locations.length} 处场景（${locNames}），并规划出 ${filmSpec.clips.length} 幕共 ${totalShots} 个分镜镜头。视频制作工坊已就绪，可进入工坊检视分镜台本与定妆卡片。`;
+
+          // 将提取与规划成果推送到聊天消息中
+          store.appendChatRecord(projectId, {
+            role: 'assistant',
+            content: `🎯 **全剧视听设定提取与分镜台本规划已完成（纯文字推演 · 零物理算力）**\n\n` +
+              `- 🎭 **登场角色 (${entities.characters.length})**：${charNames}\n` +
+              `- 📦 **实物与道具 (${entities.items.length})**：${itemNames}\n` +
+              `- 🏞️ **核心场景 (${entities.locations.length})**：${locNames}\n` +
+              `- 🎬 **全剧分镜台本**：${filmSpec.clips.length} 幕，共 ${totalShots} 个分镜镜头\n\n` +
+              `> 💡 *Step 1 与 Step 2 均为纯文本结构化视听推演，未消耗生图与视频物理算力。下方已生成视频工坊入口，点击即可进入【视频工坊】查看定妆卡片与各幕分镜台本。*`,
+            taskRunId: runId,
+            taskStage: 'extract_visual_spec',
+          });
+
           return {
-            status: 'succeeded',
+            status: 'suspended',
             result: {
-              currentStage: 'completed',
-              textGame: buildResult.textGame,
+              currentStage: 'extract_visual_spec',
+              entities,
+              filmSpec,
+              pendingApproval: {
+                type: 'lookdev_approval',
+                title: '视频工坊 · 待制作',
+                description: summaryText,
+                data: { entities, filmSpec },
+              },
             },
           };
         },
@@ -417,7 +490,7 @@ export class ProductionWorkflowEngine {
       return this.getState(projectId, runId);
     }
 
-    // 阶段二续跑：已有 film-production 资产时直接生成视频订单并组装游戏
+    // 阶段二续跑：执行视频制作工坊总流水线 (studio-master: lookdev 定妆 ➔ cinema-act 各幕分镜视频)
     if (
       currentPending === 'lookdev_approval' ||
       (isInterrupted && (interruptedStage === 'build_text_game' || interruptedStage === 'compile_film'))
@@ -430,10 +503,27 @@ export class ProductionWorkflowEngine {
           percent: 0,
           current: 0,
           total: 100,
-          note: '正在完成 film-production，并装配真实视频互动游戏 (game-assembly)...',
+          note: '视频工坊 (studio-master)：正在启动定妆 (lookdev) 与各幕分镜视频 (cinema-act)...',
         },
         execute: async () => {
-          await executeCompileFilmStep({ projectId, taskId: runId });
+          const reporter = (note: string, percent: number) => {
+            taskStore.updateProgress(projectId, runId, {
+              percent,
+              current: percent,
+              total: 100,
+              note,
+            });
+          };
+
+          // 1. 运行视频制作工坊总流水线 (03-video-studio)
+          store.updateStudioStageTask(projectId, 'studioMasterTaskId', runId);
+          await executeStudioMasterWorkflow({
+            projectId,
+            onProgress: reporter,
+          });
+
+          // 2. 组装互动播放器
+          reporter('全幕分镜视频已就绪，正在装配互动影游 (game-assembly)...', 95);
           const stepResult = await executeBuildGameAssemblyStep({
             projectId,
             taskId: runId,

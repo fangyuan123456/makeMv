@@ -60,6 +60,9 @@ export const RouterIntentSchema = z.object({
       if (lower.includes('gdd') || lower.includes('plan') || lower.includes('stage1') || lower.includes('stage_1')) {
         return 'plan_gdd';
       }
+      if (lower.includes('extract') || lower.includes('visual') || lower.includes('lookdev')) {
+        return 'extract_visual_spec';
+      }
       if (lower.includes('text') || lower.includes('game') || lower.includes('stage2') || lower.includes('stage_2')) {
         return 'build_text_game';
       }
@@ -69,7 +72,7 @@ export const RouterIntentSchema = z.object({
       return undefined;
     },
     z
-      .enum(['plan_gdd', 'build_text_game', 'compile_film'])
+      .enum(['plan_gdd', 'extract_visual_spec', 'build_text_game', 'compile_film'])
       .optional()
       .describe('意图针对的目标工序阶段（approve_stage/propose_stage/resume_task/modify_asset 时尽量明确填写）')
   ),
@@ -111,7 +114,7 @@ export type RouterIntentInput = z.infer<typeof RouterIntentSchema>;
 
 export interface ExtractedRouterProposal {
   action: 'propose_stage' | 'approve_stage' | 'resume_task' | 'modify_asset' | 'start_pipeline';
-  targetStage?: 'plan_gdd' | 'build_text_game' | 'compile_film';
+  targetStage?: 'plan_gdd' | 'extract_visual_spec' | 'build_text_game' | 'compile_film';
   taskId?: string;
   summary: string;
   payload?: Record<string, any>;
@@ -136,7 +139,7 @@ export type RouterIntentFunnelVerdict =
 
 export interface RouterIntentFunnelResult {
   action: 'propose_stage' | 'approve_stage' | 'resume_task' | 'modify_asset' | 'start_pipeline' | 'chat_only';
-  targetStage?: 'plan_gdd' | 'build_text_game' | 'compile_film';
+  targetStage?: 'plan_gdd' | 'extract_visual_spec' | 'build_text_game' | 'compile_film';
   taskId?: string;
   summary: string;
   payload?: Record<string, any>;
@@ -495,6 +498,9 @@ export function buildDynamicRouterIntentSchema(ctx: HydratedRouterContext): z.Zo
         if (lower.includes('gdd') || lower.includes('plan') || lower.includes('stage1') || lower.includes('stage_1')) {
           return 'plan_gdd';
         }
+        if (lower.includes('extract') || lower.includes('visual') || lower.includes('lookdev')) {
+          return 'extract_visual_spec';
+        }
         if (lower.includes('text') || lower.includes('game') || lower.includes('stage2') || lower.includes('stage_2')) {
           return 'build_text_game';
         }
@@ -504,7 +510,7 @@ export function buildDynamicRouterIntentSchema(ctx: HydratedRouterContext): z.Zo
         return undefined;
       },
       z
-        .enum(['plan_gdd', 'build_text_game', 'compile_film'])
+        .enum(['plan_gdd', 'extract_visual_spec', 'build_text_game', 'compile_film'])
         .optional()
         .describe('目标工序阶段')
     ),
@@ -709,26 +715,26 @@ export function evaluateRouterIntentFunnel(
     if (ctx.suspendedLookdevTask) {
       return {
         action: 'approve_stage',
-        targetStage: 'build_text_game',
-        summary: rawSignal.summary || '已确认角色与道具定妆描述，批量生成定妆母本图',
+        targetStage: 'compile_film',
+        summary: rawSignal.summary || '已确认定妆与视听资产，启动视频工坊制作与渲染',
         payload: Object.keys(rawPayload).length > 0 ? rawPayload : undefined,
         verdict: 'resume_to_stage2',
         intercepted: false,
         guidance:
-          '定妆描述已就绪，本次授权将批量生成定妆母本图并继续装配互动文游，进度由系统任务面板直接呈现。正文请留空——不要输出任何确认、寒暄或进度说明，也不要提示用户点击确认按钮。',
+          '全剧实物与场景设定已就绪，本次授权将启动视频工坊各镜头视频生成与影游装配，进度由系统任务面板直接呈现。正文请留空——不要输出任何确认、寒暄或进度说明。',
       };
     }
 
     if (ctx.suspendedGddTask) {
       return {
         action: 'approve_stage',
-        targetStage: 'build_text_game',
-        summary: rawSignal.summary || '已确认阶段一策划案，启动阶段二互动文游装配',
+        targetStage: 'extract_visual_spec',
+        summary: rawSignal.summary || '已确认阶段一策划案，启动视频 Agent Step 1 提取实物与场景',
         payload: Object.keys(rawPayload).length > 0 ? rawPayload : undefined,
         verdict: 'resume_to_stage2',
         intercepted: false,
         guidance:
-          '阶段一策划案已就绪，本次授权将立即唤醒并启动阶段二互动文游装配（build_text_game），进度由系统任务面板直接呈现。正文请留空——不要输出任何确认、寒暄或进度说明，也不要提示用户点击确认按钮。',
+          '阶段一策划案已就绪，本次授权将立即启动视频 Agent Step 1 纯文本提取全剧实物与场景设定（不生成图片），提取成功后将建立视频工坊，进度由系统任务面板直接呈现。正文请留空——不要输出任何确认、寒暄或进度说明，也不要提示用户点击确认按钮。',
       };
     }
 

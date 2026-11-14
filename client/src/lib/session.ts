@@ -9,7 +9,7 @@ import { buildGameUrl, type TaskSnapshot } from './api.js';
 
 export interface ActiveWatchTarget {
   runId: string;
-  stage: 'plan_gdd' | 'build_text_game';
+  stage: 'plan_gdd' | 'extract_visual_spec' | 'build_text_game' | 'compile_film';
   messageId: string;
 }
 
@@ -52,13 +52,46 @@ export function syncProjectIdToUrl(projectId: string | null, mode: 'replace' | '
 
 function buildRestoredTaskView(
   projectId: string,
-  stage: 'plan_gdd' | 'build_text_game',
+  stage: 'plan_gdd' | 'extract_visual_spec' | 'build_text_game' | 'compile_film',
   runId: string,
   task: TaskSnapshot | undefined,
   nextProposalResolved: boolean | undefined,
   project: ProjectData
 ): StageTaskView {
   const stageResult = task?.result as any;
+  const pendingType = stageResult?.pendingApproval?.type;
+
+  if (stage === 'extract_visual_spec') {
+    const isReady =
+      task?.status === 'succeeded' ||
+      (task?.status === 'suspended' && pendingType === 'lookdev_approval') ||
+      Boolean(project.artifacts?.lookdev_entities);
+    const status: StageTaskView['status'] = task?.status === 'failed'
+      ? 'failed'
+      : task?.status === 'cancelled'
+        ? 'cancelled'
+        : isReady
+          ? 'succeeded'
+          : (task?.status === 'queued' ? 'queued' : 'running');
+
+    const entities = stageResult?.entities || project.artifacts?.lookdev_entities;
+    const charCount = entities?.characters?.length || 0;
+    const itemCount = entities?.items?.length || 0;
+    const locCount = entities?.locations?.length || 0;
+
+    return {
+      runId,
+      stage: 'extract_visual_spec',
+      title: '提取全剧实物与场景设定',
+      status,
+      percent: isReady ? 100 : (task?.progress?.percent ?? 50),
+      note: task?.error || task?.progress?.note || (isReady ? '实物与场景提取完成，视频工坊待就绪' : '正在提取视觉设定…'),
+      startedAt: task?.createdAt || new Date().toISOString(),
+      resultSummary: isReady
+        ? `视听资产清单已提取：${charCount} 位角色、${itemCount} 件道具、${locCount} 处场景`
+        : undefined,
+    };
+  }
   const gddData =
     (stageResult?.pendingApproval?.type === 'gdd_approval' ? stageResult.pendingApproval.data : null) ||
     project.artifacts?.gdd;
@@ -135,7 +168,6 @@ function buildRestoredTaskView(
     };
   }
 
-  const pendingType = stageResult?.pendingApproval?.type;
   /** 阶段二中途的母本确认点：角色 / 道具 / 场景母本图出完即挂起，进入装配前需要创作者点一次确认 */
   const isLookdevCheckpoint =
     (task?.status === 'suspended' || task?.status === 'proposed') && pendingType === 'lookdev_approval';

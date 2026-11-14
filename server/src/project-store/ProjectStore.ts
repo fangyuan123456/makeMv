@@ -17,6 +17,12 @@ import { atomicWriteJsonSync, safeReadJsonSync } from '../utils/atomicFile.js';
 import { ARTIFACT_PATHS, getProjectDir, readArtifactFile } from './artifact-fs.js';
 import { projectLockManager } from '../workflow-engine/concurrency.js';
 import type { ProjectChatMessage, ProjectData, ProjectMetadata } from './types.js';
+import {
+  createEmptyStudioTaskRegistry,
+  mountStudioTaskSlot,
+  mountStudioStageTask,
+  type ProjectStudioTaskRegistry,
+} from './contracts/film-production/studio-tasks.js';
 
 /** 写进 project.json 的投影：只有元数据与聊天记录 */
 type ProjectDiskView = Pick<ProjectData, 'meta' | 'chat'>;
@@ -136,6 +142,47 @@ export class ProjectStore {
       }
     }
     return text as unknown as T;
+  }
+
+  /**
+   * 获取项目的多维工序任务树 (Multi-Dimensional Studio Task Registry SSOT)
+   */
+  public getStudioTasks(projectId: string): ProjectStudioTaskRegistry {
+    const existing = this.getArtifact<ProjectStudioTaskRegistry>(projectId, 'studio_tasks');
+    if (existing) return existing;
+    const initial = createEmptyStudioTaskRegistry(projectId);
+    this.setArtifact(projectId, 'studio_tasks', initial);
+    return initial;
+  }
+
+  /**
+   * 将具体工序的 taskId 自动挂载更新到多维任务树对应的槽位中
+   */
+  public updateStudioTaskSlot(
+    projectId: string,
+    actionType: string,
+    targetId: string,
+    taskId: string,
+    clipId?: string
+  ): ProjectStudioTaskRegistry {
+    const registry = this.getStudioTasks(projectId);
+    const updated = mountStudioTaskSlot(registry, actionType, targetId, taskId, clipId);
+    this.setArtifact(projectId, 'studio_tasks', updated);
+    return updated;
+  }
+
+  /**
+   * 挂载顶层工序阶段任务 (planGddTaskId / assetExtractionTaskId / storyboardPlanningTaskId / studioMasterTaskId)
+   */
+  public updateStudioStageTask(
+    projectId: string,
+    stageKey: keyof ProjectStudioTaskRegistry['stages'],
+    taskId: string
+  ): ProjectStudioTaskRegistry {
+    const registry = this.getStudioTasks(projectId);
+    const updated = mountStudioStageTask(registry, stageKey, taskId);
+    this.setArtifact(projectId, 'studio_tasks', updated);
+    return updated;
   }
 
   /**

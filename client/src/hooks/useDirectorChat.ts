@@ -44,7 +44,7 @@ function findRetryText(list: ChatMessage[], targetMsgId: string): string {
 
 export interface StartedTaskEvent {
   runId: string;
-  stage: 'plan_gdd' | 'build_text_game';
+  stage: 'plan_gdd' | 'extract_visual_spec' | 'build_text_game' | 'compile_film';
   title?: string;
   status?: string;
   ownerMessageId?: string;

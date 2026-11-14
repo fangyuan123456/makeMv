@@ -26,6 +26,7 @@ interface DirectorChatProps {
   onApproveProposal: (proposal: ActionProposal, ctx: ProposalApprovalContext) => void;
   onCancelTask?: (runId: string) => void;
   onOpenGame?: (url: string) => void;
+  onOpenStudio?: () => void;
   /** 点报错提示里的「重试」：原样重发失败那一轮的发言 */
   onRetry: (messageId: string) => void;
   /** 创作者在下面开始打字：撤掉旧报错与重试按钮 */
@@ -52,6 +53,7 @@ function useElapsedSeconds(startedAt: string, active: boolean) {
 interface InlineTaskPanelProps {
   task: StageTaskView;
   onOpenGame: (url: string) => void;
+  onOpenStudio?: () => void;
   onCancelTask?: (runId: string) => void;
   onRetryTask?: (runId: string) => void;
 }
@@ -60,16 +62,23 @@ interface InlineTaskPanelProps {
 function InlineTaskPanel({
   task,
   onOpenGame,
+  onOpenStudio,
   onCancelTask,
   onRetryTask,
 }: InlineTaskPanelProps) {
   const elapsed = useElapsedSeconds(task.startedAt, task.status === 'running');
   const percent = Math.min(100, Math.max(4, task.percent));
 
+  const isStudioStage = task.stage === 'extract_visual_spec';
+
   const head = {
     queued: { icon: '⏳', label: `已授权，等待执行：${task.title}`, badge: 'QUEUED' },
     running: { icon: '⚙️', label: `执行中：${task.title}`, badge: `${percent}% · ${elapsed}s` },
-    succeeded: { icon: '✅', label: `已完成：${task.title}`, badge: 'DONE' },
+    succeeded: {
+      icon: isStudioStage ? '🎬' : '✅',
+      label: isStudioStage ? '视频工坊 · 待完成' : `已完成：${task.title}`,
+      badge: isStudioStage ? 'STUDIO READY' : 'DONE',
+    },
     failed: { icon: '⚠️', label: `执行失败：${task.title}`, badge: 'FAILED' },
     cancelled: { icon: '⏹️', label: `已取消：${task.title}`, badge: 'CANCELLED' },
   }[task.status];
@@ -110,6 +119,21 @@ function InlineTaskPanel({
       {task.status === 'succeeded' && (
         <>
           {task.resultSummary && <p className="task-result">{task.resultSummary}</p>}
+
+          {/* 视频工坊进入卡片（Step 1 纯文本实物与场景提取成功后呈现） */}
+          {isStudioStage && (
+            <div className="task-artifact-row video-studio-action-row">
+              <span className="task-artifact-label">工坊</span>
+              <button
+                type="button"
+                className="task-artifact-link btn-enter-studio"
+                onClick={() => onOpenStudio?.()}
+              >
+                🎬 进入视频工坊
+              </button>
+              <span className="task-artifact-hint">定妆卡片与纯视听分镜拓扑已就绪</span>
+            </div>
+          )}
 
           {task.gameUrl && (
             <div className="task-artifact-row">
@@ -162,6 +186,7 @@ export const DirectorChat: React.FC<DirectorChatProps> = ({
   onApproveProposal,
   onCancelTask,
   onOpenGame,
+  onOpenStudio,
   onRetry,
   onDismissErrors,
   onRetryTask,
@@ -360,6 +385,7 @@ export const DirectorChat: React.FC<DirectorChatProps> = ({
                 <InlineTaskPanel
                   task={m.task}
                   onOpenGame={(url) => onOpenGame?.(url)}
+                  onOpenStudio={onOpenStudio}
                   onCancelTask={onCancelTask}
                   onRetryTask={(runId) => {
                     shouldAutoScrollRef.current = true;

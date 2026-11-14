@@ -23,7 +23,7 @@ export interface ProjectChatMessage {
   proposal?: Record<string, any>;
   proposalResolved?: boolean;
   taskRunId?: string;
-  taskStage?: 'plan_gdd' | 'build_text_game';
+  taskStage?: 'plan_gdd' | 'extract_visual_spec' | 'build_text_game' | 'compile_film';
   nextProposalResolved?: boolean;
 }
 

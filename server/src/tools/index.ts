@@ -5,3 +5,7 @@
 
 export * from './image-generate/image-generate.tool.js';
 export * from './video-generate/video-generate.tool.js';
+export * from './base/task-tool.js';
+export * from './planner/index.js';
+export * from './film-production/index.js';
+export * from './game-assembly/index.js';
