@@ -153,17 +153,44 @@ export class ComfyUITopologyInjector {
   }
 
   /**
-   * 当工作流没有 EmptyLatentImage（如 ref2i 继承参考图比例）但需要锁定指定画幅时，
-   * 在内存中挂载 EmptyLatentImage 并接入 KSampler.latent_image。
+   * 当工作流没有 EmptyLatentImage（如 ref2i 默认连向 TextEncodeQwenImage21.latent 原图潜空间）或需要锁定指定画幅时，
+   * 确保 KSampler.latent_image 可靠接入干净的 EmptyLatentImage，彻底打碎原图几何骨骼的像素级潜空间死锁。
    */
   public static ensureEmptyLatent(workflow: Record<string, any>, sizeStr?: string): boolean {
     if (!sizeStr) return false;
-    if (this.injectImageSize(workflow, sizeStr)) return true;
-
     const parts = sizeStr.split(/[x*]/).map((s) => parseInt(s.trim(), 10));
     if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) return false;
-
     const [width, height] = parts;
+
+    // 1. 检查采样器 (KSampler / KSamplerAdvanced) 的 latent_image 是否已经接入 EmptyLatentImage
+    let needsNewEmptyLatent = true;
+    for (const node of Object.values(workflow)) {
+      if (
+        (node?.class_type === 'KSampler' || node?.class_type === 'KSamplerAdvanced') &&
+        node.inputs &&
+        'latent_image' in node.inputs
+      ) {
+        const currentLatentInput = node.inputs.latent_image;
+        if (Array.isArray(currentLatentInput) && currentLatentInput.length >= 1) {
+          const targetNodeId = String(currentLatentInput[0]);
+          const targetNode = workflow[targetNodeId];
+          if (targetNode?.class_type === 'EmptyLatentImage') {
+            // 已接入纯净 EmptyLatentImage，直接注入尺寸即可
+            targetNode.inputs.width = width;
+            targetNode.inputs.height = height;
+            needsNewEmptyLatent = false;
+          }
+        }
+      }
+    }
+
+    if (!needsNewEmptyLatent) {
+      this.injectImageSize(workflow, sizeStr);
+      return true;
+    }
+
+    // 2. 若原本没有接入 EmptyLatentImage（例如接入了 TextEncodeQwenImage21.latent 残差潜空间），
+    // 强制在拓扑中动态挂载纯净 EmptyLatentImage 并重新连线，彻底打破骨骼姿态死锁
     const maxNumericId = Object.keys(workflow).reduce((max, k) => {
       const n = /^\d+$/.test(k) ? parseInt(k, 10) : 0;
       return Math.max(max, n);
@@ -332,7 +359,9 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
     const templateRaw = fs.readFileSync(templatePath, 'utf-8');
     const workflow = ensureApiPromptFormat(JSON.parse(templateRaw));
 
-    if (options?.mode === 'scene_ref2i' && options?.size) {
+    // 当使用参考图模式生图且指定了画幅尺寸时，通用挂载 EmptyLatentImage，
+    // 确保采样器在干净的潜空间上由参考图 Visual Tokens 引导生成，彻底解绑原图骨骼姿态的几何死锁
+    if (refs.length > 0 && options?.size) {
       ComfyUITopologyInjector.ensureEmptyLatent(workflow, options.size);
     }
 
@@ -399,6 +428,10 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
       // 2. 注入提示词
       if (options?.prompt) {
         ComfyUITopologyInjector.injectPrompts(apiPrompt, options.prompt, options?.negativePrompt);
+        console.log(`[ComfyUIMediaProvider] 注入正向提示词: ${options.prompt.slice(0, 100)}...`);
+      }
+      if (options?.negativePrompt) {
+        console.log(`[ComfyUIMediaProvider] 注入负向提示词: ${options.negativePrompt}`);
       }
 
       // 3. 注入随机种子

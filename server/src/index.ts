@@ -5,12 +5,6 @@
 
 import { createApp } from './api/app.js';
 import { config } from './utils/config.js';
-import { ProductionWorkflowEngine } from './workflows/production.workflow.js';
-
-const recoveredCount = ProductionWorkflowEngine.recoverStaleTasks();
-if (recoveredCount > 0) {
-  console.log(`[Bootstrap] 已自动清理 ${recoveredCount} 条服务重启中断的残留任务并释放对应项目执行槽位`);
-}
 
 const app = createApp();
 
@@ -20,6 +14,15 @@ const server = app.listen(config.port, () => {
   console.log(`  服务已启动: http://localhost:${config.port}`);
   console.log(`  运行环境: ${config.nodeEnv} | LLM模式: ${config.llm.provider}`);
   console.log(`=======================================================`);
+});
+
+// 全局异常与未捕获 Promise 兜底防护，防止服务因单次未捕获异常退出
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL uncaughtException] 未捕获异常:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL unhandledRejection] 未处理的 Promise 拒绝:', reason);
 });
 
 // 优雅关闭

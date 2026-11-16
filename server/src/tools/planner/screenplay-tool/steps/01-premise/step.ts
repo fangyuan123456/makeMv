@@ -24,6 +24,8 @@ export const premiseStep = createStep({
   outputSchema: PremiseOutputSchema,
   execute: async ({ context }) => {
     const input = (context as any) || {};
+    const abortSignal = input.abortSignal || input._context?.abortSignal;
+
     const agent = new Agent({
       name: 'screenplay-premise-agent',
       instructions: buildPremiseSystemPrompt(),
@@ -44,6 +46,7 @@ export const premiseStep = createStep({
       stage: 'planner-tool',
       step: 'premise',
       label: '剧本设定与大纲推演',
+      abortSignal,
     });
 
     return result as PremiseOutput;

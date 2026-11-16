@@ -1,12 +1,13 @@
 /**
  * tools/film-production/07-shot-video-tool/steps/01-render/step.ts
- * 镜头视听渲染执行器与原子 Step (以关键帧为底驱动视频生成)
+ * 镜头视听渲染执行器与原子 Step (支持单镜头与全剧批量两栖执行)
  */
 
 import { createStep } from '@mastra/core/workflows';
 import path from 'node:path';
 import fs from 'node:fs';
 import { ProjectStore } from '../../../../../project-store/ProjectStore.js';
+import { atomicWriteJsonSync } from '../../../../../utils/atomicFile.js';
 import { MediaResolver } from '../../../../../media/MediaResolver.js';
 import { videoGenerateTool } from '../../../../video-generate/video-generate.tool.js';
 import { isAbortError } from '../../../../../workflow-engine/run-context.js';
@@ -21,7 +22,7 @@ import { buildShotCinematographyPrompt } from './prompt.js';
 
 export const shotVideoStep = createStep({
   id: 'render-shot-video',
-  description: '以关键帧为底，驱动图生视频算力工具渲染带声画的镜头视频',
+  description: '以关键帧为底，驱动图生视频算力工具渲染带声画的镜头视频 (支持单镜头重制与全剧批量续跑)',
   inputSchema: ShotVideoStepInputSchema,
   outputSchema: ShotVideoStepOutputSchema,
   execute: async ({ context }) => {
@@ -40,105 +41,124 @@ export const shotVideoStep = createStep({
     const filmSpec = store.getArtifact<FilmAdapterArtifact>(projectId, 'film_spec');
 
     if (!filmSpec) {
-      throw new Error(`[ShotVideoTool] 项目 [${projectId}] 缺少 film_spec`);
+      throw new Error(`[ShotVideoTool] 项目 [${projectId}] 缺少 film_spec 分镜切片清单`);
     }
 
-    const clip = filmSpec.clips?.find((c: any) => c.clipId === clipId);
-    const shot = clip?.shots?.find((s: any) => s.shotId === shotId);
-    if (!clip || !shot) {
-      throw new Error(`[ShotVideoTool] 未找到分镜镜头 [${clipId} · ${shotId}]`);
-    }
+    const projectDir = store.getProjectDir(projectId);
 
-    // 若用户手动调整了动作表演提示词，持久化回写
-    if (customPrompt && customPrompt.trim()) {
-      shot.videoPrompt = customPrompt.trim();
-    }
+    // 单镜头视频渲染闭包
+    const renderSingleVideo = async (targetClip: any, targetShot: any): Promise<boolean> => {
+      if (customPrompt && customPrompt.trim()) {
+        targetShot.videoPrompt = customPrompt.trim();
+      }
 
-    // 1. 若已有视频且无自定义调整并不强制重新渲染，直接复用
-    const isCustomRedo = Boolean(customPrompt || referenceImageUrl);
-    if (shot.videoUrl && !force && !isCustomRedo) {
+      const isCustomRedo = Boolean(customPrompt || referenceImageUrl);
+      if (targetShot.videoUrl && !force && !isCustomRedo) {
+        return true;
+      }
+
+      // 底图确定性源头：优先使用显式参考图，其次使用首帧关键帧
+      const effectiveImage = referenceImageUrl || targetShot.firstFrameImageUrl || targetShot.keyframeUrl;
+      if (!effectiveImage) {
+        console.warn(`[ShotVideoTool] 镜头 [${targetShot.shotId}] 缺少前序关键帧底图，跳过视频渲染`);
+        return false;
+      }
+
+      const prompt = customPrompt && customPrompt.trim()
+        ? customPrompt.trim()
+        : buildShotCinematographyPrompt(targetShot);
+
+      const targetDuration = Math.min(10, Math.max(2, Math.round(targetShot.durationSec || 4)));
+
+      try {
+        const res: any = await (videoGenerateTool.execute as any)({
+          context: {
+            projectId,
+            prompt,
+            imageUrl: effectiveImage,
+            duration: targetDuration,
+            subfolder: 'videos',
+            customFilename: targetShot.shotId,
+          },
+        });
+
+        const mediaUrl = res?.mediaUrl || res?.videoUrl;
+        if (!res?.success || !mediaUrl) {
+          throw new Error(res?.error || '视频算力未产出有效媒体地址');
+        }
+
+        targetShot.videoUrl = mediaUrl;
+        return true;
+      } catch (err: any) {
+        if (isAbortError(err)) throw err;
+        throw new Error(`[ShotVideoTool] 镜头 [${targetShot.shotId}] 视频渲染失败: ${err?.message || err}`);
+      }
+    };
+
+    // 1. 若未提供 shotId，开启全剧批量模式 (遍历全剧已有关键帧但无视频的镜头)
+    if (!shotId) {
+      const allShotPairs: Array<{ clip: any; shot: any }> = [];
+      for (const c of filmSpec.clips || []) {
+        for (const s of c.shots || []) {
+          allShotPairs.push({ clip: c, shot: s });
+        }
+      }
+
+      let renderedCount = 0;
+      for (const pair of allShotPairs) {
+        const hasKeyframe = Boolean(pair.shot.firstFrameImageUrl || pair.shot.keyframeUrl);
+        if (hasKeyframe && (force || !pair.shot.videoUrl)) {
+          const success = await renderSingleVideo(pair.clip, pair.shot);
+          if (success) renderedCount++;
+        }
+      }
+
+      // 全量落盘与同步
+      store.setArtifact(projectId, 'film_spec', filmSpec);
+      store.setArtifact(projectId, 'storyboards', filmSpec.clips);
+      atomicWriteJsonSync(path.join(projectDir, 'storyboards.json'), filmSpec.clips);
+
       return {
         projectId,
-        clipId,
-        shotId,
-        videoUrl: shot.videoUrl,
-        reused: true,
+        shotId: 'all',
+        reused: renderedCount === 0,
         success: true,
       };
     }
 
-    let keyframeUrl = referenceImageUrl || shot.firstFrameEnhancedUrl || shot.firstFrameImageUrl;
-    if (!keyframeUrl) {
-      // 物理磁盘自愈：尝试从 keyframes/ 目录自动检索落盘的首帧关键帧
-      const projectDir = store.getProjectDir(projectId);
-      const keyframeDir = path.resolve(projectDir, 'keyframes');
-      if (fs.existsSync(keyframeDir)) {
-        const files = fs.readdirSync(keyframeDir);
-        const matched = files.find((f) => f.startsWith(`${shot.shotId}-first.`));
-        if (matched) {
-          keyframeUrl = MediaResolver.toMediaUrl(projectId, 'keyframes', matched);
-          shot.firstFrameImageUrl = keyframeUrl;
+    // 2. 提供了 shotId，单镜头定向重制模式 (全局反查，无需外部显式提供 clipId)
+    let matchedClip = clipId ? filmSpec.clips?.find((c: any) => c.clipId === clipId) : undefined;
+    let matchedShot = matchedClip?.shots?.find((s: any) => s.shotId === shotId);
+
+    if (!matchedShot) {
+      for (const c of filmSpec.clips || []) {
+        const found = c.shots?.find((s: any) => s.shotId === shotId);
+        if (found) {
+          matchedClip = c;
+          matchedShot = found;
+          break;
         }
       }
     }
 
-    if (!keyframeUrl) {
-      throw new Error(`[ShotVideoTool] 镜头 [${shotId}] 尚未生成关键帧图，无法驱动视频生成`);
+    if (!matchedClip || !matchedShot) {
+      throw new Error(`[ShotVideoTool] 未在全剧分镜中找到镜头 [${shotId}]`);
     }
 
-    const defaultPrompts = buildShotCinematographyPrompt(shot);
-    const prompt = customPrompt && customPrompt.trim() ? customPrompt.trim() : defaultPrompts.videoPrompt;
-    const audioPrompt = defaultPrompts.audioPrompt;
+    await renderSingleVideo(matchedClip, matchedShot);
 
-    try {
-      const res: any = await (videoGenerateTool.execute as any)({
-        context: {
-          projectId,
-          prompt,
-          audioPrompt,
-          referenceImageUrl: keyframeUrl,
-          lastFrameImageUrl: shot.generationMode === 'first_last_frame'
-            ? (shot.lastFrameEnhancedUrl || shot.lastFrameImageUrl)
-            : undefined,
-          duration: shot.durationSec,
-          subfolder: 'video',
-          customFilename: shot.shotId,
-        },
-      });
-
-      if (!res?.success || !res?.videoUrl) {
-        throw new Error(res?.error || '视频渲染未产出有效视频文件');
-      }
-      shot.videoUrl = res.videoUrl;
-    } catch (err: any) {
-      if (isAbortError(err)) throw err;
-      throw new Error(`[ShotVideoTool] 镜头 [${shotId}] 视频渲染失败: ${err?.message || err}`);
-    }
-
-    // 2. 更新 scenes/<clipId>.json 供游戏端直接消费
-    try {
-      const projectDir = store.getProjectDir(projectId);
-      const scenePath = path.join(projectDir, 'scenes', `${clipId}.json`);
-      if (fs.existsSync(scenePath)) {
-        const scene = JSON.parse(fs.readFileSync(scenePath, 'utf8'));
-        if (shot.videoUrl && clip.shots.length === 1) {
-          scene.videoUrl = shot.videoUrl;
-        }
-        fs.writeFileSync(scenePath, JSON.stringify(scene, null, 2));
-      }
-    } catch (err) {
-      console.warn(`[ShotVideoTool] 同步分幕配置失败:`, err);
-    }
-
+    // 单体落盘与同步
     store.setArtifact(projectId, 'film_spec', filmSpec);
+    store.setArtifact(projectId, 'storyboards', filmSpec.clips);
+    atomicWriteJsonSync(path.join(projectDir, 'storyboards.json'), filmSpec.clips);
 
     return {
       projectId,
-      clipId,
-      shotId,
-      videoUrl: shot.videoUrl,
+      clipId: matchedClip.clipId,
+      shotId: matchedShot.shotId,
+      videoUrl: matchedShot.videoUrl,
       reused: false,
-      success: Boolean(shot.videoUrl),
+      success: Boolean(matchedShot.videoUrl),
     };
   },
 });

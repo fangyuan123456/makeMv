@@ -20,7 +20,9 @@ export * from './workflow.js';
 
 export class ScriptToPrdTool extends BaseTaskTool<ScriptToPrdInput, ScriptToPrdOutput> {
   public readonly toolName = 'planner.script_to_prd';
-  public readonly description = '从 Markdown 格式互动影游全景剧本中精准抽取 Universal PRD、分镜故事段落、拓扑图谱并执行图论闭环门禁';
+  public readonly description = '以已物理落盘的剧本正文为唯一基准，出具【Universal PRD 分幕与因果拓扑拆解】的工程执行提案（含图论闭环门禁校验规划），提交给创作者在界面中审阅与授权批准后执行';
+  public readonly inputSchema = ScriptToPrdInputSchema;
+  public readonly outputSchema = ScriptToPrdOutputSchema;
 
   protected buildWorkflow() {
     return createScriptToPrdWorkflow();

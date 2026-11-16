@@ -6,6 +6,7 @@
 import type { Response } from 'express';
 
 export function sendSuccess<T = any>(res: Response, data: T, message?: string): void {
+  if (res.headersSent) return;
   res.json({
     success: true,
     data,
@@ -15,6 +16,7 @@ export function sendSuccess<T = any>(res: Response, data: T, message?: string): 
 }
 
 export function sendError(res: Response, status: number, error: string): void {
+  if (res.headersSent) return;
   res.status(status).json({
     success: false,
     error,

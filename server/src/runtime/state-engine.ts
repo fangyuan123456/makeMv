@@ -8,8 +8,47 @@
  * 3. 产生可持久化的玩家试玩存档 (PlayerSession)。
  */
 
-import type { TextGameArtifact, TextGameNode, TextGameChoice } from '../agents/game-assembly/schema.js';
-import type { GDDArtifact, GlobalStateMachine } from '../agents/planner/schema.js';
+export interface TextGameChoice {
+  id: string;
+  text: string;
+  targetNodeId: string;
+  requiredVariables?: Record<string, { gte?: number; lte?: number }>;
+  requiredFlags?: string[];
+  requiredItems?: string[];
+  stateMutation?: {
+    variables?: Record<string, number>;
+    setVariables?: Record<string, number>;
+    flags?: Record<string, boolean>;
+    inventoryAdd?: string[];
+    inventoryRemove?: string[];
+  };
+}
+
+export interface TextGameNode {
+  id: string;
+  title: string;
+  narrativeText?: string;
+  choices: TextGameChoice[];
+  isEnding?: boolean;
+  endingType?: string;
+}
+
+export interface TextGameArtifact {
+  title: string;
+  startNodeId: string;
+  initialState?: Record<string, any>;
+  nodes: TextGameNode[];
+}
+
+export interface GlobalStateMachine {
+  variables?: Record<string, { initial: number }>;
+  flags?: Record<string, { initial: boolean }>;
+  inventory?: string[];
+}
+
+export interface GDDArtifact {
+  globalStateMachine?: GlobalStateMachine;
+}
 
 export interface PlayerGameState {
   currentNodeId: string;
@@ -169,7 +208,7 @@ export class TextGameRuntimeEngine {
     }
     if (choice.stateMutation?.setVariables) {
       for (const [vKey, val] of Object.entries(choice.stateMutation.setVariables)) {
-        nextVariables[vKey] = val;
+        nextVariables[vKey] = Number(val);
       }
     }
 

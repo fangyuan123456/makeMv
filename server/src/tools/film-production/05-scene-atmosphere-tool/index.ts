@@ -17,7 +17,9 @@ export * from './workflow.js';
 
 export class SceneAtmosphereTool extends BaseTaskTool<SceneAtmosphereStepInput, SceneAtmosphereStepOutput> {
   public readonly toolName = 'film.scene_atmosphere';
-  public readonly description = '调用物理生图算力与垫参考图，渲染单个场景无人高清广角空镜母本图并持久化落盘';
+  public readonly description = '出具指定场景的无人高清广角空镜母本图执行提案（支持环境光影与垫图重绘），提交给创作者在界面中审阅批准后发起物理渲染';
+  public readonly inputSchema = SceneAtmosphereStepInputSchema;
+  public readonly outputSchema = SceneAtmosphereStepOutputSchema;
 
   protected buildWorkflow() {
     return createSceneAtmosphereWorkflow();

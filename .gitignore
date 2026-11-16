@@ -46,6 +46,7 @@ server/data/media/
 # Legacy backups
 backup/
 server_backup_v1/
+_legacy_archive/
 
 # Teamwork workdir temporary notes (keep briefing & project docs)
 .agents/teamwork/implementer_r*/

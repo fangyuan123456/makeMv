@@ -212,6 +212,7 @@ export const techPlanStep = createStep({
       scenes: [],
     };
     const artStyle = input.artStyle || '';
+    const abortSignal = (input as any)?.abortSignal || (input as any)?._context?.abortSignal;
 
     const agent = new Agent({
       name: 'interactive-runtime-architect-agent',
@@ -234,6 +235,7 @@ export const techPlanStep = createStep({
       stage: 'game-assembly-tool',
       step: 'tech-plan',
       label: '互动影游技术架构方案规划',
+      abortSignal,
     });
 
     const finalPlan = normalizeTechPlan((parsed as TechPlanStepOutput) || buildFallbackTechPlan());

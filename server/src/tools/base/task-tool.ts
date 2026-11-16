@@ -11,7 +11,10 @@
  */
 
 import { EventEmitter } from 'events';
+import { tool } from 'ai';
+import { z } from 'zod';
 import type { Workflow } from '@mastra/core/workflows';
+import { withRunContext } from '../../workflow-engine/run-context.js';
 
 /**
  * 任务工具双阶段回调契约
@@ -74,6 +77,23 @@ export abstract class BaseTaskTool<TInput, TOutput> extends EventEmitter {
 
   /** 工具业务描述 */
   public abstract readonly description: string;
+
+  /** 工具输入参数强类型 Zod 契约 (SSOT 单一事实来源) */
+  public inputSchema?: z.ZodType<TInput, any, any>;
+
+  /** 工具输出强类型 Zod 契约 (可选) */
+  public outputSchema?: z.ZodType<TOutput, any, any>;
+
+  /**
+   * 将当前物理工具输出为标准合规的 Mastra / AI SDK Tool 实体 (Mastra Tool SSOT)
+   * 自动清洗为合规合法的下划线真名，大模型原生 Function Calling 直通底层
+   */
+  public toMastraTool() {
+    return tool({
+      description: this.description,
+      parameters: this.inputSchema || (z.record(z.any()) as any),
+    });
+  }
 
   /**
    * 子类实现：构建内部执行的 Mastra Workflow (使用 Step 设计)
@@ -148,12 +168,23 @@ export abstract class BaseTaskTool<TInput, TOutput> extends EventEmitter {
         const run = workflow.createRun();
         const payload = {
           ...input,
+          abortSignal: options?.abortSignal,
           _context: context,
         };
-        const runResult = await run.start({
-          triggerData: payload,
-          inputData: payload,
-        } as any);
+        const runResult = await withRunContext(
+          {
+            projectId: (input as any)?.projectId || 'global',
+            runId: taskId,
+            lane: 'interactive',
+            abortSignal: options?.abortSignal,
+          },
+          async () => {
+            return await run.start({
+              triggerData: payload,
+              inputData: payload,
+            } as any);
+          }
+        );
 
         // 3. 提取执行结果：兼容 Mastra Workflow 原生 runResult (results[stepId].output) 与直接结果结构
         let finalData: any = runResult;
@@ -229,6 +260,17 @@ export abstract class BaseTaskTool<TInput, TOutput> extends EventEmitter {
 
     // 调度方法同步返回 taskId
     return taskId;
+  }
+
+  /**
+   * 统一执行门面 (与 dispatch 等价，支持对象入参)
+   */
+  public async execute(params: {
+    input: TInput;
+    callbacks: TaskToolCallbacks<TOutput>;
+    options?: TaskDispatchOptions;
+  }): Promise<string> {
+    return this.dispatch(params.input, params.callbacks, params.options);
   }
 
   /**

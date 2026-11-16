@@ -16,7 +16,9 @@ import {
 export const StoryboardPlanningInputSchema = z.object({
   projectId: z.string().describe('项目唯一标识'),
   title: z.string().optional().describe('故事标题'),
-  prd: z.any().describe('策划案 PRD (UniversalPrdSpec)'),
+  clipId: z.string().optional().describe('可选指定单幕切片 ID (如 c1, c1_branch_a)，传入时执行单幕定向高精规划'),
+  instruction: z.string().optional().describe('可选针对分镜拆解的导演自然语言指导要求'),
+  prd: z.any().optional().describe('策划案 PRD (UniversalPrdSpec，留空则自动从项目黑板读取)'),
   storyMarkdown: z.string().optional().describe('故事剧本正文 Markdown'),
   entities: GlobalEntitiesSchema.optional().describe('前序提取出的视觉资产表 (包含角色、道具、场景外观)'),
 });

@@ -10,6 +10,10 @@ import { generateStructured } from '../../../../../utils/llm-diagnostics.js';
 import { ProjectStore } from '../../../../../project-store/ProjectStore.js';
 import { GlobalEntitiesSchema, type GlobalEntities } from '../../../../../project-store/contracts/film-production/lookdev.js';
 import {
+  mergeExtractedEntities,
+  hydrateEntitiesWithDiskAssets,
+} from '../../../../../project-store/entity-preservation.js';
+import {
   AssetExtractionStepInputSchema,
   AssetExtractionOutputSchema,
   type AssetExtractionStepInput,
@@ -39,6 +43,7 @@ export const assetExtractionStep = createStep({
       ...input,
       prd: effectivePrd,
     };
+    const abortSignal = (input as any)?.abortSignal || (input as any)?._context?.abortSignal;
 
     const agent = new Agent({
       name: 'visual-asset-extractor-agent',
@@ -55,15 +60,21 @@ export const assetExtractionStep = createStep({
       stage: 'film-tool',
       step: 'asset-extract',
       label: '视觉资产纯文本提取',
+      abortSignal,
     })) as GlobalEntities;
 
+    let finalEntities = entities;
     if (input.projectId && entities) {
-      store.setArtifact(input.projectId, 'lookdev_entities', entities);
+      const projectDir = store.getProjectDir(input.projectId);
+      const oldEntities = store.getArtifact(input.projectId, 'lookdev_entities');
+      const merged = mergeExtractedEntities(oldEntities, entities);
+      finalEntities = hydrateEntitiesWithDiskAssets(input.projectId, projectDir, merged);
+      store.setArtifact(input.projectId, 'lookdev_entities', finalEntities);
     }
 
     const output: AssetExtractionOutput = {
       projectId: input.projectId,
-      entities,
+      entities: finalEntities,
     };
 
     return output;

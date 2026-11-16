@@ -17,7 +17,9 @@ export * from './workflow.js';
 
 export class CharacterPortraitTool extends BaseTaskTool<CharacterPortraitInput, CharacterPortraitOutput> {
   public readonly toolName = 'film.character_portrait';
-  public readonly description = '物理渲染单个角色全身高清概念立绘并持久化落盘，支持外部垫参考图重绘';
+  public readonly description = '出具指定角色的全身高清概念定妆照执行提案（支持提示词增强与垫图重绘），提交给创作者在界面中审阅批准后发起物理渲染';
+  public readonly inputSchema = CharacterPortraitInputSchema;
+  public readonly outputSchema = CharacterPortraitOutputSchema;
 
   protected buildWorkflow() {
     return createCharacterPortraitWorkflow();

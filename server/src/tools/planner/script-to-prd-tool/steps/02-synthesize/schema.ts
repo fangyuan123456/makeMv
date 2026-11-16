@@ -9,7 +9,7 @@ import {
   StoryGraphSchema,
   type UniversalPrdSpec,
   type StoryGraph,
-} from '../../../../../agents/planner/steps/prd-synthesis/schema.js';
+} from '../../../../../project-store/contracts/planner/index.js';
 import {
   ExtractedScriptStructureSchema,
   type ExtractedScriptStructure,
@@ -25,6 +25,8 @@ export type StorySectionItem = z.infer<typeof StorySectionItemSchema>;
 export const ScriptToPrdOutputSchema = z.object({
   title: z.string().describe('剧作标题'),
   prd: UniversalPrdSpecSchema.describe('100% 标准化的互动游戏策划案通用规范 (Universal PRD Spec)'),
+  prdMarkdown: z.string().optional().describe('标准的 5 章节 PRD Markdown 策划案文档全文'),
+  storyMarkdown: z.string().optional().describe('分幕切片剧本 Markdown 文档全文 (story.md)'),
   storySections: z.record(StorySectionItemSchema).describe('按切片 ID 索引的剧情视听正文字典'),
   graph: StoryGraphSchema.describe('用于前端拓扑图渲染的可视化节点与连线数据'),
   validation: z.object({

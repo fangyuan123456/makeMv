@@ -1,5 +1,5 @@
 /**
- * agents/film-production/schema.ts
+ * project-store/contracts/film-production/film-spec.ts
  * 影视视听切片资产订单强类型 Zod 契约 (Film Asset Order Schema SSOT)
  *
  * 核心设计：

@@ -1,6 +1,8 @@
 /**
  * client/src/types/index.ts
  * 客户端全局强类型契约体系 (SSOT)
+ *
+ * 纯 Tool-First 任务工坊架构，消灭旧时代对话流与气泡类型
  */
 
 export interface ProjectMetadata {
@@ -12,212 +14,12 @@ export interface ProjectMetadata {
   currentStage: 'gdd_planning' | 'text_game_authoring' | 'film_compiling' | 'completed';
 }
 
-export interface StateVariableSpec {
-  name: string;
-  initial: number;
-  min?: number;
-  max?: number;
-  description?: string;
-}
-
-export interface StateFlagSpec {
-  name: string;
-  initial: boolean;
-  description?: string;
-}
-
-export interface GlobalStateMachine {
-  philosophy?: string;
-  variables?: Record<string, StateVariableSpec>;
-  flags?: Record<string, StateFlagSpec>;
-  inventory?: string[];
-}
-
-export interface CharacterSpec {
-  characterId: string;
-  name: string;
-  role: string;
-  appearance: string;
-  personality: string;
-}
-
-export interface BranchExpectation {
-  intent: string;
-  targetBeatId: string;
-  isLoopBack?: boolean;
-  gatingRequirement?: string;
-}
-
-export interface NarrativeBeat {
-  beatId: string;
-  act: string;
-  title: string;
-  dramaticGoal: string;
-  keyConflicts: string;
-  branchExpectations: BranchExpectation[];
-  isEnding?: boolean;
-  endingTheme?: string;
-}
-
-export interface PlannerChoice {
-  choiceId: string;
-  text: string;
-  requiredFlags?: string[];
-  stateMutations?: {
-    variables?: Record<string, number>;
-    flags?: Record<string, boolean>;
-    inventoryAdd?: string[];
-    inventoryRemove?: string[];
-  };
-  nextNodeId: string;
-  isLoopBack?: boolean;
-}
-
-export interface PlannerNode {
-  nodeId: string;
-  title: string;
-  summary: string;
-  choices: PlannerChoice[];
-  defaultFallbackChoiceId?: string;
-}
-
-export type PrdStateValue = number | boolean | string | string[];
-
-export interface PrdStateChange {
-  add?: Record<string, number>;
-  set?: Record<string, PrdStateValue>;
-}
-
-export interface PrdClipNode {
-  id: string;
-  title: string;
-  video: string;
-}
-
-export interface PrdInteractionOutcome {
-  key: string;
-  label: string;
-  stateChange?: PrdStateChange;
-  feedback?: string;
-}
-
-export interface PrdInteractionNode {
-  id: string;
-  kind: string;
-  prompt: string;
-  timeoutSec: number | null;
-  config?: Record<string, unknown>;
-  outcomes: PrdInteractionOutcome[];
-}
-
-export interface PrdEndingNode {
-  id: string;
-  endingType: 'TE' | 'HE' | 'BE' | 'NE' | 'SE';
-  title: string;
-  isVictory: boolean;
-  summary: string;
-  rewindTargetClipId?: string;
-}
-
-export interface PrdTransitionCard {
-  text: string;
-  durationSec?: number;
-}
-
-export interface PrdWiringEdge {
-  from: string;
-  onOutcome: string;
-  condition: string | null;
-  transition: PrdTransitionCard | null;
-  to: string;
-}
-
-export interface PrdUiPageSpec {
-  page: string;
-  features: string;
-}
-
-export interface UniversalPrdSpec {
-  gameTitle: string;
-  genre: string;
-  playerIdentity: string;
-  premiseAndPerspective: string;
-  outOfFlowSummary: string;
-  gameplayAndVictorySummary: string;
-  uiPagesSummary: PrdUiPageSpec[];
-  startNodeId: string;
-  initialState: Record<string, PrdStateValue>;
-  clips: PrdClipNode[];
-  interactions: PrdInteractionNode[];
-  endings: PrdEndingNode[];
-  wiring: PrdWiringEdge[];
-}
-
-export interface StorySectionItem {
-  title: string;
-  narrativeText: string;
-}
-
-export interface GDDArtifact {
-  schemaVersion?: string;
-  title: string;
-  genre?: string;
-  hook: string;
-  playerRole: string;
-  coreLoop?: string;
-  markdown?: string;
-  storyMarkdown?: string;
-  spineScript?: string;
-  prd?: UniversalPrdSpec;
-  storySections?: Record<string, StorySectionItem>;
-  globalStateMachine: GlobalStateMachine;
-  characters: CharacterSpec[];
-  beatOutline?: NarrativeBeat[];
-  flowchartNodes?: PlannerNode[];
-}
-
-export interface TextGameChoice {
-  id: string;
-  text: string;
-  requiredFlags?: string[];
-  requiredItems?: string[];
-  requiredVariables?: Record<string, { gte?: number; lte?: number }>;
-  stateMutation?: {
-    variables?: Record<string, number>;
-    flags?: Record<string, boolean>;
-    inventoryAdd?: string[];
-    inventoryRemove?: string[];
-  };
-  targetNodeId: string;
-}
-
-export interface SceneVisual {
-  imageUrl?: string;
-  locationName?: string;
-  entityNames?: string[];
-  perspective?: string;
-  scenePrompt: string;
-  characterPrompt: string;
-  composition: string;
-  imagePromptEn: string;
-}
-
-export interface TextGameNode {
-  id: string;
-  title: string;
-  visual?: SceneVisual;
-  narrativeText: string;
-  choices: TextGameChoice[];
-  audioCue?: string;
-  isEnding?: boolean;
-  endingType?: string;
-}
-
-export interface TextGameArtifact {
-  schemaVersion?: string;
-  title: string;
-  startNodeId: string;
-  nodes: TextGameNode[];
+export interface LookdevVersion {
+  versionId: string;
+  imageUrl: string;
+  promptZh?: string;
+  referenceImageUrl?: string;
+  createdAt: string;
 }
 
 export interface ExtractedCharacter {
@@ -227,6 +29,9 @@ export interface ExtractedCharacter {
   appearanceSummary: string;
   promptZh: string;
   referenceImageUrl?: string;
+  imageUrl?: string;
+  versions?: LookdevVersion[];
+  selectedVersionId?: string;
 }
 
 export interface ExtractedItem {
@@ -246,6 +51,9 @@ export interface ExtractedLocation {
   promptZh: string;
   sceneIds: string[];
   referenceImageUrl?: string;
+  imageUrl?: string;
+  versions?: LookdevVersion[];
+  selectedVersionId?: string;
 }
 
 export interface LookdevEntitiesArtifact {
@@ -253,17 +61,6 @@ export interface LookdevEntitiesArtifact {
   characters: ExtractedCharacter[];
   items: ExtractedItem[];
   locations: ExtractedLocation[];
-}
-
-export interface FilmSliceArtifact {
-  sceneId: string;
-  title: string;
-  videoUrl?: string;
-  keyframeImageUrl?: string;
-  cameraMovement?: string;
-  lighting?: string;
-  soundEffects?: string[];
-  durationSeconds?: number;
 }
 
 export interface CinematicShotOrder {
@@ -284,15 +81,20 @@ export interface CinematicShotOrder {
   audioPrompt: string;
   firstFrameImageUrl?: string;
   lastFrameImageUrl?: string;
+  keyframeUrl?: string;
   videoUrl?: string;
   dialogue?: string;
+  characterName?: string;
   ambience?: string;
-  transitionAnchor?: string;
+  sceneTitle?: string;
+  promptZh?: string;
+  description?: string;
 }
 
 export interface CinematicClipOrder {
   clipId: string;
-  sourceNodeId: string;
+  sourceNodeId?: string;
+  title?: string;
   targetDurationSec?: number;
   shots: CinematicShotOrder[];
   videoUrl?: string;
@@ -300,117 +102,156 @@ export interface CinematicClipOrder {
 
 export interface FilmAdapterArtifact {
   projectId?: string;
-  schemaVersion?: string;
-  projectTitle: string;
+  projectTitle?: string;
   clips: CinematicClipOrder[];
-  slices?: FilmSliceArtifact[];
+  slices?: any[];
 }
 
-export interface ProjectChatRecord {
+export interface PrdUiPage {
+  page: string;
+  features: string;
+}
+
+export interface PrdStateChange {
+  add?: Record<string, number>;
+  set?: Record<string, any>;
+}
+
+export interface PrdInteractionOutcome {
+  key: string;
+  label: string;
+  feedback?: string;
+  stateChange?: PrdStateChange;
+}
+
+export interface PrdInteractionNode {
   id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  createdAt: string;
-  status?: 'streaming' | 'done' | 'error';
-  /** 本轮失败原因：单独存字段，不再拼进正文（前端据此挂可重试的错误提示） */
-  errorMessage?: string;
-  proposal?: ActionProposal;
-  proposalResolved?: boolean;
-  taskRunId?: string;
-  taskStage?: 'plan_gdd' | 'extract_visual_spec' | 'build_text_game' | 'compile_film';
-  nextProposalResolved?: boolean;
+  kind: 'CHOICE' | 'ACTION' | 'CLICK' | 'HOLD' | string;
+  prompt: string;
+  timeoutSec?: number | null;
+  config?: Record<string, any>;
+  outcomes: PrdInteractionOutcome[];
+}
+
+export interface PrdEndingNode {
+  id: string;
+  endingType: 'TE' | 'HE' | 'BE' | 'NE' | string;
+  title: string;
+  isVictory: boolean;
+  summary: string;
+  rewindTargetClipId?: string;
+}
+
+export interface PrdClipNode {
+  id: string;
+  title: string;
+  video?: string;
+  narrativeText?: string;
+  choices?: any[];
+}
+
+export interface PrdWiringEdge {
+  from: string;
+  onOutcome: string;
+  condition?: string | null;
+  transition?: { text: string; durationSec: number } | null;
+  to: string;
+}
+
+export interface UniversalPrdSpec {
+  gameTitle: string;
+  genre: string;
+  playerIdentity?: string;
+  premiseAndPerspective?: string;
+  outOfFlowSummary?: string;
+  gameplayAndVictorySummary?: string;
+  uiPagesSummary?: PrdUiPage[];
+  startNodeId: string;
+  initialState?: Record<string, any>;
+  clips: PrdClipNode[];
+  interactions: PrdInteractionNode[];
+  endings: PrdEndingNode[];
+  wiring: PrdWiringEdge[];
+  [key: string]: any;
 }
 
 export interface ProjectData {
   meta: ProjectMetadata;
   artifacts: {
-    gdd?: GDDArtifact;
-    text_game?: TextGameArtifact;
+    prd?: UniversalPrdSpec | any;
+    prdMarkdown?: string;
     lookdev_entities?: LookdevEntitiesArtifact;
     hasStandaloneGame?: boolean;
     film_spec?: FilmAdapterArtifact;
-    studio_tasks?: ProjectStudioTaskRegistry;
+    storyboards?: any[];
     [key: string]: any;
   };
-  chat?: ProjectChatRecord[];
+  prd?: UniversalPrdSpec | any;
+  prdMarkdown?: string;
+  entities?: LookdevEntitiesArtifact | any;
+  storyboards?: any[];
+  screenplay?: string;
+  story?: string;
+  storySections?: Record<string, { title: string; narrativeText: string }>;
 }
 
-export interface ProjectStudioTaskRegistry {
+export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface TaskRecord<TInput = any, TOutput = any> {
+  taskId: string;
   projectId: string;
-  masterPipelineRunId?: string;
-  stages: {
-    planGddTaskId?: string;
-    assetExtractionTaskId?: string;
-    storyboardPlanningTaskId?: string;
-    studioMasterTaskId?: string;
-  };
-  lookdev: {
-    stageTaskId?: string;
-    characters: Record<string, string>;
-    items: Record<string, string>;
-    locations: Record<string, string>;
-  };
-  acts: Record<
-    string,
-    {
-      actTaskId?: string;
-      shots: Record<
-        string,
-        {
-          keyframeTaskId?: string;
-          videoTaskId?: string;
-        }
-      >;
-    }
-  >;
-  updatedAt: string;
+  toolName: string;
+  status: TaskStatus;
+  progress?: { current: number; total: number; message?: string; percent?: number };
+  input: TInput;
+  output?: TOutput;
+  error?: string;
+  createdAt: number;
+  startedAt?: number;
+  completedAt?: number;
+  durationMs?: number;
 }
 
-export interface ActionProposal {
-  action:
-    | 'propose_stage'
-    | 'approve_stage'
-    | 'resume_task'
-    | 'modify_asset'
-    | 'build_text_game'
-    | 'start_pipeline'
-    | string;
-  targetStage?: 'plan_gdd' | 'extract_visual_spec' | 'build_text_game' | 'compile_film' | string;
-  taskId?: string;
-  summary: string;
-  payload?: Record<string, any>;
+export interface ToolMetadata {
+  toolName: string;
+  description: string;
 }
 
-/**
- * 对话气泡内嵌的阶段任务快照。
- * 客户端把 /api/tasks/:id 的进度 与 /api/workflow/:id/state 的阶段结果
- * 投影到「确认后那一条 AI 回复气泡」上，沿用旧版单气泡任务面板的口径：
- * 排队 → 进度条 → 完成内容 + 下一个人在回路确认意图。
- */
-export interface StageTaskView {
-  runId: string;
-  stage: 'plan_gdd' | 'extract_visual_spec' | 'build_text_game' | 'compile_film';
+export interface CanvasLookdevEntitySummary {
+  characterId?: string;
+  locationId?: string;
+  name: string;
+  imageUrl?: string;
+}
+
+export interface CanvasShotNode {
+  id: string;
+  type?: 'shot_node' | 'lookdev_root';
+  shotId?: string;
+  clipId?: string;
   title: string;
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
-  percent: number;
-  note: string;
-  startedAt: string;
-  resultSummary?: string;
-  gameUrl?: string;
-  nextProposal?: ActionProposal;
-  nextProposalResolved?: boolean;
+  prompt?: string;
+  durationSec?: number;
+  position: { x: number; y: number };
+  size?: { w: number; h: number };
+  activeTaskId?: string;
+  candidateTaskIds?: string[];
+  videoUrl?: string;
+  keyframeUrl?: string;
+  characters?: CanvasLookdevEntitySummary[];
+  locations?: CanvasLookdevEntitySummary[];
 }
 
-export interface PlayerGameHistoryItem {
-  nodeId: string;
-  choiceId?: string;
-  timestamp?: string;
+export interface CanvasBranchEdge {
+  id: string;
+  fromNodeId: string;
+  toNodeId: string;
+  choiceText?: string;
 }
 
-export interface PlayerGameState {
-  currentNodeId: string;
-  variables: Record<string, number>;
-  flags: Record<string, boolean>;
-  inventory: string[];
-  history: Array<string | PlayerGameHistoryItem>;
+export interface StoryboardCanvasData {
+  projectId: string;
+  viewport: { x: number; y: number; zoom: number };
+  nodes: Record<string, CanvasShotNode>;
+  edges: Record<string, CanvasBranchEdge>;
 }

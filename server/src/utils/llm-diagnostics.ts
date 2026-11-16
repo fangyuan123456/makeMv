@@ -17,9 +17,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Agent } from '@mastra/core/agent';
+import { generateObject, type LanguageModelV1 } from 'ai';
 import type { ZodTypeAny, infer as ZodInfer } from 'zod';
 import { getArtifactDir, STAGE } from '../project-store/artifact-fs.js';
-import { getRunContext } from '../workflow-engine/run-context.js';
+import { LLMProvider } from '../llm/index.js';
+import {
+  getRunContext,
+  isAbortError,
+  RunAbortedError,
+} from '../workflow-engine/run-context.js';
 
 export interface StructuredCallContext {
   /** 产物阶段目录，如 STAGE.planner / STAGE.textGame */
@@ -185,24 +191,44 @@ export function dumpStructuredFailure(
  *   });
  */
 export async function generateStructured<S extends ZodTypeAny>(params: {
-  agent: Agent;
+  agent?: Agent;
+  model?: LanguageModelV1;
+  system?: string;
   prompt: string;
   schema: S;
   stage: string;
   step: string;
   label: string;
   projectId?: string;
+  abortSignal?: AbortSignal;
 }): Promise<ZodInfer<S>> {
-  const { agent, prompt, schema, ...rest } = params;
+  const { agent, prompt, schema, abortSignal, ...rest } = params;
+
+  // 1. 预检 Abort 信号
+  if (abortSignal?.aborted) {
+    throw new RunAbortedError(`【${params.label}】任务已被取消`);
+  }
+
+  const effectiveModel = params.model || (agent?.model as LanguageModelV1) || LLMProvider.getModel();
+  const effectiveSystem = params.system || agent?.instructions;
+
   try {
-    const response = (await agent.generate(prompt, { output: schema as any })) as {
-      object?: ZodInfer<S>;
-    };
+    const response = await generateObject({
+      model: effectiveModel,
+      system: effectiveSystem || undefined,
+      prompt,
+      schema: schema as any,
+      abortSignal,
+    });
+
     if (response?.object === undefined || response?.object === null) {
       throw Object.assign(new Error('模型未返回可解析对象'), { text: '' });
     }
     return response.object as ZodInfer<S>;
-  } catch (err) {
+  } catch (err: any) {
+    if (isAbortError(err) || abortSignal?.aborted) {
+      throw err instanceof RunAbortedError ? err : new RunAbortedError(`【${params.label}】任务已被取消`);
+    }
     const digest = dumpStructuredFailure(rest, err, prompt);
     const suffix = digest.dumpDir ? `（原始输出与提示词已落盘：${digest.dumpDir}）` : '';
     throw new Error(`${digest.summary}${suffix}`);

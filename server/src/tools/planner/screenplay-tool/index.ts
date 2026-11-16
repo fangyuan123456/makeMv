@@ -20,7 +20,9 @@ export * from './workflow.js';
 
 export class ScreenplayTool extends BaseTaskTool<ScreenplayInput, ScreenplayOutput> {
   public readonly toolName = 'planner.screenplay_writer';
-  public readonly description = '根据创作者创意推演完整的 Markdown 格式互动影游全景剧本 (含分幕、台词、抉择选项与分支终局)';
+  public readonly description = '推演并出具【互动全景剧本创作】的完整制片方案与执行参数（含分幕数、戏剧冲突、分幕对白规划），提交给创作者在界面中审阅与授权批准后执行';
+  public readonly inputSchema = ScreenplayInputSchema;
+  public readonly outputSchema = ScreenplayOutputSchema;
 
   protected buildWorkflow() {
     return createScreenplayWorkflow();

@@ -17,7 +17,9 @@ export * from './workflow.js';
 
 export class StoryboardPlanningTool extends BaseTaskTool<StoryboardPlanningInput, StoryboardPlanningOutput> {
   public readonly toolName = 'film.storyboard_planning';
-  public readonly description = '纯文字视听拆解，将剧本与 PRD 拆解为各幕分镜镜头订单 (包含机位、运镜、首帧词、表演词)';
+  public readonly description = '根据剧本与 PRD 出具专业分镜镜头拆解规划提案 (包含机位、运镜、首帧构图与表演词)，提交给创作者在界面中审阅批准后执行';
+  public readonly inputSchema = StoryboardPlanningInputSchema;
+  public readonly outputSchema = StoryboardPlanningOutputSchema;
 
   protected buildWorkflow() {
     return createStoryboardPlanningWorkflow();

@@ -1,13 +1,14 @@
 /**
  * tools/planner/script-to-prd-tool/steps/01-extract/schema.ts
- * 步骤一：剧本结构语义抽取专属契约 (Extract Step Contract)
+ * 步骤一：剧本结构语义抽取专属契约 (Extract Step Contract SSOT)
  */
 
 import { z } from 'zod';
 
 export const ScriptToPrdInputSchema = z.object({
-  scriptMarkdown: z.string().describe('完整的 Markdown 格式互动影游全景剧本正文'),
-  title: z.string().optional().describe('剧作标题 (可选，留空则自动从剧本正文首行抽取)'),
+  projectId: z.string().describe('项目唯一标识符 (SSOT 必填)'),
+  scriptMarkdown: z.string().optional().describe('全景剧本 Markdown 文本 (可选，留空则自动从项目资产黑板读取)'),
+  title: z.string().optional().describe('剧作标题 (可选，留空则自动从项目资产读取)'),
 });
 
 export type ScriptToPrdInput = z.infer<typeof ScriptToPrdInputSchema>;
@@ -42,6 +43,7 @@ export const ExtractedScriptStructureSchema = z.object({
 export type ExtractedScriptStructure = z.infer<typeof ExtractedScriptStructureSchema>;
 
 export const ExtractStepInputSchema = ScriptToPrdInputSchema.extend({
+  abortSignal: z.any().optional().describe('取消执行信号量'),
   _context: z.any().optional(),
 });
 

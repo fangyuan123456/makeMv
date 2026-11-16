@@ -23,9 +23,40 @@ import {
   mountStudioStageTask,
   type ProjectStudioTaskRegistry,
 } from './contracts/film-production/studio-tasks.js';
+import {
+  formatGddPrdToMarkdown,
+  formatStoryScenesToMarkdown,
+} from '../tools/planner/script-to-prd-tool/steps/02-synthesize/markdown-renderer.js';
 
-/** 写进 project.json 的投影：只有元数据与聊天记录 */
-type ProjectDiskView = Pick<ProjectData, 'meta' | 'chat'>;
+/**
+ * 全局法定资产物理落盘规范 (Canonical Artifact Spec SSOT)
+ * 进程重启后通过本标准规范直接原子读盘，杜绝任何下游硬编码分支与多路猜测
+ */
+export const CANONICAL_ARTIFACT_MAP: Record<
+  string,
+  { filename: string; type: 'text' | 'json'; subDir?: string }
+> = {
+  // 工序 1 资产
+  screenplay: { filename: 'screenplay.md', type: 'text' },
+  story: { filename: 'story.md', type: 'text' },
+  prd: { filename: 'prd.json', type: 'json' },
+  prd_markdown: { filename: 'prd.md', type: 'text' },
+  universal_prd: { filename: 'prd.json', type: 'json' },
+  gdd: { filename: 'prd.json', type: 'json' },
+
+  // 工序 2 资产
+  lookdev_entities: { filename: 'entities.json', type: 'json', subDir: 'scenes' },
+
+  // 工序 3 资产与无限分镜画布
+  storyboards: { filename: 'storyboards.json', type: 'json' },
+  storyboard_canvas: { filename: 'storyboard_canvas.json', type: 'json' },
+
+  // 全局多维工序任务树
+  studio_tasks: { filename: 'tasks.json', type: 'json' },
+};
+
+/** 写进 project.json 的投影：仅存全局元数据 (对话与产物已全部分离落盘) */
+type ProjectDiskView = { meta: ProjectMetadata };
 
 export class ProjectStore {
   private static instance: ProjectStore | null = null;
@@ -77,7 +108,6 @@ export class ProjectStore {
       data = {
         meta: disk.meta,
         artifacts: {},
-        chat: disk.chat || [],
       };
     } else {
       const now = new Date().toISOString();
@@ -90,9 +120,8 @@ export class ProjectStore {
           currentStage: 'gdd_planning',
         },
         artifacts: {},
-        chat: [],
       };
-      atomicWriteJsonSync(filePath, { meta: data.meta, chat: data.chat } as ProjectDiskView);
+      atomicWriteJsonSync(filePath, { meta: data.meta });
     }
 
     this.cache.set(projectId, data);
@@ -100,12 +129,12 @@ export class ProjectStore {
   }
 
   /**
-   * 保存项目元数据到磁盘。产物正文由各工序自行落盘，绝不写进 project.json。
+   * 保存项目元数据到磁盘。产物正文由各工序自行落盘，对白归档由 chat 模块统一管理，绝不写进 project.json。
    */
   public saveProject(data: ProjectData): void {
     data.meta.updatedAt = new Date().toISOString();
     const filePath = this.getProjectJsonPath(data.meta.projectId);
-    const diskView: ProjectDiskView = { meta: data.meta, chat: data.chat || [] };
+    const diskView: ProjectDiskView = { meta: data.meta };
     atomicWriteJsonSync(filePath, diskView);
     this.cache.set(data.meta.projectId, data);
   }
@@ -120,28 +149,111 @@ export class ProjectStore {
   }
 
   /**
-   * 读取运行时黑板；内存缺失时按固定 key → 文件路径映射读盘兜底。
-   * md 文件读回来是文本字符串，调用方按各自既有 fallback 处理。
+   * 读取运行时黑板（单一事实来源 SSOT：内存优先，缺失时依照 CANONICAL_ARTIFACT_MAP 精准原子读盘水合）
    */
   public getArtifact<T = any>(projectId: string, artifactKey: string): T | null {
     const project = this.getProject(projectId);
     const inMemory = project.artifacts[artifactKey] as T | undefined;
     if (inMemory !== undefined && inMemory !== null) return inMemory;
 
-    const entry = ARTIFACT_PATHS[artifactKey];
-    if (!entry) return null;
+    // 唯一规范字典查表，杜绝任何下游硬编码胶水分支
+    const spec = CANONICAL_ARTIFACT_MAP[artifactKey];
+    if (!spec) return null;
 
-    const text = readArtifactFile(projectId, entry.scope, entry.stage, entry.step, entry.file);
-    if (text === null) return null;
+    const projectDir = this.getProjectDir(projectId);
+    const baseDir = spec.subDir
+      ? path.join(projectDir, spec.subDir)
+      : projectDir;
+    const filePath = path.join(baseDir, spec.filename);
 
-    if (entry.file.endsWith('.json')) {
+    // 1. 若标准物理文件存在，直接读取并水合
+    if (fs.existsSync(filePath)) {
       try {
-        return JSON.parse(text) as T;
+        if (spec.type === 'json') {
+          const parsed = safeReadJsonSync<T>(filePath);
+          if (parsed !== null) project.artifacts[artifactKey] = parsed;
+          return parsed;
+        } else {
+          const text = fs.readFileSync(filePath, 'utf-8');
+          project.artifacts[artifactKey] = text;
+          return text as unknown as T;
+        }
       } catch {
-        return text as unknown as T;
+        return null;
       }
     }
-    return text as unknown as T;
+
+    // 2. 自愈通道：针对历史项目 04-prd-synthesis 规范目录进行自动回写水合 (SSOT Self-Healing)
+    try {
+      const legacyPrdMdPath = path.join(projectDir, '01-planner', '04-prd-synthesis', 'prd.md');
+      const legacyStoryMdPath = path.join(projectDir, '01-planner', '04-prd-synthesis', 'story.md');
+
+      if (artifactKey === 'prd' || artifactKey === 'universal_prd' || artifactKey === 'gdd') {
+        if (fs.existsSync(legacyPrdMdPath)) {
+          const prdText = fs.readFileSync(legacyPrdMdPath, 'utf-8');
+          const jsonMatch = prdText.match(/```json\s*([\s\S]*?)\s*```/);
+          if (jsonMatch && jsonMatch[1]) {
+            const parsed = JSON.parse(jsonMatch[1]);
+            project.artifacts[artifactKey] = parsed;
+            atomicWriteJsonSync(path.join(projectDir, 'prd.json'), parsed);
+            return parsed as unknown as T;
+          }
+        }
+      }
+
+      if (artifactKey === 'prd_markdown') {
+        if (fs.existsSync(legacyPrdMdPath)) {
+          const prdText = fs.readFileSync(legacyPrdMdPath, 'utf-8');
+          project.artifacts[artifactKey] = prdText;
+          fs.writeFileSync(path.join(projectDir, 'prd.md'), prdText, 'utf-8');
+          return prdText as unknown as T;
+        } else {
+          const prdObj = this.getArtifact<any>(projectId, 'prd');
+          if (prdObj) {
+            const rendered = formatGddPrdToMarkdown(prdObj);
+            project.artifacts[artifactKey] = rendered;
+            fs.writeFileSync(path.join(projectDir, 'prd.md'), rendered, 'utf-8');
+            return rendered as unknown as T;
+          }
+        }
+      }
+
+      if (artifactKey === 'story') {
+        if (fs.existsSync(legacyStoryMdPath)) {
+          const storyText = fs.readFileSync(legacyStoryMdPath, 'utf-8');
+          project.artifacts[artifactKey] = storyText;
+          fs.writeFileSync(path.join(projectDir, 'story.md'), storyText, 'utf-8');
+          return storyText as unknown as T;
+        } else {
+          const prdObj = this.getArtifact<any>(projectId, 'prd');
+          if (prdObj && Array.isArray(prdObj.clips)) {
+            const renderedStory = formatStoryScenesToMarkdown(prdObj.clips);
+            project.artifacts[artifactKey] = renderedStory;
+            fs.writeFileSync(path.join(projectDir, 'story.md'), renderedStory, 'utf-8');
+            return renderedStory as unknown as T;
+          }
+        }
+      }
+
+      if (artifactKey === 'screenplay') {
+        const legacySpinePath = path.join(projectDir, '.debug', '01-planner', '01-write-spine-script', 'planner_spine.md');
+        if (fs.existsSync(legacySpinePath)) {
+          const spineText = fs.readFileSync(legacySpinePath, 'utf-8');
+          project.artifacts[artifactKey] = spineText;
+          fs.writeFileSync(path.join(projectDir, 'screenplay.md'), spineText, 'utf-8');
+          return spineText as unknown as T;
+        } else if (fs.existsSync(legacyStoryMdPath)) {
+          const storyText = fs.readFileSync(legacyStoryMdPath, 'utf-8');
+          project.artifacts[artifactKey] = storyText;
+          fs.writeFileSync(path.join(projectDir, 'screenplay.md'), storyText, 'utf-8');
+          return storyText as unknown as T;
+        }
+      }
+    } catch (err) {
+      console.warn(`[ProjectStore] 自愈水合资产 [${artifactKey}] 失败:`, err);
+    }
+
+    return null;
   }
 
   /**
@@ -183,96 +295,6 @@ export class ProjectStore {
     const updated = mountStudioStageTask(registry, stageKey, taskId);
     this.setArtifact(projectId, 'studio_tasks', updated);
     return updated;
-  }
-
-  /**
-   * 追加聊天/提案/任务关联记录并原子写盘
-   */
-  public appendChatRecord(
-    projectId: string,
-    record: Omit<ProjectChatMessage, 'id' | 'createdAt'> & { id?: string; createdAt?: string }
-  ): ProjectChatMessage {
-    const project = this.getProject(projectId);
-    if (!project.chat) project.chat = [];
-    const entry: ProjectChatMessage = {
-      ...record,
-      id: record.id || `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      createdAt: record.createdAt || new Date().toISOString(),
-    };
-    project.chat.push(entry);
-    this.saveProject(project);
-    return entry;
-  }
-
-  /**
-   * 追加纯文本聊天消息
-   */
-  public appendChatMessage(
-    projectId: string,
-    role: 'user' | 'assistant' | 'system',
-    content: string
-  ): void {
-    this.appendChatRecord(projectId, { role, content });
-  }
-
-  /**
-   * 按消息 ID 原地更新聊天记录并原子写盘（用于流式输出增量刷盘与终态定稿）
-   */
-  public updateChatRecord(
-    projectId: string,
-    messageId: string,
-    patch: Partial<Omit<ProjectChatMessage, 'id' | 'role' | 'createdAt'>>
-  ): void {
-    const project = this.getProject(projectId);
-    if (!project.chat || project.chat.length === 0) return;
-    const target = project.chat.find((m) => m.id === messageId);
-    if (!target) return;
-    Object.assign(target, patch);
-    this.saveProject(project);
-  }
-
-  /**
-   * 物理删除单条聊天记录（用于「意图已落到既有任务气泡」时撤销本轮多余回复气泡）
-   */
-  public deleteChatRecord(projectId: string, messageId: string): void {
-    const project = this.getProject(projectId);
-    if (!project.chat || project.chat.length === 0) return;
-    const idx = project.chat.findIndex((m) => m.id === messageId);
-    if (idx < 0) return;
-    project.chat.splice(idx, 1);
-    this.saveProject(project);
-  }
-
-  /**
-   * 将尚未授权的历史提案标为已授权
-   */
-  public markChatProposalsResolved(projectId: string): void {
-    const project = this.getProject(projectId);
-    if (!project.chat || project.chat.length === 0) return;
-    let changed = false;
-    for (const msg of project.chat) {
-      if (msg.proposal && !msg.proposalResolved) {
-        msg.proposalResolved = true;
-        changed = true;
-      }
-    }
-    if (changed) this.saveProject(project);
-  }
-
-  /**
-   * 标记某阶段任务气泡附带的下一阶段提案已授权
-   */
-  public markTaskNextProposalResolved(projectId: string, taskRunId: string): void {
-    const project = this.getProject(projectId);
-    if (!project.chat || project.chat.length === 0) return;
-    let changed = false;
-    for (const msg of project.chat) {
-      if (msg.taskRunId === taskRunId && !msg.nextProposalResolved) {
-        msg.nextProposalResolved = true;
-        changed = true;
-      }
-    }
-    if (changed) this.saveProject(project);
   }
 
   /**

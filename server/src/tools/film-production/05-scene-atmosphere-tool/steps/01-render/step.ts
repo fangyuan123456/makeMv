@@ -7,6 +7,7 @@ import { createStep } from '@mastra/core/workflows';
 import path from 'node:path';
 import fs from 'node:fs';
 import { ProjectStore } from '../../../../../project-store/ProjectStore.js';
+import { atomicWriteJsonSync } from '../../../../../utils/atomicFile.js';
 import { MediaResolver } from '../../../../../media/MediaResolver.js';
 import { imageGenerateTool } from '../../../../image-generate/image-generate.tool.js';
 import { isAbortError } from '../../../../../workflow-engine/run-context.js';
@@ -37,6 +38,7 @@ export const sceneAtmosphereStep = createStep({
       projectId,
       locationId,
       force = false,
+      instruction,
       customPrompt,
       customNegativePrompt,
       referenceImageUrls,
@@ -49,80 +51,156 @@ export const sceneAtmosphereStep = createStep({
       throw new Error(`[SceneAtmosphereTool] 项目 [${projectId}] 尚未提取视觉资产 lookdev_entities`);
     }
 
+    const renderSingleLoc = async (loc: any) => {
+      if (customPrompt && customPrompt.trim()) {
+        loc.promptZh = customPrompt.trim();
+      }
+
+      const artStyle = entities.artStyle || '电影级写实光影质感，细节丰富，自然色彩影调';
+      // 提取垫图（优先显式传入，其次为实体已绑定的 referenceImageUrl）
+      const effectiveRefUrls =
+        referenceImageUrls && referenceImageUrls.length
+          ? referenceImageUrls
+          : loc.referenceImageUrl
+          ? [loc.referenceImageUrl]
+          : undefined;
+
+      const prompt = customPrompt && customPrompt.trim()
+        ? customPrompt.trim()
+        : buildSceneAtmospherePrompt(loc, artStyle, Boolean(effectiveRefUrls?.length));
+      const negativePrompt = customNegativePrompt
+        ? `${customNegativePrompt}，${SCENE_ATMOSPHERE_NEGATIVE}`
+        : SCENE_ATMOSPHERE_NEGATIVE;
+
+      const projectDir = store.getProjectDir(projectId);
+      const targetDir = path.resolve(projectDir, LOCATION_SUBFOLDER);
+      fs.mkdirSync(targetDir, { recursive: true });
+
+      const isCustomRedo = Boolean(customPrompt || referenceImageUrls?.length);
+
+      // 若已有场景氛围且未要求强制重新生成，坚决不动已定妆场景
+      if (loc.imageUrl && !force && !isCustomRedo) {
+        console.log(`[SceneAtmosphereTool] 场景 [${loc.locationId}] 已有定妆资产，保留不重新生成: ${loc.imageUrl}`);
+        return loc.imageUrl;
+      }
+
+      const existingFiles = fs.readdirSync(targetDir);
+      const cachedFile = existingFiles.find((f) => f.startsWith(`${loc.locationId}.`) || f.startsWith(`${loc.locationId}_`));
+      const cachedUrl = cachedFile
+        ? MediaResolver.toMediaUrl(projectId, LOCATION_SUBFOLDER, cachedFile)
+        : undefined;
+
+      if (cachedFile && cachedUrl && !force && !isCustomRedo) {
+        loc.imageUrl = cachedUrl;
+        loc.versions = loc.versions || [];
+        if (loc.versions.length === 0) {
+          loc.versions.push({
+            versionId: 'v_init',
+            imageUrl: cachedUrl,
+            promptZh: loc.promptZh || '',
+            referenceImageUrl: loc.referenceImageUrl,
+            createdAt: new Date().toISOString(),
+          });
+          loc.selectedVersionId = 'v_init';
+        }
+        return cachedUrl;
+      }
+
+      // 生成带版本时间戳的独立文件名，绝不覆盖历史资产
+      const versionId = `v_${Date.now()}`;
+      const customFilename = `${loc.locationId}_${versionId}`;
+
+      // 物理调用生图
+      try {
+        const res = await (imageGenerateTool.execute as any)({
+          context: {
+            projectId,
+            prompt,
+            negativePrompt,
+            referenceImageUrls: effectiveRefUrls,
+            mode: effectiveRefUrls?.length ? 'scene_ref2i' : 'general_t2i',
+            size: SCENE_ATMOSPHERE_SIZE,
+            subfolder: LOCATION_SUBFOLDER,
+            customFilename,
+          },
+        });
+
+        const mediaUrl = res?.mediaUrl || res?.imageUrl;
+        if (!res?.success || !mediaUrl) {
+          throw new Error(res?.error || '场景空镜渲染失败：未返回有效图片地址');
+        }
+
+        loc.versions = loc.versions || [];
+        if (loc.imageUrl && loc.versions.length === 0) {
+          loc.versions.push({
+            versionId: 'v_init',
+            imageUrl: loc.imageUrl,
+            promptZh: loc.promptZh || '',
+            referenceImageUrl: loc.referenceImageUrl,
+            createdAt: new Date().toISOString(),
+          });
+        }
+
+        const newVersion = {
+          versionId,
+          imageUrl: mediaUrl,
+          promptZh: prompt,
+          negativePrompt: customNegativePrompt || undefined,
+          instruction: instruction || undefined,
+          derivedFromUrl: isCustomRedo ? effectiveRefUrls?.[0] : undefined,
+          referenceImageUrl: loc.referenceImageUrl || undefined,
+          createdAt: new Date().toISOString(),
+        };
+        loc.versions.push(newVersion);
+        loc.selectedVersionId = versionId;
+        loc.imageUrl = mediaUrl;
+        return mediaUrl;
+      } catch (err: any) {
+        if (isAbortError(err)) throw err;
+        throw new Error(`[SceneAtmosphereTool] 场景 [${loc.locationId}] 渲染失败: ${err?.message || err}`);
+      }
+    };
+
+    // 1. 若未指定 locationId，批量渲染所有场景
+    if (!locationId) {
+      const locs = entities.locations || [];
+      for (const l of locs) {
+        // 定过的坚决不动：仅为尚未定妆 (没有 imageUrl) 或显式 force 的场景生成
+        if (force || !l.imageUrl) {
+          await renderSingleLoc(l);
+        }
+      }
+      store.setArtifact(projectId, 'lookdev_entities', entities);
+      const scenesDir = path.join(store.getProjectDir(projectId), 'scenes');
+      if (!fs.existsSync(scenesDir)) fs.mkdirSync(scenesDir, { recursive: true });
+      atomicWriteJsonSync(path.join(scenesDir, 'entities.json'), entities);
+      return {
+        projectId,
+        locationId: 'all',
+        imageUrl: locs[0]?.imageUrl,
+        reused: false,
+        success: true,
+      };
+    }
+
+    // 2. 指定了单个场景，单体渲染
     const loc = entities.locations?.find((l: any) => l.locationId === locationId);
     if (!loc) {
       throw new Error(`[SceneAtmosphereTool] 未在视觉资产中找到场景 [${locationId}]`);
     }
 
-    if (customPrompt && customPrompt.trim()) {
-      loc.promptZh = customPrompt.trim();
-    }
+    const mediaUrl = await renderSingleLoc(loc);
+    store.setArtifact(projectId, 'lookdev_entities', entities);
+    const scenesDir = path.join(store.getProjectDir(projectId), 'scenes');
+    if (!fs.existsSync(scenesDir)) fs.mkdirSync(scenesDir, { recursive: true });
+    atomicWriteJsonSync(path.join(scenesDir, 'entities.json'), entities);
 
-    const artStyle = entities.artStyle || '电影级写实光影质感，细节丰富，自然色彩影调';
-    const prompt = customPrompt && customPrompt.trim()
-      ? customPrompt.trim()
-      : buildSceneAtmospherePrompt(loc, artStyle);
-    const negativePrompt = customNegativePrompt || SCENE_ATMOSPHERE_NEGATIVE;
-
-    const projectDir = store.getProjectDir(projectId);
-    const targetDir = path.resolve(projectDir, LOCATION_SUBFOLDER);
-    fs.mkdirSync(targetDir, { recursive: true });
-
-    // 检查缓存
-    const isCustomRedo = Boolean(customPrompt || referenceImageUrls?.length);
-    const existingFiles = fs.readdirSync(targetDir);
-    const cachedFile = existingFiles.find((f) => f.startsWith(`${locationId}.`));
-    const cachedUrl = cachedFile
-      ? MediaResolver.toMediaUrl(projectId, LOCATION_SUBFOLDER, cachedFile)
-      : undefined;
-
-    if (cachedFile && cachedUrl && !force && !isCustomRedo) {
-      loc.referenceImageUrl = cachedUrl;
-      store.setArtifact(projectId, 'lookdev_entities', entities);
-      return {
-        projectId,
-        locationId,
-        imageUrl: cachedUrl,
-        diskPath: path.resolve(targetDir, cachedFile),
-        reused: true,
-        success: true,
-      };
-    }
-
-    // 物理调用生图
-    try {
-      const res = await (imageGenerateTool.execute as any)({
-        context: {
-          projectId,
-          prompt,
-          negativePrompt,
-          referenceImageUrls: referenceImageUrls && referenceImageUrls.length ? referenceImageUrls : undefined,
-          mode: 'general_t2i',
-          size: SCENE_ATMOSPHERE_SIZE,
-          subfolder: LOCATION_SUBFOLDER,
-          customFilename: locationId,
-        },
-      });
-
-      const mediaUrl = res?.mediaUrl || res?.imageUrl;
-      if (!res?.success || !mediaUrl) {
-        throw new Error(res?.error || '场景空镜渲染失败：未返回有效图片地址');
-      }
-
-      loc.referenceImageUrl = mediaUrl;
-      store.setArtifact(projectId, 'lookdev_entities', entities);
-
-      return {
-        projectId,
-        locationId,
-        imageUrl: mediaUrl,
-        diskPath: res.diskPath,
-        reused: false,
-        success: true,
-      };
-    } catch (err: any) {
-      if (isAbortError(err)) throw err;
-      throw new Error(`[SceneAtmosphereTool] 场景 [${locationId}] 渲染失败: ${err?.message || err}`);
-    }
+    return {
+      projectId,
+      locationId,
+      imageUrl: mediaUrl,
+      reused: false,
+      success: true,
+    };
   },
 });

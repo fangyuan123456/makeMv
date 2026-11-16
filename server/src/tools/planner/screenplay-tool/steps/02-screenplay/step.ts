@@ -35,6 +35,7 @@ export const screenplayStep = createStep({
     const premise: PremiseOutput = (stepOutput?.characters ? stepOutput : ctx.characters ? ctx : ctx.triggerData) || {};
     const originalInput = ctx.triggerData || ctx;
     const userPrompt = originalInput?.userPrompt || premise.logline || '';
+    const abortSignal = originalInput?.abortSignal || originalInput?._context?.abortSignal || ctx.abortSignal;
 
     const agent = new Agent({
       name: 'screenplay-writer-agent',
@@ -54,6 +55,7 @@ export const screenplayStep = createStep({
       stage: 'planner-tool',
       step: 'screenplay-markdown',
       label: '互动全景剧本生成',
+      abortSignal,
     })) as FullScriptTextOutput;
 
     const finalOutput: ScreenplayOutput = {

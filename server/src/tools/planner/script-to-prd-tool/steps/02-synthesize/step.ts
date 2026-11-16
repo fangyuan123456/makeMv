@@ -22,7 +22,11 @@ import type {
   StoryGraph,
   StoryGraphNode,
   StoryGraphEdge,
-} from '../../../../../agents/planner/steps/prd-synthesis/schema.js';
+} from '../../../../../project-store/contracts/planner/index.js';
+import {
+  formatGddPrdToMarkdown,
+  formatStoryScenesToMarkdown,
+} from './markdown-renderer.js';
 
 export const synthesizePrdStep = createStep({
   id: 'synthesize-prd-and-validate',
@@ -239,10 +243,14 @@ export const synthesizePrdStep = createStep({
     }
 
     const valid = errors.length === 0;
+    const prdMarkdown = formatGddPrdToMarkdown(prd);
+    const storyMarkdown = formatStoryScenesToMarkdown(clips, storySections);
 
     const output: ScriptToPrdOutput = {
       title: gameTitle,
       prd,
+      prdMarkdown,
+      storyMarkdown,
       storySections,
       graph,
       validation: {
