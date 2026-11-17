@@ -7,6 +7,7 @@ import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import fs from 'node:fs';
 import { getProjectDir } from '../project-store/artifact-fs.js';
+import { config } from '../utils/config.js';
 import { atomicWriteJsonSync, safeReadJsonSync } from '../utils/atomicFile.js';
 import type { TaskRecord, TaskEventPayload, TaskEventListener } from './types.js';
 
@@ -60,6 +61,7 @@ export class TaskStore extends EventEmitter {
       progress: task.progress,
       output: task.output,
       error: task.error,
+      durationMs: task.durationMs,
       timestamp: Date.now(),
     };
     this.emit('task_event', payload);
@@ -69,7 +71,42 @@ export class TaskStore extends EventEmitter {
    * 获取单个任务
    */
   public getTask(taskId: string): TaskRecord | undefined {
-    return this.tasks.get(taskId);
+    const cached = this.tasks.get(taskId);
+    if (cached) return cached;
+
+    // 任务详情接口也必须支持服务重启后的按 ID 查询，不能依赖先访问项目列表触发水合。
+    for (const projectId of this.findProjectIds()) {
+      this.ensureProjectLoaded(projectId);
+      const restored = this.tasks.get(taskId);
+      if (restored) return restored;
+    }
+    return undefined;
+  }
+
+  public findByIdempotencyKey(projectId: string, idempotencyKey: string): TaskRecord | undefined {
+    if (!idempotencyKey) return undefined;
+    return this.getTasksByProject(projectId).find((task) => task.idempotencyKey === idempotencyKey);
+  }
+
+  public listRestartRecoverableTasks(): TaskRecord[] {
+    const result: TaskRecord[] = [];
+    for (const projectId of this.findProjectIds()) {
+      for (const task of this.getTasksByProject(projectId)) {
+        if (task.recovery === 'restart' && (task.recoveryAttempts || 0) < 1) result.push(task);
+      }
+    }
+    return result;
+  }
+
+  private findProjectIds(): string[] {
+    try {
+      return fs
+        .readdirSync(config.paths.projects, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name);
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -140,6 +177,8 @@ export class TaskStore extends EventEmitter {
               if (item.status === 'running' || item.status === 'pending') {
                 item.status = 'failed';
                 item.error = '服务重启中断，任务已终止，可重新触发渲染';
+                item.recovery = 'restart';
+                item.recoveryAttempts = item.recoveryAttempts || 0;
                 item.completedAt = item.completedAt || Date.now();
                 if (item.startedAt) {
                   item.durationMs = item.completedAt - item.startedAt;

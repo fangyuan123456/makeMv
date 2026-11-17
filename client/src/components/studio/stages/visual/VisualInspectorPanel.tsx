@@ -59,6 +59,7 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
   const entities = projectData?.entities || projectData?.artifacts?.lookdev_entities;
   const characters = entities?.characters || [];
   const locations = entities?.locations || [];
+  const items = entities?.items || [];
 
   // 2. 提取当前幕剧情文本
   const prd = projectData?.prd || projectData?.artifacts?.gdd?.prd;
@@ -137,7 +138,9 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
           const totalCharCount = characters.length;
           const completedLocCount = locations.filter((l: any) => Boolean(l.imageUrl)).length;
           const totalLocCount = locations.length;
-          const isNotExtracted = totalCharCount === 0 && totalLocCount === 0;
+          const completedItemCount = items.filter((item: any) => Boolean(item.imageUrl || item.referenceImageUrl)).length;
+          const totalItemCount = items.length;
+          const isNotExtracted = totalCharCount === 0 && totalLocCount === 0 && totalItemCount === 0;
 
           if (isNotExtracted) {
             return (
@@ -173,6 +176,9 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
                   </span>
                   <span className="font-bold bg-white px-2.5 py-0.5 rounded-full border border-indigo-200 text-indigo-700 shadow-2xs text-[11px]">
                     🏞️ 场景 {completedLocCount}/{totalLocCount}
+                  </span>
+                  <span className="font-bold bg-white px-2.5 py-0.5 rounded-full border border-indigo-200 text-indigo-700 shadow-2xs text-[11px]">
+                    🧰 道具 {completedItemCount}/{totalItemCount}
                   </span>
                 </div>
               </div>
@@ -280,6 +286,62 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
                         </div>
                       </div>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 道具只读预览 */}
+              {items.length > 0 && (
+                <div>
+                  <div className="text-xs font-bold text-slate-800 mb-2.5 flex items-center justify-between">
+                    <span className="flex items-center space-x-1.5">
+                      <span>🧰</span>
+                      <span>核心道具展台</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      共 {items.length} 个道具
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {items.slice(0, 4).map((item: any, idx: number) => {
+                      const imageUrl = item.imageUrl || item.referenceImageUrl;
+                      return (
+                        <div
+                          key={item.itemId || item.id || `item_${idx}`}
+                          onClick={() => {
+                            if (imageUrl) {
+                              onEnlargeMedia?.({
+                                title: `道具特写 · ${item.name}`,
+                                imageUrl,
+                              });
+                            }
+                          }}
+                          className="group relative bg-slate-50 hover:bg-white border border-slate-200/80 hover:border-indigo-300 rounded-2xl p-2 overflow-hidden flex flex-col items-center transition-all cursor-pointer shadow-2xs hover:shadow-xs"
+                          title={imageUrl ? '点击放大查看原图' : undefined}
+                        >
+                          <div className="w-full aspect-square rounded-xl overflow-hidden bg-slate-100 border border-slate-200/60 relative mb-2 flex items-center justify-center">
+                            {imageUrl ? (
+                              <img
+                                src={`${imageUrl}?t=${item.updatedAt || ''}`}
+                                alt={item.name}
+                                className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 text-xs">
+                                <span className="text-lg mb-1">⏳</span>
+                                <span>待定妆</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="w-full text-center">
+                            <div className="text-xs font-bold text-slate-800 truncate">{item.name}</div>
+                            <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                              {item.description || item.appearanceSummary || '核心剧情道具'}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}

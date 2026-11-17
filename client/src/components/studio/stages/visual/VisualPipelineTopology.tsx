@@ -77,18 +77,21 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
   const entities = projectData?.entities || projectData?.artifacts?.lookdev_entities;
   const characters = entities?.characters || [];
   const locations = entities?.locations || [];
+  const items = entities?.items || [];
 
   // 获取分镜规划数据 (兼容 storyboards 与 film_spec.clips)
   const storyboards = projectData?.storyboards || projectData?.artifacts?.storyboards || [];
   const filmSpec = projectData?.artifacts?.film_spec;
 
-  // 计算定妆完成状态 (涵盖角色与场景)
+  // 计算定妆完成状态 (涵盖角色、场景与核心道具)
   const completedCharCount = characters.filter((c: any) => Boolean(c.imageUrl)).length;
   const totalCharCount = characters.length;
   const completedLocCount = locations.filter((l: any) => Boolean(l.imageUrl)).length;
   const totalLocCount = locations.length;
-  const completedAssetCount = completedCharCount + completedLocCount;
-  const totalAssetCount = totalCharCount + totalLocCount;
+  const completedItemCount = items.filter((item: any) => Boolean(item.imageUrl || item.referenceImageUrl)).length;
+  const totalItemCount = items.length;
+  const completedAssetCount = completedCharCount + completedLocCount + completedItemCount;
+  const totalAssetCount = totalCharCount + totalLocCount + totalItemCount;
 
   const hasLookdevReady = totalAssetCount > 0 && completedAssetCount > 0;
   const isLookdevAllDone = totalAssetCount > 0 && completedAssetCount >= totalAssetCount;
@@ -647,7 +650,7 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
         minY,
       },
     };
-  }, [prd, entities, storyboards, filmSpec, completedCharCount, totalCharCount, hasLookdevReady, isLookdevAllDone, tasks]);
+  }, [prd, entities, storyboards, filmSpec, completedCharCount, totalCharCount, hasLookdevReady, isLookdevAllDone, tasks, completedItemCount, totalItemCount]);
 
   // 画布平移处理
   const handleMouseDown = (e: React.MouseEvent) => {

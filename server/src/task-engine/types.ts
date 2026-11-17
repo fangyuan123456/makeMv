@@ -16,6 +16,9 @@ export interface TaskRecord<TInput = any, TOutput = any> {
   taskId: string;
   projectId: string;
   toolName: string;
+  idempotencyKey?: string;
+  recovery?: 'restart';
+  recoveryAttempts?: number;
   status: TaskStatus;
   progress?: TaskProgress;
   input: TInput;
@@ -36,6 +39,7 @@ export interface TaskEventPayload {
   progress?: TaskProgress;
   output?: any;
   error?: string;
+  durationMs?: number;
   timestamp: number;
 }
 

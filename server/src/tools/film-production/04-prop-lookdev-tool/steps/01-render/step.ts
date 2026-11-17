@@ -7,6 +7,7 @@ import { createStep } from '@mastra/core/workflows';
 import path from 'node:path';
 import fs from 'node:fs';
 import { ProjectStore } from '../../../../../project-store/ProjectStore.js';
+import { atomicWriteJsonSync } from '../../../../../utils/atomicFile.js';
 import { MediaResolver } from '../../../../../media/MediaResolver.js';
 import { imageGenerateTool } from '../../../../image-generate/image-generate.tool.js';
 import { isAbortError } from '../../../../../workflow-engine/run-context.js';
@@ -65,6 +66,11 @@ export const propLookdevStep = createStep({
     const negativePrompt = customNegativePrompt || PROP_LOOKDEV_NEGATIVE;
 
     const projectDir = store.getProjectDir(projectId);
+    const persistEntities = () => {
+      const scenesDir = path.join(projectDir, 'scenes');
+      if (!fs.existsSync(scenesDir)) fs.mkdirSync(scenesDir, { recursive: true });
+      atomicWriteJsonSync(path.join(scenesDir, 'entities.json'), entities);
+    };
     const targetDir = path.resolve(projectDir, ENTITY_SUBFOLDER);
     fs.mkdirSync(targetDir, { recursive: true });
 
@@ -79,6 +85,7 @@ export const propLookdevStep = createStep({
     if (cachedUrl && !force && !isCustomRedo) {
       item.referenceImageUrl = cachedUrl;
       store.setArtifact(projectId, 'lookdev_entities', entities);
+      persistEntities();
       return {
         itemId,
         propImageUrl: cachedUrl,
@@ -94,7 +101,8 @@ export const propLookdevStep = createStep({
           prompt,
           negativePrompt,
           referenceImageUrls: referenceImageUrls && referenceImageUrls.length ? referenceImageUrls : undefined,
-          mode: 'prop_t2i',
+          // 道具当前采用单件方形特写，显式使用通用文生图模板，避免未知模式静默回退。
+          mode: 'general_t2i',
           size: PROP_LOOKDEV_SIZE,
           subfolder: ENTITY_SUBFOLDER,
           customFilename: itemId,
@@ -104,6 +112,7 @@ export const propLookdevStep = createStep({
       if (res?.success && res?.mediaUrl) {
         item.referenceImageUrl = res.mediaUrl;
         store.setArtifact(projectId, 'lookdev_entities', entities);
+        persistEntities();
         return {
           itemId,
           propImageUrl: res.mediaUrl,

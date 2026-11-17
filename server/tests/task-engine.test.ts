@@ -112,6 +112,30 @@ assert.ok(eventCapturedCount >= 2, '应当至少捕获到 running 和 completed 
 unsubscribe();
 console.log('✅ 测试 2 通过: 同步响应与异步生命周期流转验证成功！');
 
+// 重试时，聊天消息必须改绑新任务，旧任务事件不得再覆盖卡片状态。
+const retrySessionId = `test_retry_binding_${Date.now()}`;
+const retryMessageId = 'msg_retry_binding';
+const retryChatDir = path.join(getProjectDir(testProjectId), 'chat');
+fs.mkdirSync(retryChatDir, { recursive: true });
+const retryChatPath = path.join(retryChatDir, `${retrySessionId}.json`);
+fs.writeFileSync(retryChatPath, JSON.stringify([{ id: retryMessageId, role: 'assistant', content: '任务失败', taskId: initialTask.taskId, taskStatus: 'failed' }]));
+taskStore.saveTask({
+  ...completedTask,
+  status: 'failed',
+  input: { value: 7, __chatContext: { sessionId: retrySessionId, messageId: retryMessageId } },
+  error: '模拟失败',
+});
+const retriedTask = await taskDispatcher.retry(initialTask.taskId);
+let retryMessage = JSON.parse(fs.readFileSync(retryChatPath, 'utf-8'))[0];
+assert.strictEqual(retryMessage.taskId, retriedTask.taskId, '聊天卡片必须绑定重试任务');
+assert.strictEqual(retryMessage.taskError, undefined, '重试时必须清除旧错误');
+for (let i = 0; i < 20 && taskStore.getTask(retriedTask.taskId)?.status !== 'completed'; i++) {
+  await new Promise((r) => setTimeout(r, 50));
+}
+retryMessage = JSON.parse(fs.readFileSync(retryChatPath, 'utf-8'))[0];
+assert.strictEqual(retryMessage.taskStatus, 'completed', '新任务完成后卡片必须同步完成');
+fs.unlinkSync(retryChatPath);
+
 // 测试 3: 任务状态磁盘落盘与恢复机制 (tasks.json)
 console.log('\n--- 测试 3: 任务状态物理落盘与离线恢复验证 (tasks.json) ---');
 const projectDir = getProjectDir(testProjectId);

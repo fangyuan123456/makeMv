@@ -6,7 +6,7 @@
  * 1. 采用全系统统一对话生命周期微内核 (useDirectorChatFlow)；
  * 2. 采用全系统统一任务推演卡片 (DirectorTaskCard)；
  * 3. 初始引导灵感胶囊在对话开启后自动隐匿，界面高度聚焦；
- * 4. 底部常驻「✨ 批准执行」操作条，与自然语言“同意”完全同核驱动。
+ * 4. 仅通过自然语言“同意”完成提案批准。
  */
 
 import React, { useRef, useEffect, useMemo } from 'react';
@@ -18,6 +18,7 @@ import {
 } from '../../../lib/ChatSession.js';
 import { useDirectorChatFlow } from '../../../hooks/useDirectorChatFlow.js';
 import { DirectorTaskCard } from './DirectorTaskCard.js';
+import { ProposalCard } from './ProposalCard.js';
 
 export type ActionIntent = PlannerActionIntent;
 export type { ChatMessageItem };
@@ -55,7 +56,7 @@ export const PlannerChat: React.FC<PlannerChatProps> = ({
     streamingAppendContent,
     nowTick,
     isTaskRunning,
-    pendingProposal,
+    pendingProposalMsg,
     computeDisplayPercent,
     handleSendMessage,
   } = useDirectorChatFlow({
@@ -69,6 +70,9 @@ export const PlannerChat: React.FC<PlannerChatProps> = ({
     defaultWelcomeMessage: defaultWelcome,
     welcomeMessageId: 'welcome_msg',
     resolveHistoricalProposals: (h, data) => {
+      // 仅凭资产已存在不能判定提案已执行；未绑定任务的最新修改提案必须保留待审卡片。
+      // 旧提案本身已有 proposalResolved 标记时，历史加载器会直接使用该标记。
+      if (!h.taskId && h.taskStatus !== 'completed') return false;
       const hasScreenplay = Boolean(data?.screenplay || data?.artifacts?.screenplay);
       const hasPrd = Boolean(data?.prd || data?.artifacts?.prd || data?.artifacts?.prdMarkdown);
       if (h.proposal?.action === 'next_stage') return true;
@@ -86,13 +90,21 @@ export const PlannerChat: React.FC<PlannerChatProps> = ({
   });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesViewportRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
+
+  const handleMessagesScroll = () => {
+    const viewport = messagesViewportRef.current;
+    if (!viewport) return;
+    shouldAutoScrollRef.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 20;
+  };
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
   };
 
   useEffect(() => {
-    scrollToBottom();
+    if (shouldAutoScrollRef.current) scrollToBottom();
   }, [messages, streamingContent, streamingAppendContent]);
 
   // 灵感预设胶囊
@@ -134,7 +146,7 @@ export const PlannerChat: React.FC<PlannerChatProps> = ({
       </div>
 
       {/* 消息对话流视窗 */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div ref={messagesViewportRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg) => {
           // 刚性过滤无内容无任务无提案的空消息，彻底消灭幽灵圆圈
           if (!msg.content?.trim() && !msg.taskId && !msg.proposal) {
@@ -156,6 +168,9 @@ export const PlannerChat: React.FC<PlannerChatProps> = ({
                 streamingTargetId={streamingTargetId}
                 streamingAppendContent={streamingAppendContent}
                 onRetry={() => handleSendMessage('重试本工序')}
+                onApprove={() => handleSendMessage('同意')}
+                canApprove={pendingProposalMsg?.id === msg.id}
+                proposalAccentClassName="bg-indigo-600 hover:bg-indigo-700"
                 directorRoleName="故事总监"
                 progressGradientClass="from-indigo-500 via-indigo-600 to-purple-600"
               />
@@ -182,6 +197,13 @@ export const PlannerChat: React.FC<PlannerChatProps> = ({
                 }`}
               >
                 <div className="whitespace-pre-wrap">{msg.content}</div>
+                {msg.proposal && msg.proposalState === 'pending' && pendingProposalMsg?.id === msg.id && (
+                  <ProposalCard
+                    proposal={msg.proposal}
+                    onApprove={() => handleSendMessage('同意')}
+                    disabled={isStreaming || isBusy || isTaskRunning}
+                  />
+                )}
               </div>
             </div>
           );
@@ -245,19 +267,6 @@ export const PlannerChat: React.FC<PlannerChatProps> = ({
             disabled={isStreaming || isTaskRunning}
             className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100 transition resize-none leading-relaxed shadow-2xs disabled:opacity-50"
           />
-
-          {/* 发送按钮旁的快捷推进按钮 */}
-          {pendingProposal && !isTaskRunning && (
-            <button
-              type="button"
-              onClick={() => handleSendMessage('同意')}
-              disabled={isStreaming || isBusy}
-              className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center space-x-1.5 shrink-0 active:scale-[0.99] disabled:opacity-40 cursor-pointer"
-              title={`点击立即执行: ${pendingProposal.title}`}
-            >
-              <span>✨ 批准执行</span>
-            </button>
-          )}
 
           <button
             onClick={() => handleSendMessage()}

@@ -57,12 +57,16 @@ export const sceneAtmosphereStep = createStep({
       }
 
       const artStyle = entities.artStyle || '电影级写实光影质感，细节丰富，自然色彩影调';
-      // 提取垫图（优先显式传入，其次为实体已绑定的 referenceImageUrl）
+      // 提取垫图：显式参考图优先；修改已有场景图时自动把当前成图作为底图。
+      // 聊天入口通常只传 instruction，不会显式传 referenceImageUrls，不能因此退回纯文生图。
+      const hasEditInstruction = Boolean(instruction?.trim() || customPrompt?.trim());
       const effectiveRefUrls =
         referenceImageUrls && referenceImageUrls.length
           ? referenceImageUrls
           : loc.referenceImageUrl
           ? [loc.referenceImageUrl]
+          : hasEditInstruction && loc.imageUrl
+          ? [loc.imageUrl]
           : undefined;
 
       const prompt = customPrompt && customPrompt.trim()
@@ -76,7 +80,7 @@ export const sceneAtmosphereStep = createStep({
       const targetDir = path.resolve(projectDir, LOCATION_SUBFOLDER);
       fs.mkdirSync(targetDir, { recursive: true });
 
-      const isCustomRedo = Boolean(customPrompt || referenceImageUrls?.length);
+      const isCustomRedo = Boolean(instruction?.trim() || customPrompt?.trim() || referenceImageUrls?.length);
 
       // 若已有场景氛围且未要求强制重新生成，坚决不动已定妆场景
       if (loc.imageUrl && !force && !isCustomRedo) {

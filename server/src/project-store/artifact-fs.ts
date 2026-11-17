@@ -53,7 +53,14 @@ export type ArtifactScope = 'debug' | 'delivery';
 
 /** 项目物理根目录 */
 export function getProjectDir(projectId: string): string {
-  const dir = path.join(config.paths.projects, projectId);
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(projectId)) {
+    throw new Error('非法项目 ID');
+  }
+  const root = path.resolve(config.paths.projects);
+  const dir = path.resolve(root, projectId);
+  if (dir !== root && !dir.startsWith(`${root}${path.sep}`)) {
+    throw new Error('非法项目路径');
+  }
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }

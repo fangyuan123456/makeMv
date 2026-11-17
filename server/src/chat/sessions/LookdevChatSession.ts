@@ -12,7 +12,7 @@
 import { z } from 'zod';
 import { BaseChatSession } from '../BaseChatSession.js';
 import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { characterPortraitTool, sceneAtmosphereTool } from '../../tools/film-production/index.js';
+import { assetExtractionTool, characterPortraitTool, propLookdevTool, sceneAtmosphereTool } from '../../tools/film-production/index.js';
 import type { SubmittableToolSpec } from '../types.js';
 
 export interface LookdevActionIntent {
@@ -37,6 +37,18 @@ export class LookdevChatSession extends BaseChatSession<LookdevActionIntent> {
    */
   protected getIntentToolSpecs(): SubmittableToolSpec[] {
     return [
+      {
+        toolName: assetExtractionTool.toolName,
+        title: '新增或删除角色/场景资产',
+        description: assetExtractionTool.description,
+        schema: assetExtractionTool.inputSchema || z.any(),
+      },
+      {
+        toolName: propLookdevTool.toolName,
+        title: '渲染核心道具特写',
+        description: propLookdevTool.description,
+        schema: propLookdevTool.inputSchema || z.any(),
+      },
       {
         toolName: characterPortraitTool.toolName,
         title: '微调角色立绘定妆',
@@ -122,6 +134,8 @@ ${locSummary || '暂无场景'}
 你持有官方意图决策工具【emit_director_intent】。在流式自然语言回复中，严格根据资产清单、意图决策漏斗与当前挂载的能力编目，调用该工具发射决策信号：
 - 必须输出对话正文（Mandatory Speech）：在调用 emit_director_intent 的同时，必须在对话正文中先阐明微调思路或确认对白，严禁正文留空；
 - propose: 出具针对角色立绘或场景氛围的微调渲染方案卡片（params 包含 characterId [支持单角色 ID 字符串或多角色 ID 数组例如 ["char_1", "char_2"] 批量定妆] / locationId [支持单场景 ID 字符串或多场景 ID 数组批量出图], instruction, force: true）；
+- 当创作者要求生成核心道具特写时，targetTool 使用 ${propLookdevTool.toolName}，params 提供 itemId、force: true；只有剧情关键、反复出现或需要连续性的道具才进入定妆。
+- 当创作者要求新增或删除角色/场景时，targetTool 使用 ${assetExtractionTool.toolName}，params 使用 mode=modify 和 modifications 数组；新增提供 entityType、name、entity 设定，删除提供 entityId 或 name。若创作者说“重新读剧本补齐/检查漏掉的角色或场景”，则使用 mode=modify + instruction，让工具结合剧本与 PRD 增量重提取。该操作只修改资产清单，不自动生成图片。
 - approve: 识别创作者认可授权指令（如“同意/准了/开跑/开始吧”），直接授权执行；
 - modify: 吸收创作者修改意见，重塑微调参数；
 - chat_only: 纯审美讨论或多方案权衡探讨时使用，无需发起微调方案。

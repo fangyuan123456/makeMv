@@ -5,7 +5,7 @@
  * 核心微内核架构：
  * 1. 状态与流转单一事实来源：所有导演智能体共享相同的对话推演、意图捕获、物理工具派发与任务状态机；
  * 2. 拟合非线性时间平滑模拟算法 (computeSimulatedProgress)，结合 300ms 动态时钟与 SSE 真实落盘事件；
- * 3. 授权批准链路统一：自然语言“同意”与常驻「✨ 批准执行」按钮共用单核驱动；
+ * 3. 授权批准链路统一：所有机器人均通过自然语言“同意”批准待审提案；
  * 4. 自动阶段收官复盘总结：物理任务落盘后自动触发总监总结并追加至同一任务卡片中。
  */
 
@@ -86,6 +86,7 @@ export function useDirectorChatFlow<TIntent extends BaseActionIntent = BaseActio
   const [streamingContent, setStreamingContent] = useState('');
   const [streamingTargetId, setStreamingTargetId] = useState<string | null>(null);
   const [streamingAppendContent, setStreamingAppendContent] = useState<string>('');
+  const historyLoadKeyRef = useRef<string | null>(null);
 
   // 任务生命周期追踪
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
@@ -115,12 +116,15 @@ export function useDirectorChatFlow<TIntent extends BaseActionIntent = BaseActio
   // 1. 初始化拉取会话历史
   useEffect(() => {
     if (!projectId) return;
+    const historyLoadKey = `${projectId}:${session.sessionId}`;
+    if (historyLoadKeyRef.current === historyLoadKey) return;
     let isMounted = true;
 
     session
       .getHistory()
       .then((history) => {
         if (!isMounted) return;
+        historyLoadKeyRef.current = historyLoadKey;
         if (Array.isArray(history) && history.length > 0) {
           setMessages(
             history.map((h: any) => {
@@ -175,6 +179,7 @@ export function useDirectorChatFlow<TIntent extends BaseActionIntent = BaseActio
       .catch((err) => {
         console.warn(`[useDirectorChatFlow] 获取历史异常:`, err);
         if (!isMounted) return;
+        historyLoadKeyRef.current = historyLoadKey;
         setMessages([
           {
             id: welcomeMessageId,
@@ -188,7 +193,7 @@ export function useDirectorChatFlow<TIntent extends BaseActionIntent = BaseActio
     return () => {
       isMounted = false;
     };
-  }, [projectId, session, projectData, tasks, defaultWelcomeMessage, welcomeMessageId, resolveHistoricalProposals]);
+  }, [projectId, session]);
 
   // 2. 任务状态计算：物理 tasks 数组为 SSOT 单一事实来源
   const activeTask = tasks.find((t) => t.taskId === activeTaskId);
@@ -348,8 +353,40 @@ export function useDirectorChatFlow<TIntent extends BaseActionIntent = BaseActio
     messages,
     onRefreshProject,
     onAssetProduced,
+    session,
     triggerPostTaskSummary,
   ]);
+
+  // 页面刷新或离开期间任务可能已经完成：恢复会话后，为缺失收官复盘的历史任务补发一次总结。
+  useEffect(() => {
+    if (isStreaming || !messages.length || !tasks.length) return;
+
+    const recoverableMessage = messages.find((message) => {
+      if (!message.taskId || message.content.includes('\n\n---\n\n')) return false;
+      if (summarizedTaskIdRef.current === message.taskId) return false;
+      const task = tasks.find((item) => item.taskId === message.taskId);
+      return task?.status === 'completed';
+    });
+
+    if (!recoverableMessage?.taskId) return;
+
+    const task = tasks.find((item) => item.taskId === recoverableMessage.taskId);
+    summarizedTaskIdRef.current = recoverableMessage.taskId;
+    session
+      .updateMessage(recoverableMessage.id, {
+        taskStatus: 'completed',
+        taskDurationMs: task?.durationMs,
+        taskProgress: { percent: 100, message: '推演完成' },
+      })
+      .catch((err) => {
+        console.warn('[useDirectorChatFlow] 补写历史任务完成状态异常:', err);
+      });
+    triggerPostTaskSummary(
+      task?.toolName || recoverableMessage.taskTool || '',
+      recoverableMessage.taskTitle || '制片工序任务',
+      recoverableMessage.id
+    );
+  }, [messages, tasks, isStreaming, session, triggerPostTaskSummary]);
 
   // 5. 后台任务失败监听
   useEffect(() => {
@@ -446,6 +483,7 @@ export function useDirectorChatFlow<TIntent extends BaseActionIntent = BaseActio
                 ...(pendingProposal?.params || {}),
                 ...(intent.params || {}),
                 projectId,
+                __chatContext: { sessionId: session.sessionId, messageId: messageId || `msg_asst_${Date.now()}` },
               };
 
               if (toolMapper) {
@@ -464,6 +502,13 @@ export function useDirectorChatFlow<TIntent extends BaseActionIntent = BaseActio
                 const taskId = task?.taskId || task?.id;
 
                 if (taskId) {
+                  const taskStatus = task?.status === 'completed' ? 'completed' : task?.status === 'failed' ? 'failed' : 'running';
+                  const taskProgress =
+                    taskStatus === 'completed'
+                      ? { percent: 100, message: '推演完成' }
+                      : taskStatus === 'failed'
+                      ? { percent: 0, message: '执行失败' }
+                      : { percent: 15, message: '任务已启动，正在调度物理引擎落盘...' };
                   setActiveTaskId(taskId);
                   const activeMsgId = messageId || `msg_asst_${Date.now()}`;
 
@@ -474,8 +519,8 @@ export function useDirectorChatFlow<TIntent extends BaseActionIntent = BaseActio
                     taskId,
                     taskTool: targetTool,
                     taskTitle: targetTitle,
-                    taskStatus: 'running',
-                    taskProgress: { percent: 15, message: '任务已启动，正在调度物理引擎落盘...' },
+                    taskStatus,
+                    taskProgress,
                     createdAt: new Date().toISOString(),
                   };
 
@@ -494,8 +539,8 @@ export function useDirectorChatFlow<TIntent extends BaseActionIntent = BaseActio
                         taskId,
                         taskTool: targetTool,
                         taskTitle: targetTitle,
-                        taskStatus: 'running',
-                        taskProgress: { percent: 15, message: '任务已启动，正在调度物理引擎落盘...' },
+                        taskStatus,
+                        taskProgress,
                       });
                     } catch (err) {
                       console.warn('[useDirectorChatFlow] 原地更新任务消息失败:', err);

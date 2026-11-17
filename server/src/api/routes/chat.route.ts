@@ -130,6 +130,7 @@ async function streamSessionHandler(req: any, res: any, targetSessionId: string)
       targetMessageId: targetMessageId ? String(targetMessageId) : undefined,
       onTextChunk: (chunk) => {
         res.write(`data: ${JSON.stringify({ type: 'text', chunk })}\n\n`);
+        res.flush?.();
       },
       onDone: (result) => {
         res.write(
@@ -140,6 +141,7 @@ async function streamSessionHandler(req: any, res: any, targetSessionId: string)
             messageId: result.messageId,
           })}\n\n`
         );
+        res.flush?.();
         res.end();
       },
       onError: (err) => {

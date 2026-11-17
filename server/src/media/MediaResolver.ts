@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { ProjectStore } from '../project-store/ProjectStore.js';
+import { config } from '../utils/config.js';
 
 export interface ResolvedMediaDiskPath {
   diskPath: string;
@@ -15,6 +16,12 @@ export interface ResolvedMediaDiskPath {
 }
 
 export class MediaResolver {
+  private static isAllowedLocalPath(candidate: string): boolean {
+    const resolved = path.resolve(candidate);
+    const roots = [path.resolve(config.paths.data)];
+    return roots.some((root) => resolved === root || resolved.startsWith(`${root}${path.sep}`));
+  }
+
   /**
    * 生成标准本地媒体 URL
    * @example /media/my_proj/keyframes/hero_portrait.png
@@ -41,7 +48,7 @@ export class MediaResolver {
       const cleanPath = trimmed.replace('file://', '');
       return {
         diskPath: cleanPath,
-        isValid: fs.existsSync(cleanPath),
+        isValid: this.isAllowedLocalPath(cleanPath) && fs.existsSync(cleanPath),
       };
     }
 
@@ -92,7 +99,7 @@ export class MediaResolver {
     if (path.isAbsolute(trimmed)) {
       return {
         diskPath: trimmed,
-        isValid: fs.existsSync(trimmed),
+        isValid: this.isAllowedLocalPath(trimmed) && fs.existsSync(trimmed),
       };
     }
 

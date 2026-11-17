@@ -4,7 +4,7 @@
  *
  * 核心微内核架构：
  * 1. 结构与生命周期 100% 对齐故事总监标杆体系；
- * 2. 头部展示工序标识与动态进度徽标 (⏳ XX% · 推演中 / ✓ 已完成 (X.Xs) / ✕ 执行失败)；
+ * 2. 头部展示工序标识与动态进度徽标 (⏳ XX% · 推演中 / ✓ 已完成 (X.Xs) / ✕ 执行失败 / ⏹ 已取消)；
  * 3. 严格分层：前置授权对白在进度条上方，收官复盘总结在进度条/分割线下方；
  * 4. 实时流式打字与落盘持久化无缝承接；
  * 5. 失败态具备错误诊断与一键重试按钮。
@@ -13,6 +13,7 @@
 import React from 'react';
 import type { TaskRecord } from '../../../types/index.js';
 import type { ChatMessageItem } from '../../../lib/ChatSession.js';
+import { ProposalCard } from './ProposalCard.js';
 
 export interface DirectorTaskCardProps {
   msg: ChatMessageItem<any>;
@@ -22,6 +23,9 @@ export interface DirectorTaskCardProps {
   streamingTargetId?: string | null;
   streamingAppendContent?: string;
   onRetry?: () => void;
+  onApprove?: () => void;
+  canApprove?: boolean;
+  proposalAccentClassName?: string;
   directorRoleName?: string;
   progressGradientClass?: string;
 }
@@ -34,6 +38,9 @@ export const DirectorTaskCard: React.FC<DirectorTaskCardProps> = ({
   streamingTargetId,
   streamingAppendContent,
   onRetry,
+  onApprove,
+  canApprove = false,
+  proposalAccentClassName,
   directorRoleName = 'AI 导演',
   progressGradientClass = 'from-indigo-500 via-indigo-600 to-purple-600',
 }) => {
@@ -44,6 +51,7 @@ export const DirectorTaskCard: React.FC<DirectorTaskCardProps> = ({
     (msg.taskProgress?.percent === 100 ? 'completed' : 'completed');
   const isRunning = status === 'running' || status === 'pending';
   const isFailed = status === 'failed';
+  const isCancelled = status === 'cancelled';
   const isCompleted = status === 'completed';
   const duration = liveTask?.durationMs || msg.taskDurationMs;
   const durationSec = duration ? (duration / 1000).toFixed(1) : undefined;
@@ -102,6 +110,11 @@ export const DirectorTaskCard: React.FC<DirectorTaskCardProps> = ({
                 <span>✕ 执行失败</span>
               </span>
             )}
+            {isCancelled && (
+              <span className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-medium">
+                <span>⏹ 已取消</span>
+              </span>
+            )}
           </div>
         </div>
 
@@ -139,6 +152,14 @@ export const DirectorTaskCard: React.FC<DirectorTaskCardProps> = ({
           <div className="whitespace-pre-wrap leading-relaxed text-slate-800">
             {postSummary}
           </div>
+        )}
+
+        {msg.proposal && msg.proposalState === 'pending' && canApprove && onApprove && (
+          <ProposalCard
+            proposal={msg.proposal}
+            onApprove={onApprove}
+            accentClassName={proposalAccentClassName}
+          />
         )}
 
         {/* 失败重试 */}

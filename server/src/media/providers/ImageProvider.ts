@@ -4,6 +4,7 @@
  */
 
 export interface ImageGenerationOptions {
+  requestId?: string;
   size?: '1024*1024' | '720*1280' | '768*1344' | '1280*720' | '1536*768' | string;
   n?: number;
   negativePrompt?: string;

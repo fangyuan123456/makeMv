@@ -51,6 +51,7 @@ export function StudioApp() {
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [currentStage, setCurrentStage] = useState<StudioStage>('planner');
   const [isBusy, setIsBusy] = useState(false);
+  const initializedStageProjectRef = useRef<string | null>(null);
   const selectedProjectIdRef = useRef(currentProjectId);
   selectedProjectIdRef.current = currentProjectId;
 
@@ -194,7 +195,17 @@ export function StudioApp() {
 
   useEffect(() => {
     setCurrentStage('planner');
+    initializedStageProjectRef.current = null;
   }, [currentProjectId]);
+
+  // 项目数据首次加载完成后，刷新/切换项目默认进入当前已解锁的最深阶段。
+  // 只在该项目本次加载的第一次数据落地时执行，避免任务完成后自动抢走用户当前视图。
+  useEffect(() => {
+    if (!currentProjectId || !projectData || projectData.meta?.projectId !== currentProjectId) return;
+    if (initializedStageProjectRef.current === currentProjectId) return;
+    initializedStageProjectRef.current = currentProjectId;
+    setCurrentStage(canEnterGame ? 'game' : canEnterVisual ? 'visual' : 'planner');
+  }, [currentProjectId, projectData, canEnterGame, canEnterVisual]);
   const hasEntities = Boolean(
     projectData?.entities?.characters?.length ||
       projectData?.artifacts?.lookdev_entities?.characters?.length

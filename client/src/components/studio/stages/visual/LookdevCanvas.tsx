@@ -56,7 +56,7 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
   onEnlargeMedia,
   isBusy,
 }) => {
-  const [activeTab, setActiveTab] = useState<'characters' | 'locations'>('characters');
+  const [activeTab, setActiveTab] = useState<'characters' | 'locations' | 'items'>('characters');
   const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
   const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({});
   const [uploadingEntityId, setUploadingEntityId] = useState<string | null>(null);
@@ -73,11 +73,12 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
   const [isSubmittingRefine, setIsSubmittingRefine] = useState<Set<string>>(new Set());
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const pendingUploadTargetRef = useRef<{ type: 'character' | 'location'; id: string } | null>(null);
+  const pendingUploadTargetRef = useRef<{ type: 'character' | 'location' | 'item'; id: string } | null>(null);
 
   const entities = projectData?.entities || projectData?.artifacts?.lookdev_entities;
   const characters = entities?.characters || [];
   const locations = entities?.locations || [];
+  const items = entities?.items || [];
 
   // 判断是否正在提取资产
   const isExtracting = tasks.some(
@@ -150,7 +151,7 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
 
   // 触发基于当前立绘图的 AI 定向精修 (多模态图生图，严格锁定人物面容与体态身材)
   const handleImageRefine = async (
-    type: 'character' | 'location',
+    type: 'character' | 'location' | 'item',
     entityId: string,
     baseImageUrl?: string
   ) => {
@@ -221,7 +222,7 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
   };
 
   // 保存提示词修改
-  const handleSavePrompt = async (type: 'character' | 'location', id: string) => {
+  const handleSavePrompt = async (type: 'character' | 'location' | 'item', id: string) => {
     const newPrompt = promptDrafts[id];
     if (newPrompt === undefined) {
       setEditingPromptId(null);
@@ -245,7 +246,7 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
   };
 
   // 上传参考图
-  const handleTriggerUpload = (type: 'character' | 'location', id: string) => {
+  const handleTriggerUpload = (type: 'character' | 'location' | 'item', id: string) => {
     pendingUploadTargetRef.current = { type, id };
     fileInputRef.current?.click();
   };
@@ -274,7 +275,7 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
   };
 
   // 清除/删除实体的参考底图 (即时乐观更新，0 延迟响应)
-  const handleRemoveReferenceImage = async (type: 'character' | 'location', id: string) => {
+  const handleRemoveReferenceImage = async (type: 'character' | 'location' | 'item', id: string) => {
     // 1. 本地乐观更新，界面 0 毫秒立即清除
     setDeletedReferenceIds((prev) => new Set(prev).add(id));
     try {
@@ -315,8 +316,12 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
   const selectedLocation = locations.find(
     (l: any) => (l.locationId || l.id) === selectedEntityId
   );
-  const activeSelectedEntity = selectedCharacter || selectedLocation;
-  const isLocationEntity = !selectedCharacter && Boolean(selectedLocation);
+  const selectedItem = items.find(
+    (i: any) => (i.itemId || i.id) === selectedEntityId
+  );
+  const activeSelectedEntity = selectedCharacter || selectedLocation || selectedItem;
+  const isItemEntity = !selectedCharacter && !selectedLocation && Boolean(selectedItem);
+  const isLocationEntity = !selectedCharacter && !isItemEntity && Boolean(selectedLocation);
   const activeRefImg = activeSelectedEntity ? getEntityRefImage(activeSelectedEntity) : undefined;
 
   return (
@@ -359,6 +364,7 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
               </h2>
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 border border-indigo-200 text-indigo-700">
                 🎭 角色 {completedChars}/{characters.length} · 🏞️ 场景 {completedLocs}/{locations.length}
+                {' · '}🧰 道具 {items.filter((item: any) => Boolean(item.referenceImageUrl || item.imageUrl)).length}/{items.length}
               </span>
             </div>
           </div>
@@ -388,6 +394,16 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
             >
               🏞️ 场景氛围 ({locations.length})
             </button>
+            <button
+              onClick={() => setActiveTab('items')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'items'
+                  ? 'bg-white text-indigo-600 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              🧰 核心道具 ({items.length})
+            </button>
           </div>
 
           <button
@@ -404,52 +420,45 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
         </div>
       </header>
 
+      {/* 资产提取遮罩固定在画布层，不参与下方展台滚动 */}
+      {isExtracting && (
+        <div className="absolute inset-x-0 top-[65px] bottom-0 bg-white/85 backdrop-blur-md z-30 flex flex-col items-center justify-center p-8 select-none animate-in fade-in duration-300">
+          <div className="relative w-16 h-16 mb-5 flex items-center justify-center">
+            <svg
+              className="w-14 h-14 text-indigo-600 animate-spin"
+              viewBox="0 0 100 100"
+              style={{ animationDuration: '1s' }}
+            >
+              {Array.from({ length: 12 }).map((_, i) => (
+                <rect
+                  key={i}
+                  x="46.5"
+                  y="10"
+                  width="7"
+                  height="22"
+                  rx="3.5"
+                  fill="currentColor"
+                  opacity={(i + 1) / 12}
+                  transform={`rotate(${i * 30} 50 50)`}
+                />
+              ))}
+            </svg>
+          </div>
+          <h3 className="text-base font-black text-slate-800 tracking-tight mb-2">
+            AI 视觉导演正在提取全剧视觉设定...
+          </h3>
+          <p className="text-xs text-slate-500 text-center max-w-md leading-relaxed mb-5">
+            正在深度解析剧本圣经与人物小传，提炼全剧登场角色的形象特征与场景空间氛围，自动装配纯中文影视级视觉定妆提示词。
+          </p>
+          <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-indigo-50 border border-indigo-200/80 text-indigo-700 text-[11px] font-semibold shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-indigo-500 animate-ping" />
+            <span>🎭 正在解析核心角色设定 · 🏞️ 构想场景光影空间</span>
+          </div>
+        </div>
+      )}
+
       {/* ──────────────── 2. 核心展台内容区 ──────────────── */}
       <main className="relative z-10 flex-1 overflow-y-auto px-8 py-6">
-        {/* 资产提取中全屏居中磨砂转菊花 */}
-        {isExtracting && (
-          <div className="absolute inset-0 bg-white/85 backdrop-blur-md z-30 flex flex-col items-center justify-center p-8 select-none animate-in fade-in duration-300">
-            {/* 经典12瓣高质感旋转菊花 */}
-            <div className="relative w-16 h-16 mb-5 flex items-center justify-center">
-              <svg
-                className="w-14 h-14 text-indigo-600 animate-spin"
-                viewBox="0 0 100 100"
-                style={{ animationDuration: '1s' }}
-              >
-                {Array.from({ length: 12 }).map((_, i) => (
-                  <rect
-                    key={i}
-                    x="46.5"
-                    y="10"
-                    width="7"
-                    height="22"
-                    rx="3.5"
-                    fill="currentColor"
-                    opacity={(i + 1) / 12}
-                    transform={`rotate(${i * 30} 50 50)`}
-                  />
-                ))}
-              </svg>
-            </div>
-
-            {/* 主标题 */}
-            <h3 className="text-base font-black text-slate-800 tracking-tight mb-2">
-              AI 视觉导演正在提取全剧视觉设定...
-            </h3>
-
-            {/* 副标题 */}
-            <p className="text-xs text-slate-500 text-center max-w-md leading-relaxed mb-5">
-              正在深度解析剧本圣经与人物小传，提炼全剧登场角色的形象特征与场景空间氛围，自动装配纯中文影视级视觉定妆提示词。
-            </p>
-
-            {/* 科技感动态状态胶囊 */}
-            <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-indigo-50 border border-indigo-200/80 text-indigo-700 text-[11px] font-semibold shadow-2xs">
-              <span className="w-2 h-2 rounded-full bg-indigo-500 animate-ping" />
-              <span>🎭 正在解析核心角色设定 · 🏞️ 构想场景光影空间</span>
-            </div>
-          </div>
-        )}
-
         {/* ──────────────── Tab 1: 角色展台 ──────────────── */}
         {activeTab === 'characters' && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -1098,6 +1107,93 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
             })}
           </div>
         )}
+
+        {/* ──────────────── Tab 3: 核心道具展台 ──────────────── */}
+        {activeTab === 'items' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {items.map((item: any) => {
+              const itemId = item.itemId || item.id;
+              const imageUrl = item.imageUrl || item.referenceImageUrl;
+              const isGenerating = isEntityTaskRunning(tasks, 'film.prop_lookdev', { itemId, id: itemId });
+              const isEditing = editingPromptId === itemId;
+              const currentPrompt = promptDrafts[itemId] !== undefined ? promptDrafts[itemId] : item.promptZh || item.appearanceSummary || '';
+              return (
+                <div
+                  key={itemId}
+                  onClick={() => setSelectedEntityId(itemId)}
+                  className="bg-white/95 border border-slate-200/90 rounded-3xl p-4 shadow-xs flex flex-col cursor-pointer"
+                >
+                  <div className="relative w-full aspect-square rounded-2xl overflow-hidden bg-slate-100 border border-slate-200/60 mb-3.5 flex items-center justify-center">
+                    {imageUrl ? (
+                      <img src={`${imageUrl}?t=${Date.now()}`} alt={item.name} className="w-full h-full object-contain" />
+                    ) : (
+                      <div className="text-center text-slate-400"><span className="text-4xl block mb-2">🧰</span><span className="text-xs font-semibold">待生成道具特写</span></div>
+                    )}
+                    {isGenerating && <div className="absolute inset-0 bg-slate-900/65 flex flex-col items-center justify-center text-white"><span className="text-2xl animate-spin mb-2">⏳</span><span className="text-xs font-bold">道具渲染中...</span></div>}
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-900">{item.name}</h3>
+                  <p className="text-[11px] text-slate-500 mt-1 line-clamp-3">{item.description || item.appearanceSummary || '核心剧情道具'}</p>
+                  {isEditing ? (
+                    <textarea
+                      value={currentPrompt}
+                      onChange={(e) => setPromptDrafts((prev) => ({ ...prev, [itemId]: e.target.value }))}
+                      rows={3}
+                      className="mt-3 w-full text-xs text-slate-800 bg-white border border-indigo-200 rounded-xl p-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-y"
+                    />
+                  ) : (
+                    <p className="mt-2 text-[10px] text-slate-400 line-clamp-2">{currentPrompt}</p>
+                  )}
+                  <div className="mt-3 flex items-center gap-2">
+                    <button type="button" onClick={() => handleTriggerUpload('item', itemId)} disabled={uploadingEntityId === itemId} className="flex-1 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-[11px] font-semibold text-slate-600 cursor-pointer disabled:opacity-50">
+                      {uploadingEntityId === itemId ? '上传中...' : '📷 换底图'}
+                    </button>
+                    <button type="button" onClick={() => isEditing ? handleSavePrompt('item', itemId) : setEditingPromptId(itemId)} className="flex-1 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-[11px] font-semibold text-indigo-700 cursor-pointer">
+                      {isEditing ? '保存提示词' : '✎ 修改提示词'}
+                    </button>
+                  </div>
+                  {imageUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveRefineEntityId(activeRefineEntityId === itemId ? null : itemId)}
+                      className={`mt-2 w-full py-1.5 rounded-xl border text-[11px] font-bold cursor-pointer ${activeRefineEntityId === itemId ? 'bg-purple-600 text-white border-purple-600' : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'}`}
+                    >
+                      🎨 {activeRefineEntityId === itemId ? '收起智能修改' : '基于此图智能修改'}
+                    </button>
+                  )}
+                  {activeRefineEntityId === itemId && imageUrl && (
+                    <div className="mt-2 p-3 rounded-2xl bg-purple-50 border border-purple-200 space-y-2">
+                      <textarea
+                        value={refineInputs[itemId] || ''}
+                        onChange={(e) => setRefineInputs((prev) => ({ ...prev, [itemId]: e.target.value }))}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleImageRefine('item', itemId, imageUrl); } }}
+                        rows={2}
+                        placeholder="输入局部修改，例如：改成银色外壳、去掉裂纹、增加蓝色指示灯"
+                        className="w-full text-xs text-slate-800 bg-white border border-purple-200 rounded-xl p-2 resize-none focus:outline-none focus:ring-2 focus:ring-purple-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleImageRefine('item', itemId, imageUrl)}
+                        disabled={isSubmittingRefine.has(itemId) || isGenerating || isBusy}
+                        className="w-full py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
+                      >
+                        {isSubmittingRefine.has(itemId) ? 'AI 构思融合中...' : '定向修改并出图'}
+                      </button>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onRunTool('film.prop_lookdev', { projectId, itemId, force: true, referenceImageUrls: item.referenceImageUrl ? [item.referenceImageUrl] : undefined }).then(() => onRefreshProject?.())}
+                    disabled={isBusy || isGenerating}
+                    className="mt-3 w-full py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold disabled:opacity-50 cursor-pointer"
+                  >
+                    {isGenerating ? '渲染中...' : imageUrl ? '重新生成道具特写' : '生成道具特写'}
+                  </button>
+                </div>
+              );
+            })}
+            {items.length === 0 && <div className="col-span-full py-16 text-center text-sm text-slate-400">当前没有提取到核心道具</div>}
+          </div>
+        )}
       </main>
 
       {/* ──────────────── 3. 历史定妆版本选择与切换弹窗 ──────────────── */}
@@ -1201,14 +1297,14 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
           {/* 顶部标题栏 */}
           <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 shrink-0">
             <div className="flex items-center space-x-2.5 truncate">
-              <span className="text-xl shrink-0">{selectedCharacter ? '🎭' : '🏞️'}</span>
+              <span className="text-xl shrink-0">{selectedCharacter ? '🎭' : isItemEntity ? '🧰' : '🏞️'}</span>
               <div className="truncate">
                 <div className="flex items-center space-x-2">
                   <h3 className="text-sm font-bold text-slate-900 truncate">
                     {activeSelectedEntity.name}
                   </h3>
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
-                    {selectedCharacter ? (activeSelectedEntity.role || '主要角色') : '空间场景'}
+                    {selectedCharacter ? (activeSelectedEntity.role || '主要角色') : isItemEntity ? '核心道具' : '空间场景'}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 truncate mt-0.5">
@@ -1228,7 +1324,7 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
           {/* 滚动内容区 */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {/* 1. 立绘/场景大图 (角色 2:1 三视图 / 场景 16:9 横版) */}
-            <div className={`relative w-full ${isLocationEntity ? 'aspect-video' : 'aspect-[2/1]'} bg-slate-100 rounded-2xl overflow-hidden border border-slate-200/80 flex items-center justify-center ${isLocationEntity ? '' : 'p-1'} group`}>
+            <div className={`relative w-full ${isLocationEntity ? 'aspect-video' : isItemEntity ? 'aspect-square' : 'aspect-[2/1]'} bg-slate-100 rounded-2xl overflow-hidden border border-slate-200/80 flex items-center justify-center ${isLocationEntity ? '' : 'p-1'} group`}>
               {activeSelectedEntity.imageUrl ? (
                 <img
                   key={`${activeSelectedEntity.imageUrl}_${activeSelectedEntity.selectedVersionId}`}
@@ -1244,13 +1340,13 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
                     className={`w-full h-full ${isLocationEntity ? 'object-cover' : 'object-contain object-center'}`}
                   />
                   <div className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-black/65 backdrop-blur-xs text-white text-[10px] font-semibold border border-white/20">
-                    📷 当前参考底图 ({isLocationEntity ? '待渲染场景' : '待生成定妆'})
+                    📷 当前参考底图 ({isLocationEntity ? '待渲染场景' : isItemEntity ? '待生成道具特写' : '待生成定妆'})
                   </div>
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center text-slate-400">
-                  <span className="text-3xl mb-1">{selectedCharacter ? '🎭' : '🏞️'}</span>
-                  <span className="text-xs">{selectedCharacter ? '待生成立绘' : '待生成场景'}</span>
+                  <span className="text-3xl mb-1">{selectedCharacter ? '🎭' : isItemEntity ? '🧰' : '🏞️'}</span>
+                  <span className="text-xs">{selectedCharacter ? '待生成立绘' : isItemEntity ? '待生成道具特写' : '待生成场景'}</span>
                 </div>
               )}
 
@@ -1269,7 +1365,7 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
                   <img
                     src={activeRefImg}
                     alt="参考底图"
-                    className={`${isLocationEntity ? 'w-14 h-9 object-cover' : 'w-10 h-14 object-cover object-top'} rounded-lg border border-white/30 shrink-0`}
+                    className={`${isLocationEntity ? 'w-14 h-9 object-cover' : isItemEntity ? 'w-12 h-12 object-contain' : 'w-10 h-14 object-cover object-top'} rounded-lg border border-white/30 shrink-0`}
                   />
                   <div className="pr-1 text-left">
                     <span className="text-[10px] text-indigo-300 font-bold block">
@@ -1282,8 +1378,8 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
                       e.stopPropagation();
                       e.preventDefault();
                       handleRemoveReferenceImage(
-                        selectedCharacter ? 'character' : 'location',
-                        activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.id
+                        selectedCharacter ? 'character' : isItemEntity ? 'item' : 'location',
+                        activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.itemId || activeSelectedEntity.id
                       );
                     }}
                     className="w-5 h-5 rounded-full bg-black/50 hover:bg-rose-600 text-white flex items-center justify-center transition cursor-pointer text-xs ml-0.5 shadow-2xs"
@@ -1316,16 +1412,16 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
               <button
                 onClick={() =>
                   handleTriggerUpload(
-                    selectedCharacter ? 'character' : 'location',
-                    activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.id
+                    selectedCharacter ? 'character' : isItemEntity ? 'item' : 'location',
+                    activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.itemId || activeSelectedEntity.id
                   )
                 }
-                disabled={uploadingEntityId === (activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.id)}
+                disabled={uploadingEntityId === (activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.itemId || activeSelectedEntity.id)}
                 className="flex-1 py-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-xs font-semibold text-slate-700 flex items-center justify-center space-x-1 transition shadow-2xs cursor-pointer"
               >
                 <span>📷</span>
                 <span>
-                  {uploadingEntityId === (activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.id)
+                  {uploadingEntityId === (activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.itemId || activeSelectedEntity.id)
                     ? '上传中...'
                     : activeRefImg
                     ? '更换参考图'
@@ -1339,11 +1435,16 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
                     handleGenerateCharacter(selectedCharacter);
                   } else if (selectedLocation) {
                     handleGenerateLocation(selectedLocation);
+                  } else if (selectedItem) {
+                    const itemId = selectedItem.itemId || selectedItem.id;
+                    onRunTool('film.prop_lookdev', { projectId, itemId, force: true, referenceImageUrls: selectedItem.referenceImageUrl ? [selectedItem.referenceImageUrl] : undefined })
+                      .then(() => onRefreshProject?.());
                   }
                 }}
                 disabled={
                   (selectedCharacter && isCharacterGenerating(selectedCharacter)) ||
                   (selectedLocation && isLocationGenerating(selectedLocation)) ||
+                  (selectedItem && isEntityTaskRunning(tasks, 'film.prop_lookdev', { itemId: selectedItem.itemId || selectedItem.id, id: selectedItem.itemId || selectedItem.id })) ||
                   isBusy
                 }
                 className="flex-1 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center justify-center space-x-1 transition shadow-xs disabled:opacity-50 cursor-pointer"
@@ -1351,17 +1452,18 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
                 <span>✨</span>
                 <span>
                   {(selectedCharacter && isCharacterGenerating(selectedCharacter)) ||
-                  (selectedLocation && isLocationGenerating(selectedLocation))
+                  (selectedLocation && isLocationGenerating(selectedLocation)) ||
+                  (selectedItem && isEntityTaskRunning(tasks, 'film.prop_lookdev', { itemId: selectedItem.itemId || selectedItem.id, id: selectedItem.itemId || selectedItem.id }))
                     ? '生成中...'
                     : activeSelectedEntity.imageUrl
-                    ? '重新定妆'
-                    : '立即定妆'}
+                    ? isItemEntity ? '重新生成道具特写' : '重新定妆'
+                    : isItemEntity ? '生成道具特写' : '立即定妆'}
                 </span>
               </button>
             </div>
 
             {/* 3. 历史定妆/渲染版本库 (角色 3:4 / 场景 16:9 动态自适应) */}
-            {activeSelectedEntity.versions && activeSelectedEntity.versions.length > 0 && (
+            {!isItemEntity && activeSelectedEntity.versions && activeSelectedEntity.versions.length > 0 && (
               <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-800 flex items-center space-x-1">
@@ -1427,9 +1529,9 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
                 </span>
                 <button
                   onClick={() =>
-                    handleSavePrompt(
-                      selectedCharacter ? 'character' : 'location',
-                      activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.id
+                      handleSavePrompt(
+                      selectedCharacter ? 'character' : isItemEntity ? 'item' : 'location',
+                      activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.itemId || activeSelectedEntity.id
                     )
                   }
                   className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold shadow-2xs transition cursor-pointer"
@@ -1439,17 +1541,17 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
               </div>
               <textarea
                 value={
-                  promptDrafts[activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.id] ??
+                  promptDrafts[activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.itemId || activeSelectedEntity.id] ??
                   (activeSelectedEntity.promptZh || activeSelectedEntity.appearanceSummary || '')
                 }
                 onChange={(e) =>
                   setPromptDrafts((prev) => ({
                     ...prev,
-                    [activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.id]: e.target.value,
+                    [activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.itemId || activeSelectedEntity.id]: e.target.value,
                   }))
                 }
-                rows={4}
-                className="w-full text-xs text-slate-800 bg-white border border-slate-200 rounded-xl p-2.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 leading-relaxed resize-y font-sans"
+                rows={1}
+                className="w-full min-h-12 max-h-64 overflow-y-auto [field-sizing:content] text-xs text-slate-800 bg-white border border-slate-200 rounded-xl p-2.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 leading-relaxed resize-y font-sans"
               />
             </div>
           </div>

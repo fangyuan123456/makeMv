@@ -93,6 +93,7 @@ export const TaskDrawer: React.FC<TaskDrawerProps> = ({
                 const isRunning = task.status === 'running' || task.status === 'pending';
                 const isSuccess = task.status === 'completed';
                 const isFailed = task.status === 'failed';
+                const isCancelled = task.status === 'cancelled';
 
                 return (
                   <div
@@ -121,10 +122,12 @@ export const TaskDrawer: React.FC<TaskDrawerProps> = ({
                               ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                               : isFailed
                               ? 'bg-rose-50 text-rose-700 border-rose-200'
+                              : isCancelled
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
                               : 'bg-slate-100 text-slate-600 border-slate-200'
                           }`}
                         >
-                          {task.status}
+                          {isCancelled ? '已取消' : task.status}
                         </span>
                       </div>
                     </div>

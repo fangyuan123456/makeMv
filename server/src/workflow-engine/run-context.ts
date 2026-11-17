@@ -11,6 +11,7 @@ export interface WorkflowRunContext {
   projectId: string;
   runId: string;
   lane: ExecutionLane;
+  idempotencyKey?: string;
   abortSignal?: AbortSignal;
 }
 

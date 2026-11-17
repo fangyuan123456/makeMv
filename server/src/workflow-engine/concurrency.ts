@@ -12,7 +12,7 @@ import { RunAbortedError } from './run-context.js';
 export class KeyedLockManager {
   private chains = new Map<string, Promise<void>>();
 
-  public async withLock<T>(key: string, fn: () => Promise<T> | T): Promise<T> {
+  public async acquire(key: string): Promise<() => void> {
     const prev = this.chains.get(key) ?? Promise.resolve();
     let release!: () => void;
     const current = new Promise<void>((resolve) => {
@@ -22,13 +22,23 @@ export class KeyedLockManager {
     this.chains.set(key, nextTail);
 
     await prev;
-    try {
-      return await fn();
-    } finally {
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
       release();
       if (this.chains.get(key) === nextTail) {
         this.chains.delete(key);
       }
+    };
+  }
+
+  public async withLock<T>(key: string, fn: () => Promise<T> | T): Promise<T> {
+    const release = await this.acquire(key);
+    try {
+      return await fn();
+    } finally {
+      release();
     }
   }
 

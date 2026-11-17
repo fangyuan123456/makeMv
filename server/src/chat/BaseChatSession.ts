@@ -16,12 +16,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { streamText, tool } from 'ai';
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { getProjectDir } from '../project-store/artifact-fs.js';
 import { ProjectStore } from '../project-store/ProjectStore.js';
 import { safeReadJsonSync, atomicWriteJsonSync } from '../utils/atomicFile.js';
 import { LLMProvider } from '../llm/index.js';
 import { TaskStore } from '../task-engine/task-store.js';
 import { buildWorkingDialogueTurns } from '../mastra-compat/streamAgent.js';
+import { JsonStreamStringExtractor } from '../utils/JsonStreamStringExtractor.js';
 import type {
   SessionChatMessage,
   ParsedIntentResult,
@@ -216,20 +218,42 @@ export abstract class BaseChatSession<TIntent = any> {
       const workingMessages = buildWorkingDialogueTurns(effectiveHistory, message, 12);
 
       const tools = this.buildDefaultTools();
+      const hasPendingProposal = serverMessages.some((m) => m.proposal && !m.proposalResolved);
 
       const result = await streamText({
         model,
         system: systemPrompt,
         messages: workingMessages,
         tools,
+        // 待审提案与系统复盘都必须产出结构化意图，保证正文和提案来自同一次模型响应。
+        // 所有导演回复统一经过结构化意图工具：模型可选择 chat_only，但不能只输出游离正文。
+        ...(tools ? { toolChoice: 'required' as const } : {}),
+        // 关键底层开关：开启 AI SDK 的工具参数增量流式分发，彻底释放 tool-call-delta!
+        experimental_toolCallStreaming: true,
         abortSignal,
       });
 
       let fullRawText = '';
+      let streamedReasoningText = '';
 
-      for await (const chunk of result.textStream) {
-        fullRawText += chunk;
-        onTextChunk?.(chunk);
+      const extractor = new JsonStreamStringExtractor({
+        targetKeys: ['reasoning', 'summary', 'description'],
+        onChunk: (chunk) => {
+          if (!fullRawText) {
+            streamedReasoningText += chunk;
+            onTextChunk?.(chunk);
+          }
+        },
+      });
+
+      // 同时消费文本增量与工具事件。开启 experimental_toolCallStreaming 后支持提取工具参数流。
+      for await (const part of result.fullStream) {
+        if (part.type === 'text-delta') {
+          fullRawText += part.textDelta;
+          onTextChunk?.(part.textDelta);
+        } else if (part.type === 'tool-call-delta' && (part as any).argsTextDelta) {
+          extractor.feed((part as any).argsTextDelta);
+        }
       }
 
       // 4. 原生 Tool Call 拦截与转译（人在回路切面）：
@@ -251,7 +275,7 @@ export abstract class BaseChatSession<TIntent = any> {
       }
 
       // 5. 组装纯净的流式推演结果与人在回路提案
-      let effectiveText = fullRawText.trim();
+      let effectiveText = fullRawText.trim() || streamedReasoningText.trim();
 
       // 反事实文本净化门禁：当行动是 approve 授权开跑时，物理算力即将启动，尚未落盘，绝对严禁宣称已物理落盘！
       if ((capturedIntent as any)?.action === 'approve') {
@@ -340,6 +364,8 @@ export abstract class BaseChatSession<TIntent = any> {
    */
   protected abstract assembleSystemPrompt(): string | Promise<string>;
 
+
+
   /**
    * 业务子类声明支持的合法物理工序工具规范清单 (SSOT)
    * 基类基于此清单自动组装官方 emit_director_intent 意图识别工具
@@ -384,7 +410,7 @@ ${availableToolsDescription}`,
             .describe(`目标工序标识符（当 action=propose/approve/modify 时必填，可选: ${targetToolEnum.join(', ')}）`),
           title: z.string().optional().describe('卡片方案标题，例如“推演互动全景剧本”'),
           reasoning: z.string().optional().describe('方案构思阐述、修改亮点或同意执行确认理由'),
-          params: z.record(z.any()).optional().describe('制片参数，须严格符合对应工具的参数定义（例如 userPrompt, expectedActs）'),
+          params: z.record(z.any()).optional().describe('制片参数，必须严格符合所选 targetTool 当前暴露的 input schema'),
           stage: z.string().optional().describe('目标工序阶段（当 action=next_stage 时必填，例如 visual）'),
           summary: z.string().optional().describe('阶段交接总结'),
         }),
@@ -400,8 +426,8 @@ ${availableToolsDescription}`,
 | 优先级 | 触发特征 (创作者输入或工程状态) | 决策动作 (action) | 行为规约 (必须同步在对话中阐述，严禁正文留空) |
 | :--- | :--- | :--- | :--- |
 | **P0·恢复** | 任务失败/报错，创作者询问原因或要求重试 | \`propose\` | 在对话中解释失败根因，复用失败入参重新出具提案 |
-| **P1·重推** | 创作者对已有剧本/资产不满意、指出题材偏差或要求推倒重来/重新生成 | \`propose\` | targetTool 设为当前工序核心工具（如剧本推演），全量融汇纠偏构思重新出具提案卡片 |
-| **P2·修改** | 当前存在待审提案，创作者提出参数局部调整/增删/新约束 | \`modify\` | 在对话中阐明调整逻辑，合并修改意见输出完整新参数 |
+| **P1·重推** | 创作者对已有产物不满意、指出偏差或要求推倒重来/重新生成 | \`propose\` | 从当前动态能力编目中选择最匹配的工具，按其 input schema 全量融汇纠偏要求重新出具提案卡片 |
+| **P2·修改** | 当前存在待审提案，创作者提出参数明确的局部调整/增删/新约束 | \`modify\` | 信息完整时阐明调整逻辑并输出完整新参数；信息不完整时先用 \`chat_only\` 追问，不得猜测并出卡 |
 | **P3·授权** | 当前存在待审提案，创作者表达认可/同意/准了/开跑 | \`approve\` | 在对话中给出干练确认回复，声明 targetTool 授权开跑 |
 | **P4·推进** | 当前工序已全部物理落盘，创作者明确要求进入下一步 | \`next_stage\` | 在对话中总结本阶段成果，声明 stage 提议跨工序移交 |
 | **P5·立项** | 暂无待审提案，创作者输入全新题材/故事设定灵感 | \`propose\` | 在对话中深度剖析戏剧冲突与看点，出具方案待审卡片 |
@@ -426,7 +452,13 @@ ${availableToolsDescription}`,
     }
 
     const lines = specs.map((s, index) => {
-      return `${index + 1}. 【${s.title}】(targetTool: "${s.toolName}")\n   - 功能与产出: ${s.description}`;
+      let schemaText = '未提供结构化 schema';
+      try {
+        schemaText = JSON.stringify(zodToJsonSchema(s.schema as any), null, 2);
+      } catch {
+        // 工具仍可通过 description 工作，schema 序列化失败不应阻断对话。
+      }
+      return `${index + 1}. 【${s.title}】(targetTool: "${s.toolName}")\n   - 功能与产出: ${s.description}\n   - input schema:\n${schemaText}`;
     });
 
     return `### 【当前工序阶段可用能力编目 (Dynamic Tools Catalog)】

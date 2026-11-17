@@ -5,21 +5,28 @@
 
 import { taskToolRegistry } from './task-registry.js';
 import { taskStore } from './task-store.js';
-import { syncTaskResultToProjectStore } from './asset-sync.js';
+import './asset-sync.js';
+import { ProjectStore } from '../project-store/ProjectStore.js';
+import { syncTaskCompletionToChat } from '../chat/task-message-sync.js';
 import type { TaskRecord } from './types.js';
 
 export interface DispatchTaskParams {
   projectId: string;
   toolName: string;
   input: Record<string, any>;
+  idempotencyKey?: string;
+  recoveryAttempts?: number;
+  replacesTaskId?: string;
 }
 
 export class TaskDispatcher {
   private static instance: TaskDispatcher | null = null;
   private abortControllers = new Map<string, AbortController>();
+  private projectStore = ProjectStore.getInstance();
 
   private constructor() {
     taskStore.setActiveChecker((taskId) => this.isTaskActive(taskId));
+    queueMicrotask(() => this.recoverInterruptedTasks());
   }
 
   public static getInstance(): TaskDispatcher {
@@ -50,13 +57,46 @@ export class TaskDispatcher {
     }
 
     if (task.status === 'pending' || task.status === 'running') {
-      task.status = 'cancelled';
-      task.completedAt = Date.now();
-      task.durationMs = task.startedAt ? task.completedAt - task.startedAt : 0;
-      taskStore.saveTask(task);
+      this.finishTask(task, 'cancelled', '任务已取消');
       return true;
     }
     return false;
+  }
+
+  public async retry(taskId: string): Promise<TaskRecord> {
+    const task = taskStore.getTask(taskId);
+    if (!task) throw new Error(`[TaskDispatcher] 未找到任务: "${taskId}"`);
+    if (task.status !== 'failed' && task.status !== 'cancelled') {
+      throw new Error(`[TaskDispatcher] 仅允许重试 failed/cancelled 任务 (当前状态: ${task.status})`);
+    }
+
+    const input = { ...(task.input as Record<string, any>) };
+    delete input.__idempotencyKey;
+    const retryKey = task.idempotencyKey
+      ? `${task.idempotencyKey}:retry:${Date.now()}`
+      : undefined;
+    return this.dispatch({
+      projectId: task.projectId,
+      toolName: task.toolName,
+      input,
+      idempotencyKey: retryKey,
+      recoveryAttempts: task.recoveryAttempts,
+      replacesTaskId: task.taskId,
+    });
+  }
+
+  private async recoverInterruptedTasks(): Promise<void> {
+    const interrupted = taskStore.listRestartRecoverableTasks();
+    for (const task of interrupted) {
+      task.recoveryAttempts = (task.recoveryAttempts || 0) + 1;
+      task.recovery = undefined;
+      taskStore.saveTask(task);
+      try {
+        await this.retry(task.taskId);
+      } catch (err) {
+        console.error(`[TaskDispatcher] 自动恢复任务 ${task.taskId} 失败:`, err);
+      }
+    }
   }
 
   /**
@@ -74,6 +114,12 @@ export class TaskDispatcher {
       throw new Error(`[TaskDispatcher] 未找到注册的工具: "${toolName}"`);
     }
 
+    const idempotencyKey = params.idempotencyKey || input?.__idempotencyKey;
+    if (idempotencyKey) {
+      const existing = taskStore.findByIdempotencyKey(projectId, idempotencyKey);
+      if (existing) return existing;
+    }
+
     const now = Date.now();
     const cleanToolName = toolName.replace(/[^a-zA-Z0-9_]/g, '_');
     const randomSuffix = Math.random().toString(36).substring(2, 6);
@@ -86,13 +132,26 @@ export class TaskDispatcher {
       taskId,
       projectId,
       toolName,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
+      ...(params.recoveryAttempts ? { recoveryAttempts: params.recoveryAttempts } : {}),
       status: 'pending',
-      input,
+      input: idempotencyKey ? { ...input, __idempotencyKey: idempotencyKey } : input,
       createdAt: now,
     };
 
     // 1. 同步保存初始状态并准备派发
     taskStore.saveTask(initialTask);
+
+    if (params.replacesTaskId) {
+      const context = input?.__chatContext;
+      syncTaskCompletionToChat(projectId, context, {
+        taskId,
+        taskStatus: 'pending',
+        taskProgress: undefined,
+        taskDurationMs: undefined,
+        taskError: undefined,
+      }, params.replacesTaskId);
+    }
 
     // 2. 异步非阻塞执行任务
     queueMicrotask(() => {
@@ -114,57 +173,92 @@ export class TaskDispatcher {
     task: TaskRecord,
     abortController: AbortController
   ): Promise<void> {
-    const startedAt = Date.now();
     const currentTask: TaskRecord = {
       ...task,
-      status: 'running',
-      startedAt,
+      status: 'pending',
     };
     taskStore.saveTask(currentTask);
 
     try {
+      const {
+        __chatContext: _chatContext,
+        __idempotencyKey: _idempotencyKey,
+        ...toolInput
+      } = task.input as any;
       const finalInput = {
-        ...task.input,
+        ...toolInput,
         projectId: task.projectId,
       };
 
-      await tool.execute({
-        input: finalInput,
-        options: {
-          customTaskId: task.taskId,
-          abortSignal: abortController.signal,
-        },
-        callbacks: {
-          onTaskId: (internalTaskId: string) => {
-            // 工具内部已接单并生成内部标识，保持同步
-            currentTask.taskId = task.taskId;
-          },
-          onResult: (result: any) => {
-            const completedAt = Date.now();
-            currentTask.completedAt = completedAt;
-            currentTask.durationMs = completedAt - startedAt;
+      await this.projectStore.withProjectLock(task.projectId, async () => {
+        if (abortController.signal.aborted || currentTask.status === 'cancelled') return;
 
-            if (result.success) {
-              currentTask.status = 'completed';
-              currentTask.output = result.data;
-              // 自动将任务产物同步到项目全局黑板与磁盘文件
-              syncTaskResultToProjectStore(currentTask);
-            } else {
-              currentTask.status = 'failed';
-              currentTask.error = result.error || '任务执行返回失败';
-            }
-            taskStore.saveTask(currentTask);
+        const executionStartedAt = Date.now();
+        currentTask.status = 'running';
+        currentTask.startedAt = executionStartedAt;
+        taskStore.saveTask(currentTask);
+
+        await tool.execute({
+          input: finalInput,
+          options: {
+            customTaskId: task.taskId,
+            abortSignal: abortController.signal,
           },
-        },
+          callbacks: {
+            onTaskId: (_internalTaskId: string) => {
+              // 工具内部已接单并生成内部标识，保持同步
+              currentTask.taskId = task.taskId;
+            },
+            onProgress: ({ percent, note }: { percent: number; note: string }) => {
+              if (currentTask.status === 'cancelled' || abortController.signal.aborted) {
+                return;
+              }
+              currentTask.progress = {
+                current: percent,
+                total: 100,
+                percent,
+                message: note,
+              };
+              taskStore.saveTask(currentTask);
+            },
+            onResult: (result: any) => {
+              // 取消已经收敛为终态后，忽略迟到的 workflow 回调。
+              if (currentTask.status === 'cancelled' || abortController.signal.aborted) {
+                return;
+              }
+              if (result.success) {
+                currentTask.output = result.data;
+                this.finishTask(currentTask, 'completed', '推演完成');
+              } else {
+                currentTask.error = result.error || '任务执行返回失败';
+                this.finishTask(currentTask, 'failed', '执行失败');
+              }
+            },
+          },
+        });
       });
     } catch (err: any) {
-      const completedAt = Date.now();
-      currentTask.status = 'failed';
-      currentTask.completedAt = completedAt;
-      currentTask.durationMs = completedAt - startedAt;
+      if (currentTask.status === 'cancelled' || abortController.signal.aborted) {
+        return;
+      }
       currentTask.error = err?.message || String(err);
-      taskStore.saveTask(currentTask);
+      this.finishTask(currentTask, 'failed', '执行失败');
     }
+  }
+
+  private finishTask(task: TaskRecord, status: 'completed' | 'failed' | 'cancelled', message: string): void {
+    if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') return;
+    const completedAt = Date.now();
+    task.status = status;
+    task.completedAt = completedAt;
+    task.durationMs = task.startedAt ? completedAt - task.startedAt : 0;
+    task.progress = {
+      current: status === 'completed' ? 100 : 0,
+      total: 100,
+      percent: status === 'completed' ? 100 : 0,
+      message,
+    };
+    taskStore.saveTask(task);
   }
 }
 

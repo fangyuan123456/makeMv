@@ -4,6 +4,7 @@
 
 import { Workflow } from '@mastra/core/workflows';
 import { AssetExtractionStepInputSchema, assetExtractionStep } from './steps/01-extract/index.js';
+import { AssetExtractionModifierInputSchema, assetExtractionModifierStep } from './modifier/index.js';
 
 export function createAssetExtractionWorkflow() {
   return new Workflow({
@@ -11,5 +12,14 @@ export function createAssetExtractionWorkflow() {
     triggerSchema: AssetExtractionStepInputSchema,
   })
     .step(assetExtractionStep)
+    .commit();
+}
+
+export function createAssetExtractionModifierWorkflow() {
+  return new Workflow({
+    name: 'asset-extraction-modifier-workflow',
+    triggerSchema: AssetExtractionModifierInputSchema,
+  })
+    .step(assetExtractionModifierStep)
     .commit();
 }

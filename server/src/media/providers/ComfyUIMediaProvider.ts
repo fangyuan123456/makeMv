@@ -11,6 +11,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'url';
 import type { IImageProvider, ImageGenerationOptions } from './ImageProvider.js';
 import type { IVideoProvider, VideoGenerationOptions } from './VideoProvider.js';
@@ -19,9 +20,28 @@ import { ensureApiPromptFormat } from '../comfyui/comfyui-converter.js';
 import { MediaResolver } from '../MediaResolver.js';
 import { ConcurrencyPool } from '../../workflow-engine/concurrency.js';
 import { combineAbortSignals, getRunContext } from '../../workflow-engine/run-context.js';
+import { atomicWriteJsonSync, safeReadJsonSync } from '../../utils/atomicFile.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const MEDIA_REQUEST_LEDGER = path.join(config.paths.data, 'media-requests.json');
+
+interface MediaRequestRecord {
+  promptId: string;
+  mediaType: 'image' | 'video';
+  mediaUrl?: string;
+  updatedAt: string;
+}
+
+function readMediaRequestLedger(): Record<string, MediaRequestRecord> {
+  return safeReadJsonSync<Record<string, MediaRequestRecord>>(MEDIA_REQUEST_LEDGER) || {};
+}
+
+function writeMediaRequestRecord(requestId: string, record: MediaRequestRecord): void {
+  const ledger = readMediaRequestLedger();
+  ledger[requestId] = record;
+  atomicWriteJsonSync(MEDIA_REQUEST_LEDGER, ledger);
+}
 
 /** 生图模式 → 工作流模板唯一映射（显式 mode 优先于参考图回落） */
 const MODE_TEMPLATES: Record<NonNullable<ImageGenerationOptions['mode']>, string> = {
@@ -280,6 +300,7 @@ export class ComfyUITopologyInjector {
 }
 
 export interface ComfyUIExecuteOptions {
+  requestId?: string;
   prompt?: string;
   negativePrompt?: string;
   seed?: number;
@@ -303,6 +324,7 @@ function getComfyGpuPool(baseUrl: string): ConcurrencyPool {
 export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
   public readonly name = 'comfyui';
   private baseUrl: string;
+  private inFlightRequests = new Map<string, Promise<string>>();
 
   constructor(customBaseUrl?: string) {
     this.baseUrl = (customBaseUrl || config.comfyui.baseUrl).replace(/\/+$/, '');
@@ -372,6 +394,7 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
       size: options?.size,
       referenceImages: refs.length > 0 ? refs : undefined,
       abortSignal: options?.abortSignal,
+      requestId: options?.requestId || this.buildRequestId('image', prompt, options),
     });
   }
 
@@ -400,7 +423,19 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
       prompt: prompt || '电影镜头缓慢推进，人物微表情生动，高质量运镜',
       referenceImages: [refImageUrl],
       abortSignal: options?.abortSignal,
+      requestId: options?.requestId || this.buildRequestId('video', prompt, options),
     });
+  }
+
+  private buildRequestId(kind: string, prompt: string, options: unknown): string {
+    const runContext = getRunContext();
+    const runId = runContext?.idempotencyKey || runContext?.runId || 'standalone';
+    const fingerprint = crypto
+      .createHash('sha256')
+      .update(JSON.stringify({ kind, prompt, options }))
+      .digest('hex')
+      .slice(0, 20);
+    return `${runId}:${fingerprint}`;
   }
 
   /**
@@ -411,6 +446,29 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
     mediaType: 'image' | 'video',
     options?: ComfyUIExecuteOptions
   ): Promise<string> {
+    const requestId = options?.requestId;
+    if (requestId) {
+      const existing = this.inFlightRequests.get(requestId);
+      if (existing) return existing;
+      const promise = this.executeWorkflowInternal(workflow, mediaType, options);
+      this.inFlightRequests.set(requestId, promise);
+      const clearRequest = () => {
+        if (this.inFlightRequests.get(requestId) === promise) {
+          this.inFlightRequests.delete(requestId);
+        }
+      };
+      void promise.then(clearRequest, clearRequest);
+      return promise;
+    }
+    return this.executeWorkflowInternal(workflow, mediaType, options);
+  }
+
+  private async executeWorkflowInternal(
+    workflow: any,
+    mediaType: 'image' | 'video',
+    options?: ComfyUIExecuteOptions
+  ): Promise<string> {
+    const requestId = options?.requestId;
     const effectiveSignal = combineAbortSignals(options?.abortSignal, getRunContext()?.abortSignal);
     return this.runExclusive(async () => {
       const apiPrompt = ensureApiPromptFormat(workflow);
@@ -448,7 +506,7 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
         }
       }
 
-      return this.executeAndPoll(apiPrompt, mediaType, effectiveSignal);
+      return this.executeAndPoll(apiPrompt, mediaType, effectiveSignal, requestId);
     }, effectiveSignal);
   }
 
@@ -492,29 +550,43 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
   private async executeAndPoll(
     workflow: any,
     mediaType: 'image' | 'video',
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
+    requestId?: string
   ): Promise<string> {
     if (abortSignal?.aborted) {
       throw new Error('[ComfyUIMediaProvider] 任务在提交前已被创作者主动取消');
     }
 
     const apiPrompt = ensureApiPromptFormat(workflow);
-    const promptResponse = await fetch(`${this.baseUrl}/prompt`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: apiPrompt }),
-      signal: abortSignal,
-    });
+    const existing = requestId ? readMediaRequestLedger()[requestId] : undefined;
+    if (existing?.mediaUrl) return existing.mediaUrl;
 
-    if (!promptResponse.ok) {
-      const errorText = await promptResponse.text();
-      throw new Error(`[ComfyUIMediaProvider] 提交任务失败 (HTTP ${promptResponse.status}): ${errorText}`);
-    }
-
-    const promptResult = (await promptResponse.json()) as { prompt_id: string };
-    const promptId = promptResult.prompt_id;
+    let promptId = existing?.promptId;
     if (!promptId) {
-      throw new Error('[ComfyUIMediaProvider] ComfyUI 未返回合法的 prompt_id');
+      const promptResponse = await fetch(`${this.baseUrl}/prompt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: apiPrompt }),
+        signal: abortSignal,
+      });
+
+      if (!promptResponse.ok) {
+        const errorText = await promptResponse.text();
+        throw new Error(`[ComfyUIMediaProvider] 提交任务失败 (HTTP ${promptResponse.status}): ${errorText}`);
+      }
+
+      const promptResult = (await promptResponse.json()) as { prompt_id: string };
+      promptId = promptResult.prompt_id;
+      if (!promptId) {
+        throw new Error('[ComfyUIMediaProvider] ComfyUI 未返回合法的 prompt_id');
+      }
+      if (requestId) {
+        writeMediaRequestRecord(requestId, {
+          promptId,
+          mediaType,
+          updatedAt: new Date().toISOString(),
+        });
+      }
     }
 
     console.log(
@@ -569,6 +641,14 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
               console.log(
                 `[ComfyUIMediaProvider] ${mediaType === 'video' ? '视频' : '图像'}生成完成! 产物 URL: ${mediaUrl}`
               );
+              if (requestId) {
+                writeMediaRequestRecord(requestId, {
+                  promptId,
+                  mediaType,
+                  mediaUrl,
+                  updatedAt: new Date().toISOString(),
+                });
+              }
               return mediaUrl;
             }
           }

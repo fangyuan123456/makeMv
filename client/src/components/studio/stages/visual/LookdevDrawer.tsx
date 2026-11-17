@@ -504,7 +504,7 @@ export const LookdevDrawer: React.FC<LookdevDrawerProps> = ({
                         </div>
                       </div>
                       <textarea
-                        rows={2}
+                        rows={1}
                         value={promptDrafts[char.characterId] ?? ''}
                         onChange={(e) =>
                           setPromptDrafts({
@@ -513,7 +513,7 @@ export const LookdevDrawer: React.FC<LookdevDrawerProps> = ({
                           })
                         }
                         placeholder="输入用于立绘生成的纯中文正向描述词..."
-                        className="w-full text-[11px] p-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 leading-relaxed font-sans resize-y"
+                        className="w-full min-h-10 max-h-60 overflow-y-auto [field-sizing:content] text-[11px] p-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 leading-relaxed font-sans resize-y"
                       />
                     </div>
                   </div>
@@ -599,7 +599,7 @@ export const LookdevDrawer: React.FC<LookdevDrawerProps> = ({
                         </button>
                       </div>
                       <textarea
-                        rows={2}
+                        rows={1}
                         value={promptDrafts[loc.locationId] ?? ''}
                         onChange={(e) =>
                           setPromptDrafts({
@@ -607,7 +607,7 @@ export const LookdevDrawer: React.FC<LookdevDrawerProps> = ({
                             [loc.locationId]: e.target.value,
                           })
                         }
-                        className="w-full text-[11px] p-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 leading-relaxed font-sans resize-y"
+                        className="w-full min-h-10 max-h-60 overflow-y-auto [field-sizing:content] text-[11px] p-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 leading-relaxed font-sans resize-y"
                       />
                     </div>
                   </div>

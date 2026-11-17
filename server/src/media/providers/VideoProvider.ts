@@ -4,6 +4,7 @@
  */
 
 export interface VideoGenerationOptions {
+  requestId?: string;
   referenceImageUrl?: string;
   lastFrameImageUrl?: string;
   audioPrompt?: string;

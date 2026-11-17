@@ -4,7 +4,7 @@
  *
  * 核心微内核架构：
  * 1. 采用全系统统一对话生命周期微内核 (useDirectorChatFlow) 与统一任务卡片 (DirectorTaskCard)；
- * 2. 对话流程 100% 对齐故事总监标杆体系：提议 ➔ 待审 ➔ 底部「✨ 批准执行」/ 自然语言“同意” ➔ 平滑推演 ➔ 物理落盘 ➔ 自动收官复盘；
+ * 2. 对话流程 100% 对齐故事总监标杆体系：提议 ➔ 待审 ➔ 自然语言“同意” ➔ 平滑推演 ➔ 物理落盘 ➔ 自动收官复盘；
  * 3. 专职多智能体泛化：支持 mode: 'lookdev' (定妆空间) 与 mode: 'storyboard' (分幕分镜按 clipId 独立落盘)；
  * 4. 非侵入式悬浮球，支持展开/收起，灵感词在对话开启后自动隐匿。
  */
@@ -18,6 +18,7 @@ import {
 } from '../../../lib/ChatSession.js';
 import { useDirectorChatFlow } from '../../../hooks/useDirectorChatFlow.js';
 import { DirectorTaskCard } from './DirectorTaskCard.js';
+import { ProposalCard } from './ProposalCard.js';
 
 export interface DirectorFloatingBubbleProps {
   projectId: string;
@@ -78,7 +79,7 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
     streamingAppendContent,
     nowTick,
     isTaskRunning,
-    pendingProposal,
+    pendingProposalMsg,
     computeDisplayPercent,
     handleSendMessage,
   } = useDirectorChatFlow({
@@ -123,15 +124,23 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
   });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesViewportRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  const handleMessagesScroll = () => {
+    const viewport = messagesViewportRef.current;
+    if (!viewport) return;
+    shouldAutoScrollRef.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 20;
+  };
+
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
   };
 
   useEffect(() => {
     if (isOpen) {
-      scrollToBottom();
+      if (shouldAutoScrollRef.current) scrollToBottom();
       setHasUnread(false);
     }
   }, [isOpen, messages, streamingContent, streamingAppendContent]);
@@ -171,10 +180,6 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
   const tagBg = isLookdev
     ? 'bg-teal-500/30 text-teal-200 border-teal-400/30'
     : 'bg-purple-500/30 text-purple-200 border-purple-400/30';
-  const buttonGradient = isLookdev
-    ? 'from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700'
-    : 'from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700';
-
   // 灵感胶囊仅在初始未开始对话阶段展示；一旦创作者开始对话或正在打字，立即自动隐藏
   const hasUserDialogue = useMemo(() => messages.some((m) => m.role === 'user'), [messages]);
   const isInputting = inputText.trim().length > 0;
@@ -247,7 +252,7 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
             </div>
 
             {/* 消息对话流视窗（与故事工坊 100% 对齐） */}
-            <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-slate-50/50">
+            <div ref={messagesViewportRef} onScroll={handleMessagesScroll} className="flex-1 p-4 overflow-y-auto space-y-4 bg-slate-50/50">
               {messages.map((msg) => {
                 // 刚性过滤无内容无任务无提案的空消息
                 if (!msg.content?.trim() && !msg.taskId && !msg.proposal) {
@@ -269,6 +274,9 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
                       streamingTargetId={streamingTargetId}
                       streamingAppendContent={streamingAppendContent}
                       onRetry={() => handleSendMessage('重试本工序')}
+                      onApprove={() => handleSendMessage('同意')}
+                      canApprove={pendingProposalMsg?.id === msg.id}
+                      proposalAccentClassName={isLookdev ? 'bg-teal-600 hover:bg-teal-700' : 'bg-indigo-600 hover:bg-indigo-700'}
                       directorRoleName={isLookdev ? '定妆空间总监' : '电影分镜执行导演'}
                       progressGradientClass={
                         isLookdev
@@ -301,6 +309,14 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
                       }`}
                     >
                       <div className="whitespace-pre-wrap">{msg.content}</div>
+                      {msg.proposal && msg.proposalState === 'pending' && pendingProposalMsg?.id === msg.id && (
+                        <ProposalCard
+                          proposal={msg.proposal}
+                          onApprove={() => handleSendMessage('同意')}
+                          disabled={isStreaming || isBusy || isTaskRunning}
+                          accentClassName={isLookdev ? 'bg-teal-600 hover:bg-teal-700' : 'bg-indigo-600 hover:bg-indigo-700'}
+                        />
+                      )}
                     </div>
                   </div>
                 );
@@ -362,19 +378,6 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
                 }
                 className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100 transition resize-none leading-relaxed shadow-2xs disabled:opacity-50"
               />
-
-              {/* 发送按钮旁的快捷推进按钮：与故事总监 100% 保持一致 */}
-              {pendingProposal && !isTaskRunning && (
-                <button
-                  type="button"
-                  onClick={() => handleSendMessage('同意')}
-                  disabled={isStreaming || isBusy}
-                  className={`px-3.5 py-2 bg-gradient-to-r ${buttonGradient} text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center space-x-1 shrink-0 active:scale-95 disabled:opacity-40 cursor-pointer`}
-                  title={`点击立即执行: ${pendingProposal.title}`}
-                >
-                  <span>✨ 批准执行</span>
-                </button>
-              )}
 
               <button
                 onClick={() => handleSendMessage()}

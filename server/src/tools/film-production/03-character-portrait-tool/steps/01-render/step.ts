@@ -56,12 +56,16 @@ export const characterPortraitStep = createStep({
         char.promptZh = customPrompt.trim();
       }
 
-      // 提取垫图（优先显式传入，其次为实体已绑定的 referenceImageUrl）
+      // 提取垫图：显式参考图优先；修改已有立绘时自动把当前成图作为底图。
+      // 聊天入口通常只传 instruction，不会显式传 referenceImageUrls，不能因此退回纯文生图。
+      const hasEditInstruction = Boolean(instruction?.trim() || customPrompt?.trim());
       const effectiveRefUrls =
         referenceImageUrls && referenceImageUrls.length
           ? referenceImageUrls
           : char.referenceImageUrl
           ? [char.referenceImageUrl]
+          : hasEditInstruction && char.imageUrl
+          ? [char.imageUrl]
           : undefined;
 
       const artStyle = entities.artStyle || '电影级写实光影质感，细节丰富，自然色彩影调';
@@ -74,7 +78,7 @@ export const characterPortraitStep = createStep({
       const targetDir = path.resolve(projectDir, ENTITY_SUBFOLDER);
       fs.mkdirSync(targetDir, { recursive: true });
 
-      const isCustomRedo = Boolean(customPrompt || referenceImageUrls?.length);
+      const isCustomRedo = Boolean(instruction?.trim() || customPrompt?.trim() || referenceImageUrls?.length);
 
       // 若已有定妆且未要求强制重新生成，坚决不动已定妆资产
       if (char.imageUrl && !force && !isCustomRedo) {

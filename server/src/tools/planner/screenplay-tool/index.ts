@@ -21,7 +21,7 @@ export * from './workflow.js';
 
 export class ScreenplayTool extends BaseTaskTool<ScreenplayInput, ScreenplayOutput> {
   public readonly toolName = 'planner.screenplay_writer';
-  public readonly description = '推演并出具【互动全景剧本创作】的完整制片方案与执行参数（含分幕数、戏剧冲突、分幕对白规划），或遵照指令执行精准局部文本微调 (Patch)，提交给创作者在界面中审阅与授权批准后执行';
+  public readonly description = '推演并出具【互动全景剧本创作】的完整制片方案与执行参数；初次生成必须在 params.userPrompt 提供创作者构想，局部文本微调才使用 params.instruction；提交给创作者在界面中审阅与授权批准后执行';
   public readonly inputSchema = ScreenplayInputSchema;
   public readonly outputSchema = ScreenplayOutputSchema;
 

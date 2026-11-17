@@ -15,7 +15,7 @@ export const tasksRouter = Router();
  * Body: { projectId: string, toolName: string, input: Record<string, any> }
  */
 tasksRouter.post('/run', async (req, res) => {
-  const { projectId, toolName, input } = req.body || {};
+  const { projectId, toolName, input, idempotencyKey } = req.body || {};
 
   if (!projectId || typeof projectId !== 'string') {
     return sendError(res, 400, '缺少有效参数: projectId (字符串)');
@@ -29,6 +29,7 @@ tasksRouter.post('/run', async (req, res) => {
       projectId,
       toolName,
       input: input || {},
+      idempotencyKey: typeof idempotencyKey === 'string' ? idempotencyKey : undefined,
     });
     sendSuccess(res, task, '任务已成功接收并进入后台执行');
   } catch (err: any) {
@@ -60,6 +61,19 @@ tasksRouter.post('/:taskId/cancel', (req, res) => {
     sendSuccess(res, { taskId, status: 'cancelled' }, '任务已成功取消');
   } else {
     sendError(res, 400, `无法取消任务 [${taskId}] (任务可能已完成或不存在)`);
+  }
+});
+
+/**
+ * 基于失败或取消任务重新发起一次执行
+ * POST /api/tasks/:taskId/retry
+ */
+tasksRouter.post('/:taskId/retry', async (req, res) => {
+  try {
+    const task = await taskDispatcher.retry(req.params.taskId);
+    sendSuccess(res, task, '任务已重新进入执行队列');
+  } catch (err: any) {
+    sendError(res, 400, err?.message || '任务重试失败');
   }
 });
 

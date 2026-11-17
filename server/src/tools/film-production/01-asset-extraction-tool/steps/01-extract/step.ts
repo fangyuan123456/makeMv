@@ -34,6 +34,7 @@ export const assetExtractionStep = createStep({
     const input = (ctx?.triggerData || ctx?.inputData || ctx || {}) as AssetExtractionStepInput;
 
     const store = ProjectStore.getInstance();
+
     const effectivePrd = input.prd || store.getArtifact(input.projectId, 'universal_prd');
     if (!effectivePrd && !input.storyMarkdown) {
       throw new Error(`[AssetExtractionTool] 项目 [${input.projectId}] 缺少前序策划案 PRD 或故事正文，无法提取视觉资产`);

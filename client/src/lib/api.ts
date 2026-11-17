@@ -90,6 +90,18 @@ export async function cancelTask(taskId: string): Promise<boolean> {
   return Boolean(res.ok && data.success);
 }
 
+/** 重试失败或取消的任务 */
+export async function retryTask(taskId: string): Promise<TaskRecord> {
+  const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/retry`, {
+    method: 'POST',
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || `重试任务 [${taskId}] 失败`);
+  }
+  return data.data;
+}
+
 /**
  * 查询指定项目下的所有任务历史
  */
@@ -263,7 +275,7 @@ export async function selectCanvasCandidate(
  */
 export async function uploadReferenceImage(
   projectId: string,
-  entityType: 'character' | 'location',
+  entityType: 'character' | 'location' | 'item',
   entityId: string,
   file: File
 ): Promise<string> {
@@ -301,7 +313,7 @@ export async function uploadReferenceImage(
  */
 export async function updateEntity(
   projectId: string,
-  entityType: 'character' | 'location',
+  entityType: 'character' | 'location' | 'item',
   entityId: string,
   updates: { promptZh?: string; referenceImageUrl?: string }
 ): Promise<void> {
@@ -325,7 +337,7 @@ export async function updateEntity(
  */
 export async function selectEntityVersion(
   projectId: string,
-  entityType: 'character' | 'location',
+  entityType: 'character' | 'location' | 'item',
   entityId: string,
   versionId: string
 ): Promise<void> {
@@ -353,7 +365,7 @@ export async function selectEntityVersion(
  */
 export async function imageRefineEntity(
   projectId: string,
-  entityType: 'character' | 'location',
+  entityType: 'character' | 'location' | 'item',
   entityId: string,
   instruction: string,
   baseImageUrl?: string

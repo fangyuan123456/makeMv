@@ -137,7 +137,7 @@ export abstract class BaseTaskTool<TInput, TOutput> extends EventEmitter {
     // -------------------------------------------------------------
     // 异步执行内部 Workflow (基于 Step 编排)
     // -------------------------------------------------------------
-    (async () => {
+    const executionPromise = (async () => {
       let isExecutionSuccess = false;
       let finalResultPayload: TaskResult<TOutput> | null = null;
 
@@ -177,6 +177,7 @@ export abstract class BaseTaskTool<TInput, TOutput> extends EventEmitter {
             projectId: (input as any)?.projectId || 'global',
             runId: taskId,
             lane: 'interactive',
+            idempotencyKey: (input as any)?.__idempotencyKey,
             abortSignal: options?.abortSignal,
           },
           async () => {
@@ -259,7 +260,8 @@ export abstract class BaseTaskTool<TInput, TOutput> extends EventEmitter {
       console.error(`[${this.toolName}] 内部异步派发发生严重未捕获异常:`, unhandledErr);
     });
 
-    // 调度方法同步返回 taskId
+    // 返回的 Promise 要覆盖完整执行生命周期，避免上层调度器过早释放取消句柄。
+    await executionPromise;
     return taskId;
   }
 

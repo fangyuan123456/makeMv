@@ -17,6 +17,32 @@ import { sendError } from '../helpers.js';
 export const projectsRouter = Router();
 const store = ProjectStore.getInstance();
 
+async function projectMutationLock(req: any, res: any, next: any): Promise<void> {
+  if (req.method === 'GET' || !req.params.id) {
+    next();
+    return;
+  }
+
+  let release: (() => void) | undefined;
+  try {
+    release = await store.acquireProjectLock(req.params.id);
+    let released = false;
+    const releaseOnce = () => {
+      if (released) return;
+      released = true;
+      release?.();
+    };
+    res.once('finish', releaseOnce);
+    res.once('close', releaseOnce);
+    next();
+  } catch (err) {
+    release?.();
+    next(err);
+  }
+}
+
+projectsRouter.use('/:id', projectMutationLock);
+
 /**
  * 列出所有项目元数据
  * GET /api/projects
@@ -454,6 +480,9 @@ projectsRouter.post('/:id/upload-reference', (req, res) => {
       if (loc) {
         loc.referenceImageUrl = mediaUrl;
       }
+    } else if (entityType === 'item') {
+      const item = (entities.items || []).find((i: any) => i.itemId === entityId);
+      if (item) item.referenceImageUrl = mediaUrl;
     }
 
     store.setArtifact(projectId, 'lookdev_entities', entities);
@@ -493,6 +522,8 @@ projectsRouter.post('/:id/entities/update', (req, res) => {
       target = (entities.characters || []).find((c: any) => (c.characterId || c.id) === entityId);
     } else if (entityType === 'location') {
       target = (entities.locations || []).find((l: any) => (l.locationId || l.id) === entityId);
+    } else if (entityType === 'item') {
+      target = (entities.items || []).find((i: any) => (i.itemId || i.id) === entityId);
     }
 
     if (!target) {
@@ -577,6 +608,8 @@ projectsRouter.post('/:id/entities/select-version', (req, res) => {
       target = (entities.characters || []).find((c: any) => c.characterId === entityId);
     } else if (entityType === 'location') {
       target = (entities.locations || []).find((l: any) => l.locationId === entityId);
+    } else if (entityType === 'item') {
+      target = (entities.items || []).find((i: any) => i.itemId === entityId);
     }
 
     if (!target) {
@@ -634,6 +667,8 @@ projectsRouter.post('/:id/entities/image-refine', async (req, res) => {
       target = (entities.characters || []).find((c: any) => c.characterId === entityId);
     } else if (entityType === 'location') {
       target = (entities.locations || []).find((l: any) => l.locationId === entityId);
+    } else if (entityType === 'item') {
+      target = (entities.items || []).find((i: any) => i.itemId === entityId);
     }
 
     if (!target) {
@@ -641,17 +676,18 @@ projectsRouter.post('/:id/entities/image-refine', async (req, res) => {
     }
 
     // 确定参考底图：优先指定 baseImageUrl，其次 target.imageUrl
-    const effectiveBaseImage = baseImageUrl || target.imageUrl;
+    const effectiveBaseImage = baseImageUrl || target.imageUrl || target.referenceImageUrl;
     if (!effectiveBaseImage) {
       return sendError(
         res,
         400,
-        `该${entityType === 'character' ? '角色' : '场景'}尚未生成首张定妆立绘，无法基于原图进行定向修改。请先生成首张定妆。`
+        `该${entityType === 'character' ? '角色' : entityType === 'item' ? '道具' : '场景'}尚未生成首张图，无法基于原图进行定向修改。请先生成首张图。`
       );
     }
 
     // 1. 调用大模型进行通用的多模态视听语义动态差分编译 (Dynamic Differential Multi-Modal Compilation)
     const isChar = entityType === 'character';
+    const isItem = entityType === 'item';
     let directedPrompt = '';
     let negativePrompt = '';
 
@@ -677,7 +713,7 @@ projectsRouter.post('/:id/entities/image-refine', async (req, res) => {
   "negativePrompt": "【动态推导的旧特征对抗词】，低画质，低分辨率，画面模糊，变形，肢体畸形，多余肢体，错误解剖，水印，文字，噪点"
 }`;
 
-      const userPrompt = `【实体类型】：${isChar ? '角色立绘' : '场景空间'}
+      const userPrompt = `【实体类型】：${isChar ? '角色立绘' : isItem ? '核心道具特写' : '场景空间'}
 【原实体名称】：${target.name}
 【原设定与视觉描述】：${target.promptZh || target.appearanceSummary || target.description || target.identity || ''}
 【创作者修改诉求】：${instruction.trim()}
@@ -709,12 +745,21 @@ projectsRouter.post('/:id/entities/image-refine', async (req, res) => {
     }
 
     // 2. 派发硬件渲染任务（带 referenceImageUrls 触发 ref2i 多模态工作流，并传入针对性负向词与原始指令）
-    const toolName = isChar ? 'film.character_portrait' : 'film.scene_atmosphere';
+    const toolName = isChar ? 'film.character_portrait' : isItem ? 'film.prop_lookdev' : 'film.scene_atmosphere';
     const taskInput = isChar
       ? {
           projectId,
           characterId: entityId,
           instruction: instruction.trim(),
+          customPrompt: directedPrompt,
+          customNegativePrompt: negativePrompt || undefined,
+          referenceImageUrls: [effectiveBaseImage],
+          force: true,
+        }
+      : isItem
+      ? {
+          projectId,
+          itemId: entityId,
           customPrompt: directedPrompt,
           customNegativePrompt: negativePrompt || undefined,
           referenceImageUrls: [effectiveBaseImage],

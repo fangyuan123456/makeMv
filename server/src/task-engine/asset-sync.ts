@@ -16,6 +16,7 @@ import {
   hydrateEntitiesWithDiskAssets,
 } from '../project-store/entity-preservation.js';
 import type { TaskRecord } from './types.js';
+import { taskStore } from './task-store.js';
 
 export function syncTaskResultToProjectStore(task: TaskRecord): void {
   if (task.status !== 'completed' || !task.output) return;
@@ -269,3 +270,9 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
     console.error(`[AssetSync] 同步任务 [${toolName}] 产物失败:`, err);
   }
 }
+
+// 项目资产由任务账本事件统一投影，避免 Dispatcher 在多个终态分支中重复维护。
+taskStore.onTaskEvent((event) => {
+  if (event.status !== 'completed' || !event.output) return;
+  syncTaskResultToProjectStore(event as unknown as TaskRecord);
+});

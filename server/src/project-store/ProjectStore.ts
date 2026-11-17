@@ -78,6 +78,10 @@ export class ProjectStore {
     return projectLockManager.withLock(`store:${projectId}`, fn);
   }
 
+  public acquireProjectLock(projectId: string): Promise<() => void> {
+    return projectLockManager.acquire(`store:${projectId}`);
+  }
+
   /**
    * 获取项目的物理存储根目录
    */

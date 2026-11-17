@@ -5,13 +5,24 @@
 
 import { z } from 'zod';
 
-export const ScreenplayInputSchema = z.object({
+const ScreenplayInputShape = z.object({
   userPrompt: z.string().optional().describe('创作者输入的创意灵感、故事设定或剧本构想'),
   instruction: z.string().optional().describe('创作者提出的局部精修微调指令 (当此项存在时，工具自动走局部文本 Patch 手术流)'),
   targetAct: z.number().int().min(1).max(6).optional().describe('(可选) 明确指定局部微调的幕次序号'),
   genre: z.string().optional().describe('故事题材类型 (如科幻、悬疑探案、中式微恐、权谋古风等)'),
   tone: z.string().optional().describe('视听基调偏好 (如暗黑压抑、快节奏硬核、冷峻电影质感等)'),
   expectedActs: z.number().int().min(2).max(6).default(3).optional().describe('期望故事分幕数量 (默认 3 幕)'),
+});
+
+export const ScreenplayInputSchema = ScreenplayInputShape.superRefine((input, ctx) => {
+  // 初次生成必须有创作者构想；局部 Patch 通过 instruction 复用已落盘剧本上下文。
+  if (!input.instruction?.trim() && !input.userPrompt?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['userPrompt'],
+      message: '初次生成剧本必须提供创作者创意构想(userPrompt)，局部修改请使用 instruction',
+    });
+  }
 });
 
 export type ScreenplayInput = z.infer<typeof ScreenplayInputSchema>;
@@ -42,8 +53,16 @@ export const PremiseOutputSchema = z.object({
 
 export type PremiseOutput = z.infer<typeof PremiseOutputSchema>;
 
-export const PremiseStepInputSchema = ScreenplayInputSchema.extend({
+export const PremiseStepInputSchema = ScreenplayInputShape.extend({
   _context: z.any().optional(),
+}).superRefine((input, ctx) => {
+  if (!input.instruction?.trim() && !input.userPrompt?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['userPrompt'],
+      message: '初次生成剧本必须提供创作者创意构想(userPrompt)，局部修改请使用 instruction',
+    });
+  }
 });
 
 export type PremiseStepInput = z.infer<typeof PremiseStepInputSchema>;
