@@ -649,7 +649,7 @@ export const LookdevDrawer: React.FC<LookdevDrawerProps> = ({
                     <img
                       src={`${ver.imageUrl}?t=${ver.versionId}`}
                       alt="ver"
-                      className={`w-full ${isLoc ? 'aspect-video object-cover' : 'aspect-[3/4] object-contain'} rounded-lg mb-1.5 bg-slate-50 border border-slate-100`}
+                      className={`w-full ${isLoc ? 'aspect-video object-cover' : 'aspect-[2/1] object-contain'} rounded-lg mb-1.5 bg-slate-50 border border-slate-100`}
                     />
                     <div className="text-[10px] text-slate-500">
                       {new Date(ver.createdAt).toLocaleTimeString()}

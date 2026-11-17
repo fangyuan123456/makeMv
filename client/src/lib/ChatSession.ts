@@ -49,34 +49,38 @@ export class ChatSession<TIntent = any> {
   }
 
   /**
-   * 获取当前会话历史对白
+   * 获取当前会话历史对白 (增强容错：防御服务端重启或离线时的网络异常)
    */
   public async getHistory(): Promise<ChatMessageItem<TIntent>[]> {
     if (!this.projectId) return [];
 
-    const url = `${API_BASE}/chat/sessions/${encodeURIComponent(this.sessionId)}?projectId=${encodeURIComponent(this.projectId)}`;
-    const res = await fetch(url);
-    const data = await res.json();
-    if (!res.ok || !data.success) {
+    try {
+      const url = `${API_BASE}/chat/sessions/${encodeURIComponent(this.sessionId)}?projectId=${encodeURIComponent(this.projectId)}`;
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      const data = await res.json();
+      if (!data.success) return [];
+
+      return (data.data || []).map((h: any) => ({
+        id: h.id || `msg_${Math.random().toString(36).slice(2, 6)}`,
+        role: h.role === 'user' ? 'user' : h.role === 'system' ? 'system' : 'assistant',
+        content: h.content || '',
+        createdAt: h.createdAt || new Date().toISOString(),
+        proposal: h.proposal,
+        proposalState: h.proposal ? (h.proposalResolved ? 'completed' : 'pending') : undefined,
+        taskId: h.taskId,
+        taskTool: h.taskTool,
+        taskTitle: h.taskTitle,
+        taskStatus: h.taskStatus,
+        taskProgress: h.taskProgress,
+        taskDurationMs: h.taskDurationMs,
+        taskOutputSummary: h.taskOutputSummary,
+        taskError: h.taskError,
+      }));
+    } catch (err) {
+      console.warn(`[ChatSession:${this.sessionId}] 获取历史网络异常:`, err);
       return [];
     }
-
-    return (data.data || []).map((h: any) => ({
-      id: h.id || `msg_${Math.random().toString(36).slice(2, 6)}`,
-      role: h.role === 'user' ? 'user' : h.role === 'system' ? 'system' : 'assistant',
-      content: h.content || '',
-      createdAt: h.createdAt || new Date().toISOString(),
-      proposal: h.proposal,
-      proposalState: h.proposal ? (h.proposalResolved ? 'completed' : 'pending') : undefined,
-      taskId: h.taskId,
-      taskTool: h.taskTool,
-      taskTitle: h.taskTitle,
-      taskStatus: h.taskStatus,
-      taskProgress: h.taskProgress,
-      taskDurationMs: h.taskDurationMs,
-      taskOutputSummary: h.taskOutputSummary,
-      taskError: h.taskError,
-    }));
   }
 
   /**
@@ -218,9 +222,9 @@ export class ChatSession<TIntent = any> {
 }
 
 /**
- * 工序 1 故事总监专属客户端类 (继承通用 ChatSession，绑定工序 1 意图类型)
+ * 全系统对话生命周期统一意图基类契约 (SSOT)
  */
-export interface PlannerActionIntent {
+export interface BaseActionIntent {
   action: 'run_tool' | 'approve' | 'modify' | 'next_stage';
   tool?: string;
   stage?: string;
@@ -229,6 +233,11 @@ export interface PlannerActionIntent {
   description?: string;
   reasoning?: string;
 }
+
+/**
+ * 工序 1 故事总监专属客户端类 (继承通用 ChatSession，绑定工序 1 意图类型)
+ */
+export type PlannerActionIntent = BaseActionIntent;
 
 export class PlannerChatSessionClient extends ChatSession<PlannerActionIntent> {
   constructor(projectId?: string, sessionId: string = 'planner') {
@@ -239,13 +248,7 @@ export class PlannerChatSessionClient extends ChatSession<PlannerActionIntent> {
 /**
  * 工序 2-A: 定妆空间机器人专属客户端类 (视觉定妆：角色与场景)
  */
-export interface LookdevActionIntent {
-  action: 'run_tool';
-  tool?: string;
-  title: string;
-  params?: Record<string, any>;
-  description?: string;
-}
+export type LookdevActionIntent = BaseActionIntent;
 
 export class LookdevChatSessionClient extends ChatSession<LookdevActionIntent> {
   constructor(projectId?: string, sessionId: string = 'lookdev') {
@@ -256,13 +259,7 @@ export class LookdevChatSessionClient extends ChatSession<LookdevActionIntent> {
 /**
  * 工序 2-B: 分幕专属分镜总导演客户端类 (分镜台本：戏剧节拍与运镜)
  */
-export interface StoryboardActionIntent {
-  action: 'run_tool';
-  tool?: string;
-  title: string;
-  params?: Record<string, any>;
-  description?: string;
-}
+export type StoryboardActionIntent = BaseActionIntent;
 
 export class StoryboardChatSessionClient extends ChatSession<StoryboardActionIntent> {
   public readonly clipId?: string;

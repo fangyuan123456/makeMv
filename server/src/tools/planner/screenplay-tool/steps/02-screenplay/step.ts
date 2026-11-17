@@ -33,6 +33,9 @@ export const screenplayStep = createStep({
       ctx.triggerData?.['premise-and-characters'] ||
       ctx;
     const premise: PremiseOutput = (stepOutput?.characters ? stepOutput : ctx.characters ? ctx : ctx.triggerData) || {};
+    if (!premise?.title || !Array.isArray(premise?.characters) || premise.characters.length === 0) {
+      throw new Error('[screenplayStep] 契约执行阻断：前序步骤 premise 未生成合法的角色与标题设定');
+    }
     const originalInput = ctx.triggerData || ctx;
     const userPrompt = originalInput?.userPrompt || premise.logline || '';
     const abortSignal = originalInput?.abortSignal || originalInput?._context?.abortSignal || ctx.abortSignal;

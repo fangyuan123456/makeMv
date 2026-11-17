@@ -7,7 +7,11 @@ import { z } from 'zod';
 
 export const CharacterPortraitInputSchema = z.object({
   projectId: z.string().describe('项目唯一标识'),
-  characterId: z.string().optional().describe('待渲染角色 ID (可选，留空则自动对全剧未定妆角色批量生成)'),
+  characterId: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .describe('待渲染角色 ID 或 ID 列表 (支持单角色或多角色同时定妆，留空则自动对全剧未定妆角色批量生成)'),
+  characterIds: z.array(z.string()).optional().describe('待渲染角色 ID 列表 (多角色模式)'),
   instruction: z.string().optional().describe('创作者原始自然语言修改诉求'),
   customPrompt: z.string().optional().describe('创作者手动微调的生图提示词'),
   customNegativePrompt: z.string().optional().describe('创作者微调的负向提示词'),

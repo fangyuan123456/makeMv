@@ -6,7 +6,11 @@ import { z } from 'zod';
 
 export const SceneAtmosphereStepInputSchema = z.object({
   projectId: z.string().describe('项目唯一标识'),
-  locationId: z.string().optional().describe('场景唯一标识 (可选，留空则自动对全剧未生成场景批量生成)'),
+  locationId: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .describe('场景唯一标识或 ID 列表 (可选，支持多场景批量出图，留空则自动对全剧未生成场景批量生成)'),
+  locationIds: z.array(z.string()).optional().describe('待渲染场景 ID 列表'),
   instruction: z.string().optional().describe('创作者原始自然语言修改诉求'),
   force: z.boolean().default(false).describe('是否强制重绘'),
   customPrompt: z.string().optional().describe('创作者手动调整的提示词'),

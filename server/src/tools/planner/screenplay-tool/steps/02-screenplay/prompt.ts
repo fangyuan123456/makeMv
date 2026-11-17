@@ -13,8 +13,9 @@ export function buildScreenplaySystemPrompt(): string {
 ### 【剧本核心编写准则】
 1. **纯自然语言电影剧本质感**：
    - 拒绝死板简陋的流水账！要有浓郁的视听氛围、环境描写、精准的角色神态、动作指引与潜台词交锋。
-   - 场景与机位氛围使用规范标记：如 \`【场景：暴雨倾盆的废弃码头冷库，微弱的红光闪烁】\`。
-   - 人物台词格式严谨：如 \`林巡警（冷笑，缓缓扣动扳机）：“你以为删除了服务器日志，就能抹掉今晚的一切？”\`。
+   - 场景与机位氛围使用规范标记：如 \`【场景：[空间环境描述，光影与天气视听氛围]】\`。
+   - 人物台词格式严谨：如 \`[角色名]（神态神色，肢体动作与语调）：“[台词对白]”\`。
+   - 严格围绕确立的故事题材与核心角色展开，严禁生造不相干的题材背景或无关角色。
 
 2. **严密且戏剧化的互动抉择设计（Choice & Branch）**：
    - 每一幕推进到最高戏剧冲突、生死悬崖或道德两难时，必须给出明确的玩家交互点；
@@ -39,16 +40,19 @@ export function buildFullScriptPrompt(params: {
   premise: PremiseOutput;
   userPrompt?: string;
 }): string {
-  const { premise } = params;
-  return `你已确立了以下故事设定与大纲：
+  const { premise, userPrompt } = params;
+  return `【创作者核心诉求（全剧最高戏剧纲领）】：
+${userPrompt ? `${userPrompt}\n` : '（按已确立大纲推演）'}
+你已确立了以下故事设定与分幕大纲：
 - 标题：《${premise.title}》
 - 题材：${premise.genre}
 - 故事梗概：${premise.logline}
-- 核心角色：${premise.characters.map((c) => `${c.name}（${c.role}）`).join('、')}
+- 核心角色：${premise.characters.map((c) => `${c.name}（身份: ${c.role}，外貌特征: ${c.appearance}，核心动机: ${c.motivation}）`).join('、')}
 - 分幕大纲：
 ${premise.actOutlines.map((a) => `  * 第 ${a.actNumber} 幕《${a.title}》：冲突 [${a.coreConflict}]，悬念 [${a.suspense}]`).join('\n')}
 
 现在，请挥洒你的编剧才华，撰写完整的 **Markdown 格式互动影游全景剧本**。
-必须包含所有幕次的正文、对白、场景、所有的【互动抉择点】以及各选项延伸出的完整分支剧情与终局标记！
+必须严格遵循创作者核心构思与上述分幕大纲，严禁中途偏离设定！
+必须包含全部 ${premise.actOutlines.length} 幕的正文、生动的场景氛围、精准的人物对白、所有的【互动抉择点】以及各选项延伸出的完整分支剧情与终局标记！
 不要偷工减料，不要使用占位符，写出一篇可以直接供导演拍摄和玩家游玩的完整好剧本！`;
 }

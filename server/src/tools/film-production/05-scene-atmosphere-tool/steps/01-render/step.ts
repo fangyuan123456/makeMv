@@ -161,8 +161,21 @@ export const sceneAtmosphereStep = createStep({
       }
     };
 
+    // 归一化提取 targetLocationIds（支持单ID、ID数组、逗号分隔字符串或 locationIds）
+    let targetLocIds: string[] = [];
+    if (Array.isArray(locationId)) {
+      targetLocIds = locationId.filter((id) => typeof id === 'string' && id.trim().length > 0);
+    } else if (typeof locationId === 'string' && locationId.trim()) {
+      targetLocIds = locationId
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    } else if (Array.isArray(input.locationIds)) {
+      targetLocIds = input.locationIds.filter((id) => typeof id === 'string' && id.trim().length > 0);
+    }
+
     // 1. 若未指定 locationId，批量渲染所有场景
-    if (!locationId) {
+    if (targetLocIds.length === 0) {
       const locs = entities.locations || [];
       for (const l of locs) {
         // 定过的坚决不动：仅为尚未定妆 (没有 imageUrl) 或显式 force 的场景生成
@@ -184,12 +197,47 @@ export const sceneAtmosphereStep = createStep({
     }
 
     // 2. 指定了单个场景，单体渲染
-    const loc = entities.locations?.find((l: any) => l.locationId === locationId);
-    if (!loc) {
-      throw new Error(`[SceneAtmosphereTool] 未在视觉资产中找到场景 [${locationId}]`);
+    if (targetLocIds.length === 1) {
+      const targetId = targetLocIds[0];
+      const loc = entities.locations?.find((l: any) => l.locationId === targetId || l.id === targetId);
+      if (!loc) {
+        throw new Error(`[SceneAtmosphereTool] 未在视觉资产中找到场景 [${targetId}]`);
+      }
+
+      const mediaUrl = await renderSingleLoc(loc);
+      store.setArtifact(projectId, 'lookdev_entities', entities);
+      const scenesDir = path.join(store.getProjectDir(projectId), 'scenes');
+      if (!fs.existsSync(scenesDir)) fs.mkdirSync(scenesDir, { recursive: true });
+      atomicWriteJsonSync(path.join(scenesDir, 'entities.json'), entities);
+
+      return {
+        projectId,
+        locationId: targetId,
+        imageUrl: mediaUrl,
+        reused: false,
+        success: true,
+      };
     }
 
-    const mediaUrl = await renderSingleLoc(loc);
+    // 3. 指定了多个场景，批量逐一渲染落盘
+    const matchedLocs: any[] = [];
+    for (const id of targetLocIds) {
+      const l = entities.locations?.find((item: any) => item.locationId === id || item.id === id);
+      if (l) {
+        matchedLocs.push(l);
+      } else {
+        console.warn(`[SceneAtmosphereTool] 批量渲染中跳过不存在的场景: ${id}`);
+      }
+    }
+
+    if (matchedLocs.length === 0) {
+      throw new Error(`[SceneAtmosphereTool] 未在视觉资产中找到指定的任何场景: [${targetLocIds.join(', ')}]`);
+    }
+
+    for (const l of matchedLocs) {
+      await renderSingleLoc(l);
+    }
+
     store.setArtifact(projectId, 'lookdev_entities', entities);
     const scenesDir = path.join(store.getProjectDir(projectId), 'scenes');
     if (!fs.existsSync(scenesDir)) fs.mkdirSync(scenesDir, { recursive: true });
@@ -197,8 +245,8 @@ export const sceneAtmosphereStep = createStep({
 
     return {
       projectId,
-      locationId,
-      imageUrl: mediaUrl,
+      locationId: targetLocIds.join(','),
+      imageUrl: matchedLocs[0]?.imageUrl,
       reused: false,
       success: true,
     };

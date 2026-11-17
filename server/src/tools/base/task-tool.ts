@@ -97,8 +97,9 @@ export abstract class BaseTaskTool<TInput, TOutput> extends EventEmitter {
 
   /**
    * 子类实现：构建内部执行的 Mastra Workflow (使用 Step 设计)
+   * 支持传入任务输入参数，用于根据入参 (如正向生成 vs 局部精修) 动态选择执行流水线
    */
-  protected abstract buildWorkflow(): Workflow<any, any>;
+  protected abstract buildWorkflow(input?: TInput): Workflow<any, any>;
 
   /**
    * 生成全局唯一的语义化任务 ID
@@ -161,8 +162,8 @@ export abstract class BaseTaskTool<TInput, TOutput> extends EventEmitter {
           },
         };
 
-        // 1. 实例化内部 Workflow
-        const workflow = this.buildWorkflow();
+        // 1. 实例化内部 Workflow (传入 input 以支持按需路由至生成轨或精修轨)
+        const workflow = this.buildWorkflow(input);
 
         // 2. 启动执行并透传 input 与 context (同时兼容 Mastra triggerData 与 inputData)
         const run = workflow.createRun();

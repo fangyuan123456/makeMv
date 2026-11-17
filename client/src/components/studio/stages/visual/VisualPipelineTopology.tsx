@@ -216,8 +216,8 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
     // 16:9 极简播放器卡片尺寸
     const CLIP_W = 264;
     const CLIP_H = 152;
-    const LOOKDEV_W = 260;
-    const LOOKDEV_H = 195;
+    const LOOKDEV_W = 264;
+    const LOOKDEV_H = 156;
     const ROW_GAP = 120;
     const BRANCH_SPREAD_X = 560;
     const CENTER_X = 600;
@@ -225,20 +225,25 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
 
     // A. 根节点：全剧视觉定妆母体 (微倾斜相纸叠层)
     let lookdevStatus: 'locked' | 'pending' | 'in_progress' | 'completed' = 'pending';
-    let lookdevBadge = '待定妆';
-    let lookdevBadgeColor = 'bg-amber-50 text-amber-700 border-amber-200';
+    let lookdevBadge = '🎨 视觉定妆 · 待提取';
+    let lookdevBadgeColor = 'bg-slate-100 text-slate-600 border-slate-200';
 
     if (totalAssetCount === 0) {
-      lookdevBadge = '未提取设定';
+      lookdevStatus = 'pending';
+      lookdevBadge = '🎨 视觉定妆 · 待提取';
       lookdevBadgeColor = 'bg-slate-100 text-slate-600 border-slate-200';
     } else if (isLookdevAllDone) {
       lookdevStatus = 'completed';
-      lookdevBadge = `已定妆 (${completedAssetCount}/${totalAssetCount})`;
+      lookdevBadge = `🎨 视觉定妆 (${completedAssetCount}/${totalAssetCount})`;
       lookdevBadgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
     } else if (completedAssetCount > 0) {
       lookdevStatus = 'in_progress';
-      lookdevBadge = `定妆中 (${completedAssetCount}/${totalAssetCount})`;
+      lookdevBadge = `🎨 视觉定妆 (${completedAssetCount}/${totalAssetCount})`;
       lookdevBadgeColor = 'bg-indigo-50 text-indigo-700 border-indigo-200';
+    } else {
+      lookdevStatus = 'pending';
+      lookdevBadge = `🎨 视觉定妆 (0/${totalAssetCount})`;
+      lookdevBadgeColor = 'bg-amber-50 text-amber-700 border-amber-200';
     }
 
     nodeList.push({
@@ -690,10 +695,21 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
     }
   };
 
-  // 获取定妆相纸展示图
-  const charImage0 = characters[0]?.imageUrl || '';
-  const charImage1 = characters[1]?.imageUrl || '';
-  const charImage2 = characters[2]?.imageUrl || locations[0]?.imageUrl || '';
+  // 智能提取全剧视觉定妆母本预览卡片实体（优先展示已出图的实体，自适应横版画幅）
+  const readyChars = characters.filter((c: any) => Boolean(c.imageUrl));
+  const readyLocs = locations.filter((l: any) => Boolean(l.imageUrl));
+  const displayEntities = [...readyChars, ...readyLocs, ...characters, ...locations];
+  const primaryEntity = displayEntities[0];
+  const secondaryEntity = displayEntities[1];
+  const tertiaryEntity = displayEntities[2];
+
+  const charImage0 = primaryEntity?.imageUrl || '';
+  const charImage1 = secondaryEntity?.imageUrl || '';
+  const charImage2 = tertiaryEntity?.imageUrl || '';
+  const primaryName = primaryEntity
+    ? `${primaryEntity.name || '核心资产'}${primaryEntity.identity ? ` · ${primaryEntity.identity}` : ''}`
+    : '全剧视觉定妆母体';
+  const isPrimaryLocation = !readyChars.includes(primaryEntity) && readyLocs.includes(primaryEntity);
 
   return (
     <div
@@ -806,13 +822,13 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
               <rect x="0" y="0" width="264" height="152" rx="14" />
             </clipPath>
 
-            {/* 定妆底层相纸剪裁路径 (完整展示角色，无截头) */}
+            {/* 定妆底层与中层相纸剪裁路径 (宽幅错落相纸 144*96) */}
             <clipPath id="polaroid_photo_clip">
-              <rect x="4" y="4" width="132" height="174" rx="8" />
+              <rect x="4" y="4" width="144" height="96" rx="6" />
             </clipPath>
-            {/* 定妆顶层相纸剪裁路径 (完整展示角色，无截头) */}
+            {/* 定妆顶层相纸剪裁路径 (纯净画幅 148*98，全身完整展示，无遮挡无留白) */}
             <clipPath id="polaroid_top_clip">
-              <rect x="4" y="4" width="134" height="176" rx="8" />
+              <rect x="4" y="4" width="148" height="98" rx="6" />
             </clipPath>
 
             {/* 生成中动态全屏扫光渐变 */}
@@ -891,7 +907,7 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
             const isLockedThis = !node.isUnlocked;
 
             // ─────────────────────────────────────────────────────────────
-            // 节点渲染 A：全剧视觉定妆母体 (微倾斜相纸叠层 Polaroid Deck - 3:4 全幅无姓名)
+            // 节点渲染 A：全剧视觉定妆母体 (经典相纸错落展开叠层 Polaroid Stack - 纯净无文字，清晰透出底层图片)
             // ─────────────────────────────────────────────────────────────
             if (node.kind === 'lookdev') {
               return (
@@ -913,10 +929,10 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
                 >
                   {/* 全域透明点击与悬停感应底板 (确保相纸与四周 100% 灵敏响应单击弹出侧边栏) */}
                   <rect
-                    x="-10"
-                    y="-20"
-                    width={node.w + 20}
-                    height={node.h + 30}
+                    x="10"
+                    y="-18"
+                    width={node.w - 20}
+                    height={node.h + 24}
                     fill="transparent"
                     pointerEvents="all"
                   />
@@ -924,11 +940,11 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
                   {/* 选中高亮光环底盘 */}
                   {isSelected && (
                     <rect
-                      x="40"
-                      y="-4"
-                      width="180"
-                      height="200"
-                      rx="16"
+                      x="36"
+                      y="6"
+                      width="188"
+                      height="128"
+                      rx="14"
                       fill="#e0e7ff"
                       fillOpacity="0.4"
                       stroke="#6366f1"
@@ -937,11 +953,12 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
                       className="animate-pulse"
                     />
                   )}
-                  {/* 底层相纸：逆时针轻微倾斜 -7deg */}
-                  <g transform="translate(40, 6) rotate(-7, 70, 90)">
+
+                  {/* 底层相纸：逆时针明显倾斜 -9deg，向左探出，清晰可见底层图片 */}
+                  <g transform="translate(36, 16) rotate(-9, 76, 54)">
                     <rect
-                      width="140"
-                      height="182"
+                      width="152"
+                      height="108"
                       rx="10"
                       fill="#ffffff"
                       stroke="#e2e8f0"
@@ -953,21 +970,22 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
                         href={charImage2}
                         x="4"
                         y="4"
-                        width="132"
-                        height="174"
-                        preserveAspectRatio="xMidYMin meet"
+                        width="144"
+                        height="96"
+                        preserveAspectRatio="xMidYMid meet"
                         clipPath="url(#polaroid_photo_clip)"
+                        opacity="0.9"
                       />
                     ) : (
-                      <rect x="4" y="4" width="132" height="174" rx="8" fill="#f1f5f9" />
+                      <rect x="4" y="4" width="144" height="96" rx="6" fill="#f1f5f9" />
                     )}
                   </g>
 
-                  {/* 中层相纸：顺时针轻微倾斜 +7deg */}
-                  <g transform="translate(80, 4) rotate(7, 70, 90)">
+                  {/* 中层相纸：顺时针明显倾斜 +9deg，向右探出，清晰可见底层图片 */}
+                  <g transform="translate(72, 14) rotate(9, 76, 54)">
                     <rect
-                      width="140"
-                      height="182"
+                      width="152"
+                      height="108"
                       rx="10"
                       fill="#ffffff"
                       stroke="#e2e8f0"
@@ -979,77 +997,83 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
                         href={charImage1}
                         x="4"
                         y="4"
-                        width="132"
-                        height="174"
-                        preserveAspectRatio="xMidYMin meet"
+                        width="144"
+                        height="96"
+                        preserveAspectRatio="xMidYMid meet"
                         clipPath="url(#polaroid_photo_clip)"
+                        opacity="0.92"
                       />
                     ) : (
-                      <rect x="4" y="4" width="132" height="174" rx="8" fill="#e2e8f0" />
+                      <rect x="4" y="4" width="144" height="96" rx="6" fill="#e2e8f0" />
                     )}
                   </g>
 
-                  {/* 顶层相纸：居中 0deg (3:4 标准画幅，完全展示头部与全身，去除姓名) */}
-                  <g transform="translate(59, 0)">
+                  {/* 顶层主相纸：居中 0deg (拍立得画幅，全身完整展示，绝无遮头与大片留白，纯净无文字) */}
+                  <g transform="translate(52, 14)">
                     <rect
-                      width="142"
-                      height="184"
+                      width="156"
+                      height="112"
                       rx="10"
                       fill="#ffffff"
                       stroke={isSelected ? '#4f46e5' : isHovered ? '#6366f1' : '#cbd5e1'}
-                      strokeWidth={isSelected ? '3' : isHovered ? '2.5' : '1.5'}
+                      strokeWidth={isSelected ? '2.5' : isHovered ? '2' : '1.2'}
                       style={{
                         filter: isSelected
                           ? 'drop-shadow(0 8px 24px rgba(79, 70, 229, 0.35))'
                           : isHovered
-                          ? 'drop-shadow(0 8px 24px rgba(99, 102, 241, 0.25))'
+                          ? 'drop-shadow(0 8px 22px rgba(99, 102, 241, 0.25))'
                           : 'drop-shadow(0 4px 12px rgba(0, 0, 0, 0.12))',
                         transition: 'stroke 0.2s ease, filter 0.2s ease',
                       }}
                     />
+
+                    {/* 图片预览区 (纯净画面，无任何多余文字) */}
                     {charImage0 ? (
                       <image
                         href={charImage0}
                         x="4"
                         y="4"
-                        width="134"
-                        height="176"
-                        preserveAspectRatio="xMidYMin meet"
+                        width="148"
+                        height="98"
+                        preserveAspectRatio="xMidYMid meet"
                         clipPath="url(#polaroid_top_clip)"
                       />
                     ) : (
                       <g>
-                        <rect x="4" y="4" width="134" height="176" rx="8" fill="#f8fafc" />
-                        <text x="71" y="96" textAnchor="middle" fill="#94a3b8" fontSize="28">
+                        <rect x="4" y="4" width="148" height="98" rx="6" fill="#f8fafc" />
+                        <text x="78" y="48" textAnchor="middle" fill="#94a3b8" fontSize="24">
                           🎨
+                        </text>
+                        <text x="78" y="70" textAnchor="middle" fill="#94a3b8" fontSize="10" fontWeight="600" fontFamily="sans-serif">
+                          {totalAssetCount === 0 ? '待提取设定' : '待生成立绘'}
                         </text>
                       </g>
                     )}
                   </g>
 
-                  {/* 顶部浮动胶囊徽章 (优雅浅色卡片，显示角色与场景综合完成度) */}
-                  <g transform="translate(130, -14)">
+                  {/* 顶部浮动胶囊徽章 (安全悬浮于卡片上方，彻底杜绝遮挡头部画面) */}
+                  <g transform={`translate(${node.w / 2}, -2)`}>
                     <rect
                       x="-88"
-                      y="0"
+                      y="-12"
                       width="176"
                       height="24"
                       rx="12"
                       fill="#ffffff"
                       stroke={isHovered ? '#6366f1' : '#818cf8'}
                       strokeWidth="1.5"
-                      style={{ filter: 'drop-shadow(0 2px 8px rgba(99, 102, 241, 0.15))' }}
+                      style={{ filter: 'drop-shadow(0 2px 8px rgba(99, 102, 241, 0.18))' }}
                     />
                     <text
                       x="0"
-                      y="16"
+                      y="4"
                       textAnchor="middle"
                       fill="#4338ca"
                       fontSize="10.5"
                       fontWeight="700"
                       fontFamily="sans-serif"
                     >
-                      🎨 视觉定妆 ({completedAssetCount}/{totalAssetCount})
+                      {node.badge}
                     </text>
                   </g>
                 </g>

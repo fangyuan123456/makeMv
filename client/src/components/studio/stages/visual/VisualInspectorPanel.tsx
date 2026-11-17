@@ -137,6 +137,31 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
           const totalCharCount = characters.length;
           const completedLocCount = locations.filter((l: any) => Boolean(l.imageUrl)).length;
           const totalLocCount = locations.length;
+          const isNotExtracted = totalCharCount === 0 && totalLocCount === 0;
+
+          if (isNotExtracted) {
+            return (
+              <div className="space-y-4">
+                <div className="p-3 bg-indigo-50/60 border border-indigo-100 rounded-2xl flex items-center justify-between text-xs text-indigo-900">
+                  <span className="font-semibold">定妆状态</span>
+                  <span className="font-bold bg-white px-2.5 py-0.5 rounded-full border border-indigo-200 text-indigo-700 shadow-2xs text-[11px]">
+                    🎨 视觉设定待提取
+                  </span>
+                </div>
+
+                {/* 未提取设定友好引导卡片 */}
+                <div className="p-6 bg-slate-50 border border-dashed border-slate-200 rounded-2xl text-center space-y-2.5">
+                  <span className="text-3xl block">🎨</span>
+                  <h4 className="text-xs font-bold text-slate-800">
+                    全剧视觉设定尚未提取
+                  </h4>
+                  <p className="text-[11px] text-slate-500 leading-relaxed max-w-xs mx-auto">
+                    当前尚未从剧本中提炼登场角色形象与场景空间。点击下方「进入画布制作」即可自动解析剧本圣经并提取视觉母体。
+                  </p>
+                </div>
+              </div>
+            );
+          }
 
           return (
             <div className="space-y-4">
@@ -178,12 +203,12 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
                       className="group relative bg-slate-50 hover:bg-white border border-slate-200/80 hover:border-indigo-300 rounded-2xl p-2 overflow-hidden flex flex-col items-center transition-all cursor-pointer shadow-2xs hover:shadow-xs"
                       title={char.imageUrl ? '点击放大查看原图' : undefined}
                     >
-                      <div className="w-full aspect-[3/4] rounded-xl overflow-hidden bg-slate-100 border border-slate-200/60 relative mb-2 flex items-center justify-center p-0.5">
+                      <div className="w-full aspect-[2/1] rounded-xl overflow-hidden bg-slate-100 border border-slate-200/60 relative mb-2 flex items-center justify-center p-0.5">
                         {char.imageUrl ? (
                           <img
                             src={`${char.imageUrl}?t=${char.selectedVersionId || ''}`}
                             alt={char.name}
-                            className="w-full h-full object-contain object-top group-hover:scale-105 transition-transform duration-300"
+                            className="w-full h-full object-contain object-center group-hover:scale-105 transition-transform duration-300"
                           />
                         ) : (
                           <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 text-xs">

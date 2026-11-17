@@ -452,7 +452,7 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
 
         {/* ──────────────── Tab 1: 角色展台 ──────────────── */}
         {activeTab === 'characters' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6">
             {characters.map((char: any) => {
               const charId = char.characterId || char.id;
               const charRefImg = getEntityRefImage(char);
@@ -474,15 +474,20 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
                       : 'border-slate-200/90 hover:border-indigo-300 shadow-xs hover:shadow-md'
                   }`}
                 >
-                  {/* 立绘主图 (3:4 标准画幅，object-contain 保持头部全身 100% 完整无裁剪) */}
-                  <div className="relative w-full aspect-[3/4] rounded-2xl overflow-hidden bg-slate-100 border border-slate-200/60 mb-3.5 group/img flex items-center justify-center p-1">
+                  {/* 立绘主图 (工业级 2:1 三视图画幅，object-contain 保持正/侧/背三重视角 100% 完整无裁剪) */}
+                  <div className="relative w-full aspect-[2/1] rounded-2xl overflow-hidden bg-slate-100 border border-slate-200/60 mb-3.5 group/img flex items-center justify-center p-1">
                     {char.imageUrl ? (
-                      <img
-                        key={`${char.imageUrl}_${char.selectedVersionId}`}
-                        src={`${char.imageUrl}?t=${char.selectedVersionId || Date.now()}`}
-                        alt={char.name}
-                        className="w-full h-full object-contain object-top group-hover/img:scale-105 transition-transform duration-300"
-                      />
+                      <>
+                        <img
+                          key={`${char.imageUrl}_${char.selectedVersionId}`}
+                          src={`${char.imageUrl}?t=${char.selectedVersionId || Date.now()}`}
+                          alt={char.name}
+                          className="w-full h-full object-contain object-center group-hover/img:scale-105 transition-transform duration-300"
+                        />
+                        <div className="absolute top-2 right-2 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-xs text-white text-[10px] font-medium border border-white/20">
+                          📐 概念三视图 · 正/侧/背
+                        </div>
+                      </>
                     ) : charRefImg ? (
                       <div className="relative w-full h-full flex items-center justify-center">
                         <img
@@ -608,8 +613,8 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
                   {/* 中文提示词全展开与修改 */}
                   <div className="flex-1 bg-slate-50 border border-slate-200/70 rounded-xl p-2.5 mb-3 flex flex-col">
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[11px] font-bold text-slate-700">
-                        🎨 生图提示词
+                      <span className="text-[11px] font-bold text-slate-700 flex items-center space-x-1">
+                        <span>🎨 角色外观设定</span>
                       </span>
                       {isEditing ? (
                         <div className="flex items-center space-x-1.5" onClick={(e) => e.stopPropagation()}>
@@ -657,6 +662,7 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
                           setPromptDrafts((prev) => ({ ...prev, [charId]: e.target.value }))
                         }
                         rows={3}
+                        placeholder="描述角色的外貌特征、体态骨相、服装穿着与发型配饰..."
                         className="w-full text-xs text-slate-800 bg-white border border-indigo-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
                       />
                     ) : (
@@ -1151,11 +1157,11 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
                           : 'border-slate-200 hover:border-indigo-300 shadow-2xs hover:shadow-sm'
                       }`}
                     >
-                      <div className={`relative ${isLocationModal ? 'aspect-video' : 'aspect-[3/4]'} bg-slate-100 flex items-center justify-center ${isLocationModal ? '' : 'p-1'}`}>
+                      <div className={`relative ${isLocationModal ? 'aspect-video' : 'aspect-[2/1]'} bg-slate-100 flex items-center justify-center ${isLocationModal ? '' : 'p-1'}`}>
                         <img
                           src={`${ver.imageUrl}?t=${ver.versionId}`}
                           alt={`Version ${idx + 1}`}
-                          className={`w-full h-full ${isLocationModal ? 'object-cover' : 'object-contain object-top'}`}
+                          className={`w-full h-full ${isLocationModal ? 'object-cover' : 'object-contain object-center'}`}
                         />
                         <div className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-xs text-white text-[10px] font-mono font-semibold">
                           v{idx + 1}
@@ -1221,21 +1227,21 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
 
           {/* 滚动内容区 */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {/* 1. 立绘/场景大图 (角色 3:4 竖版 / 场景 16:9 横版) */}
-            <div className={`relative w-full ${isLocationEntity ? 'aspect-video' : 'aspect-[3/4] max-h-[360px]'} bg-slate-100 rounded-2xl overflow-hidden border border-slate-200/80 flex items-center justify-center ${isLocationEntity ? '' : 'p-1'} group`}>
+            {/* 1. 立绘/场景大图 (角色 2:1 三视图 / 场景 16:9 横版) */}
+            <div className={`relative w-full ${isLocationEntity ? 'aspect-video' : 'aspect-[2/1]'} bg-slate-100 rounded-2xl overflow-hidden border border-slate-200/80 flex items-center justify-center ${isLocationEntity ? '' : 'p-1'} group`}>
               {activeSelectedEntity.imageUrl ? (
                 <img
                   key={`${activeSelectedEntity.imageUrl}_${activeSelectedEntity.selectedVersionId}`}
                   src={`${activeSelectedEntity.imageUrl}?t=${activeSelectedEntity.selectedVersionId || Date.now()}`}
                   alt={activeSelectedEntity.name}
-                  className={`w-full h-full ${isLocationEntity ? 'object-cover' : 'object-contain object-top'}`}
+                  className={`w-full h-full ${isLocationEntity ? 'object-cover' : 'object-contain object-center'}`}
                 />
               ) : activeRefImg ? (
                 <div className="relative w-full h-full flex items-center justify-center">
                   <img
                     src={activeRefImg}
                     alt={`参考底图 · ${activeSelectedEntity.name}`}
-                    className={`w-full h-full ${isLocationEntity ? 'object-cover' : 'object-contain object-top'}`}
+                    className={`w-full h-full ${isLocationEntity ? 'object-cover' : 'object-contain object-center'}`}
                   />
                   <div className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-black/65 backdrop-blur-xs text-white text-[10px] font-semibold border border-white/20">
                     📷 当前参考底图 ({isLocationEntity ? '待渲染场景' : '待生成定妆'})
@@ -1383,7 +1389,7 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
                           )
                         }
                         className={`group relative rounded-xl overflow-hidden border-2 cursor-pointer transition-all ${
-                          isLocationEntity ? 'aspect-video' : 'aspect-[3/4]'
+                          isLocationEntity ? 'aspect-video' : 'aspect-[2/1]'
                         } bg-white ${
                           isSelectedVer
                             ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-xs'
@@ -1393,7 +1399,7 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
                         <img
                           src={`${ver.imageUrl}?t=${ver.versionId}`}
                           alt="ver"
-                          className={`w-full h-full ${isLocationEntity ? 'object-cover' : 'object-contain object-top'}`}
+                          className={`w-full h-full ${isLocationEntity ? 'object-cover' : 'object-contain object-center'}`}
                         />
                         <div className="absolute top-1 left-1 px-1 py-0.2 rounded bg-black/60 text-[9px] font-mono text-white">
                           v{idx + 1}

@@ -6,10 +6,12 @@
 import { z } from 'zod';
 
 export const ScreenplayInputSchema = z.object({
-  userPrompt: z.string().describe('创作者输入的创意灵感、故事设定或剧本构想'),
+  userPrompt: z.string().optional().describe('创作者输入的创意灵感、故事设定或剧本构想'),
+  instruction: z.string().optional().describe('创作者提出的局部精修微调指令 (当此项存在时，工具自动走局部文本 Patch 手术流)'),
+  targetAct: z.number().int().min(1).max(6).optional().describe('(可选) 明确指定局部微调的幕次序号'),
   genre: z.string().optional().describe('故事题材类型 (如科幻、悬疑探案、中式微恐、权谋古风等)'),
   tone: z.string().optional().describe('视听基调偏好 (如暗黑压抑、快节奏硬核、冷峻电影质感等)'),
-  expectedActs: z.number().int().min(2).max(6).default(3).describe('期望故事分幕数量 (默认 3 幕)'),
+  expectedActs: z.number().int().min(2).max(6).default(3).optional().describe('期望故事分幕数量 (默认 3 幕)'),
 });
 
 export type ScreenplayInput = z.infer<typeof ScreenplayInputSchema>;

@@ -3,10 +3,10 @@
  * 视听工坊专属悬浮对话机器人 (支持定妆空间总监与分幕分镜导演彻底解耦)
  *
  * 核心微内核架构：
- * 1. 【专职多智能体泛化】支持 mode: 'lookdev' (定妆空间) 与 mode: 'storyboard' (分幕分镜)；
- * 2. 【分幕物理隔离】分镜模式下按 clipId 独立落盘 (chat/storyboard_<clipId>.json)，各幕历史绝不串台；
- * 3. 【非侵入式悬浮球】固定于右下角，完全不占用主画布网格空间，一键展开/收起；
- * 4. 【人在回路单活动提案】无硬编码正则，大模型定案后出具唯一可点击卡片，一键调度后台工具并联动画布刷新。
+ * 1. 采用全系统统一对话生命周期微内核 (useDirectorChatFlow) 与统一任务卡片 (DirectorTaskCard)；
+ * 2. 对话流程 100% 对齐故事总监标杆体系：提议 ➔ 待审 ➔ 底部「✨ 批准执行」/ 自然语言“同意” ➔ 平滑推演 ➔ 物理落盘 ➔ 自动收官复盘；
+ * 3. 专职多智能体泛化：支持 mode: 'lookdev' (定妆空间) 与 mode: 'storyboard' (分幕分镜按 clipId 独立落盘)；
+ * 4. 非侵入式悬浮球，支持展开/收起，灵感词在对话开启后自动隐匿。
  */
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -16,6 +16,8 @@ import {
   StoryboardChatSessionClient,
   type ChatMessageItem,
 } from '../../../lib/ChatSession.js';
+import { useDirectorChatFlow } from '../../../hooks/useDirectorChatFlow.js';
+import { DirectorTaskCard } from './DirectorTaskCard.js';
 
 export interface DirectorFloatingBubbleProps {
   projectId: string;
@@ -43,10 +45,6 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
   clipTitle,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<ChatMessageItem[]>([]);
-  const [inputText, setInputText] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [streamingContent, setStreamingContent] = useState('');
   const [hasUnread, setHasUnread] = useState(false);
 
   // 1. 核心解耦：根据 mode 与 clipId 动态挂载对应的专属会话客户端 (各幕独立会话)
@@ -57,8 +55,75 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
     return new StoryboardChatSessionClient(projectId || '', clipId);
   }, [mode, projectId, clipId]);
 
+  const defaultWelcome = useMemo(() => {
+    return mode === 'lookdev'
+      ? `你好，我是你的 **定妆空间总监**。🎨\n\n我专注全剧的角色定妆、服装设计与场景空间光影美学：\n- **角色微调**：“把林薇的白大褂改成黑色风衣”、“陈默脸上的伤痕稍微浅一点”\n- **场景微调**：“安全屋更阴暗一些，加两盏闪烁荧光灯”\n\n有任何外貌与光影修改想法随时告诉我！`
+      : `你好，我是【${clipId || '本幕'} · ${clipTitle || '分镜台本'}】的 **分镜执行导演**。🎬\n\n我专门负责本幕剧情的镜头切分、视听节拍与摄影机调度：\n- **机位景别**：“第3镜改成特写，聚焦颤抖的手指”、“增加一个主观视角”\n- **节奏运镜**：“这一幕剪辑节奏再加快一点”、“陈默冲出后门的运镜改为手持跟摇”\n\n有任何镜头与蒙太奇想法随时告诉我！`;
+  }, [mode, clipId, clipTitle]);
+
+  const contextPrefix = useMemo(() => {
+    return mode === 'storyboard' && clipId
+      ? `[创作者当前正在检视分幕: ${clipId} · ${clipTitle || clipId}] `
+      : `[创作者当前正在检视全剧视觉定妆资产] `;
+  }, [mode, clipId, clipTitle]);
+
+  // 2. 接入全系统统一对话微内核 Hook
+  const {
+    messages,
+    inputText,
+    setInputText,
+    isStreaming,
+    streamingContent,
+    streamingTargetId,
+    streamingAppendContent,
+    nowTick,
+    isTaskRunning,
+    pendingProposal,
+    computeDisplayPercent,
+    handleSendMessage,
+  } = useDirectorChatFlow({
+    projectId,
+    projectData,
+    session,
+    tasks,
+    onRunTool,
+    onRefreshProject,
+    isBusy,
+    defaultWelcomeMessage: defaultWelcome,
+    welcomeMessageId: `init_welcome_${mode}_${clipId || ''}`,
+    contextPrefix,
+    toolMapper: (targetTool, targetParams) => {
+      let tool = targetTool;
+      const toolMap: Record<string, string> = {
+        'lookdev.character_portrait': 'film.character_portrait',
+        'character_portrait': 'film.character_portrait',
+        'lookdev.location_concept': 'film.scene_atmosphere',
+        'scene_atmosphere': 'film.scene_atmosphere',
+        'film.location_concept': 'film.scene_atmosphere',
+        'film.character_lookdev': 'film.character_portrait',
+        'storyboard_planning': 'film.storyboard_planning',
+      };
+      if (toolMap[tool]) {
+        tool = toolMap[tool];
+      }
+      const params = { ...targetParams };
+      if (tool === 'film.character_portrait' || tool === 'film.scene_atmosphere') {
+        params.force = true;
+      }
+      if (tool === 'film.storyboard_planning' && clipId && !params.clipId) {
+        params.clipId = clipId;
+      }
+      return { tool, params };
+    },
+    generatePostTaskTriggerPrompt: (toolName, actionTitle) => {
+      return mode === 'lookdev'
+        ? `【制片工序事件】视觉资产工序【${actionTitle || toolName}】已圆满执行并物理落盘！请你对照当前【定妆空间与场景空间视觉资产】，为创作者出具阶段复盘与审视总结，指出已完成的定妆效果要点与后续创作建议。`
+        : `【制片工序事件】分幕分镜工序【${actionTitle || toolName}】已圆满执行并物理落盘！请你对照分幕【${clipId || '当前幕'}】的分镜切分与关键帧，为创作者出具镜头节拍复盘与视听呈现建议。`;
+    },
+  });
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -69,186 +134,16 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
       scrollToBottom();
       setHasUnread(false);
     }
-  }, [isOpen, messages, streamingContent]);
+  }, [isOpen, messages, streamingContent, streamingAppendContent]);
 
-  // 计算全消息流中最后一个带有效未决 proposal 的消息 ID，杜绝多个确认按钮并存
-  const latestProposalMsgId = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.proposal && m.proposalState !== 'completed') {
-        return m.id;
-      }
-    }
-    return null;
-  }, [messages]);
-
-  // 2. 初始化拉取当前专属会话的历史对白 (切换分幕时自动更新)
+  // 新消息未读提示
   useEffect(() => {
-    if (!projectId) return;
-    let isMounted = true;
-
-    session.getHistory().then((history) => {
-      if (!isMounted) return;
-      if (Array.isArray(history) && history.length > 0) {
-        setMessages(history);
-      } else {
-        // 各自专属的初始欢迎语
-        const defaultWelcome =
-          mode === 'lookdev'
-            ? `你好，我是你的 **定妆空间总监**。🎨\n\n我专注全剧的角色定妆、服装设计与场景空间光影美学：\n- **角色微调**：“把林薇的白大褂改成黑色风衣”、“陈默脸上的伤痕稍微浅一点”\n- **场景微调**：“安全屋更阴暗一些，加两盏闪烁荧光灯”\n\n有任何外貌与光影修改想法随时告诉我！`
-            : `你好，我是【${clipId || '本幕'} · ${clipTitle || '分镜台本'}】的 **分镜执行导演**。🎬\n\n我专门负责本幕剧情的镜头切分、视听节拍与摄影机调度：\n- **机位景别**：“第3镜改成特写，聚焦颤抖的手指”、“增加一个主观视角”\n- **节奏运镜**：“这一幕剪辑节奏再加快一点”、“陈默冲出后门的运镜改为手持跟摇”\n\n有任何镜头与蒙太奇想法随时告诉我！`;
-
-        setMessages([
-          {
-            id: `init_welcome_${mode}_${clipId || ''}`,
-            role: 'assistant',
-            content: defaultWelcome,
-            createdAt: new Date().toISOString(),
-          },
-        ]);
-      }
-    });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [projectId, session, mode, clipId, clipTitle]);
-
-  // 3. 发送消息
-  const handleSendMessage = async (textToSend?: string) => {
-    const text = (textToSend || inputText).trim();
-    if (!text || isStreaming || !projectId) return;
-
-    setInputText('');
-
-    const contextPrefix =
-      mode === 'storyboard' && clipId
-        ? `[创作者当前正在检视分幕: ${clipId} · ${clipTitle || clipId}] `
-        : `[创作者当前正在检视全剧视觉定妆资产] `;
-
-    const fullPrompt = `${contextPrefix}${text}`;
-
-    const userMsg: ChatMessageItem = {
-      id: `msg_user_${Date.now()}`,
-      role: 'user',
-      content: text,
-      createdAt: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
-    setIsStreaming(true);
-    setStreamingContent('');
-
-    // 服务端 BaseChatSession.stream 已自动原子落盘，前端避免重复写入
-    session.markProposalsResolved().catch(() => {});
-
-    let accumulated = '';
-
-    await session.streamChat({
-      message: fullPrompt,
-      history: messages
-        .filter((m) => m.role === 'user' || m.role === 'assistant')
-        .slice(-6)
-        .map((m) => ({ role: m.role, content: m.content })),
-      onTextChunk: (chunk) => {
-        accumulated += chunk;
-        setStreamingContent(accumulated);
-      },
-      onDone: ({ cleanText, intent }) => {
-        setIsStreaming(false);
-        setStreamingContent('');
-
-        const assistantMsg: ChatMessageItem = {
-          id: `msg_asst_${Date.now()}`,
-          role: 'assistant',
-          content: cleanText || accumulated,
-          createdAt: new Date().toISOString(),
-          proposal: intent || undefined,
-          proposalState: intent ? 'pending' : undefined,
-        };
-
-        setMessages((prev) => [...prev, assistantMsg]);
-
-        if (!isOpen) {
-          setHasUnread(true);
-        }
-      },
-      onError: (err) => {
-        setIsStreaming(false);
-        setStreamingContent('');
-        const errorMsg: ChatMessageItem = {
-          id: `msg_err_${Date.now()}`,
-          role: 'assistant',
-          content: `⚠️ 对话推演异常: ${err.message || '未知错误'}`,
-          createdAt: new Date().toISOString(),
-        };
-        setMessages((prev) => [...prev, errorMsg]);
-      },
-    });
-  };
-
-  // 4. 执行行动提案
-  const handleExecuteProposal = async (msg: ChatMessageItem) => {
-    if (!msg.proposal || !msg.proposal.tool) return;
-
-    // 工具名称标准化映射
-    let tool = msg.proposal.tool;
-    const toolMap: Record<string, string> = {
-      'lookdev.character_portrait': 'film.character_portrait',
-      'character_portrait': 'film.character_portrait',
-      'lookdev.location_concept': 'film.scene_atmosphere',
-      'scene_atmosphere': 'film.scene_atmosphere',
-      'film.location_concept': 'film.scene_atmosphere',
-      'film.character_lookdev': 'film.character_portrait',
-      'storyboard_planning': 'film.storyboard_planning',
-    };
-    if (toolMap[tool]) {
-      tool = toolMap[tool];
+    if (!isOpen && messages.length > 1) {
+      setHasUnread(true);
     }
+  }, [messages.length, isOpen]);
 
-    const params = { ...(msg.proposal.params || {}) };
-    if (tool === 'film.character_portrait' || tool === 'film.scene_atmosphere') {
-      params.force = true;
-    }
-    // 若在分镜模式，强制保证 clipId 传给后台
-    if (tool === 'film.storyboard_planning' && clipId && !params.clipId) {
-      params.clipId = clipId;
-    }
-
-    try {
-      setMessages((prev) =>
-        prev.map((m) => (m.id === msg.id ? { ...m, proposalState: 'running' } : m))
-      );
-
-      const task = await onRunTool(tool, params);
-
-      session.markProposalsResolved().catch(() => {});
-
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === msg.id
-            ? {
-                ...m,
-                proposalState: 'completed',
-                taskId: task?.taskId,
-                taskTitle: msg.proposal?.title,
-                taskStatus: 'completed',
-              }
-            : m
-        )
-      );
-
-      onRefreshProject?.();
-    } catch (err: any) {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === msg.id ? { ...m, proposalState: 'failed', taskError: err?.message || '执行失败' } : m
-        )
-      );
-    }
-  };
-
-  // 5. 各自专属的快捷场景感知推荐词
+  // 3. 各自专属的快捷场景感知推荐词
   const quickPills = useMemo(() => {
     if (mode === 'storyboard') {
       return [
@@ -280,6 +175,11 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
     ? 'from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700'
     : 'from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700';
 
+  // 灵感胶囊仅在初始未开始对话阶段展示；一旦创作者开始对话或正在打字，立即自动隐藏
+  const hasUserDialogue = useMemo(() => messages.some((m) => m.role === 'user'), [messages]);
+  const isInputting = inputText.trim().length > 0;
+  const showQuickPrompts = !hasUserDialogue && !isInputting && quickPills.length > 0 && !isTaskRunning;
+
   return (
     <>
       {/* ─── 悬浮气泡球 (Bubble Button) ─── */}
@@ -309,9 +209,9 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
 
         {/* ─── 展开卡片面板 (Floating Panel) ─── */}
         {isOpen && (
-          <div className="w-[420px] h-[600px] max-h-[82vh] bg-white/95 backdrop-blur-xl border border-slate-200/90 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-5 duration-300 ring-1 ring-black/5">
+          <div className="w-[430px] h-[620px] max-h-[84vh] bg-white border border-slate-200/90 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-5 duration-300 ring-1 ring-black/5">
             {/* 顶部标题栏 */}
-            <div className={`px-4 py-3 bg-gradient-to-r ${headerGradient} text-white flex items-center justify-between shadow-sm select-none`}>
+            <div className={`px-4 py-3 bg-gradient-to-r ${headerGradient} text-white flex items-center justify-between shadow-sm select-none flex-shrink-0`}>
               <div className="flex items-center space-x-2">
                 <span className="text-xl">{isLookdev ? '🎨' : '🎬'}</span>
                 <div>
@@ -346,102 +246,104 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
               </div>
             </div>
 
-            {/* 消息滚动区 */}
-            <div className="flex-1 p-4 overflow-y-auto space-y-3.5 bg-slate-50/50">
+            {/* 消息对话流视窗（与故事工坊 100% 对齐） */}
+            <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-slate-50/50">
               {messages.map((msg) => {
+                // 刚性过滤无内容无任务无提案的空消息
+                if (!msg.content?.trim() && !msg.taskId && !msg.proposal) {
+                  return null;
+                }
+
                 const isUser = msg.role === 'user';
+                const hasTask = Boolean(msg.taskId);
+
+                // 统一任务推演卡片
+                if (hasTask) {
+                  return (
+                    <DirectorTaskCard
+                      key={msg.id}
+                      msg={msg}
+                      tasks={tasks}
+                      nowTick={nowTick}
+                      displayPercent={computeDisplayPercent(msg)}
+                      streamingTargetId={streamingTargetId}
+                      streamingAppendContent={streamingAppendContent}
+                      onRetry={() => handleSendMessage('重试本工序')}
+                      directorRoleName={isLookdev ? '定妆空间总监' : '电影分镜执行导演'}
+                      progressGradientClass={
+                        isLookdev
+                          ? 'from-teal-500 via-emerald-600 to-cyan-600'
+                          : 'from-purple-600 via-indigo-600 to-blue-500'
+                      }
+                    />
+                  );
+                }
+
+                // 普通文本对白气泡（纯文本对白呈现，消灭气泡卡片）
                 return (
-                  <div key={msg.id} className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
+                  <div
+                    key={msg.id}
+                    className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} space-y-1.5`}
+                  >
+                    <div className="flex items-center space-x-1.5 px-1">
+                      <span className="text-[10px] font-medium text-slate-400">
+                        {isUser ? '创作者' : isLookdev ? '定妆空间总监' : '电影分镜执行导演'}
+                      </span>
+                    </div>
+
                     <div
-                      className={`max-w-[88%] text-xs leading-relaxed px-3.5 py-2.5 rounded-2xl shadow-sm ${
+                      className={`max-w-[90%] p-3.5 rounded-2xl text-xs leading-relaxed break-words shadow-2xs ${
                         isUser
                           ? isLookdev
-                            ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-br-none'
-                            : 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-br-none'
-                          : 'bg-white text-slate-800 border border-slate-200/80 rounded-bl-none'
+                            ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-tr-xs'
+                            : 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-tr-xs'
+                          : 'bg-white border border-slate-200/80 text-slate-800 rounded-tl-xs'
                       }`}
                     >
                       <div className="whitespace-pre-wrap">{msg.content}</div>
-
-                      {/* 行动提案交互卡片 */}
-                      {msg.proposal && (
-                        <div className="mt-3 pt-2.5 border-t border-slate-200 bg-slate-100/70 -mx-1 px-3 py-2 rounded-xl border text-slate-800">
-                          <div className="flex items-center justify-between text-xs font-bold text-slate-900">
-                            <span className="flex items-center space-x-1">
-                              <span>🎯</span>
-                              <span>{msg.proposal.title}</span>
-                            </span>
-                          </div>
-                          {msg.proposal.description && (
-                            <div className="text-[11px] text-slate-600 mt-1">{msg.proposal.description}</div>
-                          )}
-
-                          <div className="mt-2.5 flex items-center justify-end space-x-2">
-                            {msg.proposalState === 'completed' ? (
-                              <span className="text-[11px] text-emerald-600 font-bold flex items-center space-x-1">
-                                <span>✓</span>
-                                <span>已调度执行</span>
-                              </span>
-                            ) : msg.proposalState === 'running' ? (
-                              <span className="text-[11px] text-indigo-600 font-bold flex items-center space-x-1 animate-pulse">
-                                <span>⏳</span>
-                                <span>正在执行任务...</span>
-                              </span>
-                            ) : msg.id !== latestProposalMsgId ? (
-                              <span className="text-[10px] text-slate-400 bg-slate-200/80 px-2 py-0.5 rounded border border-slate-300/60">
-                                提案已由后续对话取代
-                              </span>
-                            ) : (
-                              <button
-                                onClick={() => handleExecuteProposal(msg)}
-                                disabled={isBusy}
-                                className={`px-3 py-1 bg-gradient-to-r ${buttonGradient} active:scale-95 text-white text-xs font-bold rounded-lg shadow transition-all cursor-pointer disabled:opacity-50`}
-                              >
-                                确认微调执行
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )}
                     </div>
-                    <span className="text-[10px] text-slate-400 mt-1 px-1">
-                      {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
                   </div>
                 );
               })}
 
-              {/* 流式打字中气泡 */}
+              {/* 流式打字中占位 */}
               {isStreaming && (
-                <div className="flex flex-col items-start">
-                  <div className="max-w-[88%] text-xs leading-relaxed px-3.5 py-2.5 rounded-2xl bg-white text-slate-800 border border-slate-200/80 rounded-bl-none shadow-sm">
+                <div className="flex flex-col items-start space-y-1">
+                  <span className="text-[10px] font-medium text-slate-400 px-1">
+                    {isLookdev ? '定妆空间总监' : '电影分镜执行导演'}
+                  </span>
+                  <div className="max-w-[90%] p-3.5 rounded-2xl rounded-tl-xs bg-white text-slate-800 border border-slate-200/80 text-xs leading-relaxed shadow-sm">
                     <div className="whitespace-pre-wrap">{streamingContent}</div>
-                    <span className="inline-block w-1.5 h-3.5 bg-emerald-500 animate-pulse ml-1 align-middle"></span>
+                    <span className={`inline-block w-1.5 h-3.5 ${isLookdev ? 'bg-emerald-500' : 'bg-indigo-600'} ml-1 animate-pulse align-middle`}></span>
                   </div>
                 </div>
               )}
+
               <div ref={messagesEndRef} />
             </div>
 
-            {/* 快捷推荐词 Pills */}
-            <div className="px-3 py-2 bg-slate-100/70 border-t border-slate-200 flex items-center space-x-1.5 overflow-x-auto no-scrollbar">
-              {quickPills.map((pill, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleSendMessage(pill)}
-                  disabled={isStreaming}
-                  className="shrink-0 text-[11px] px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 hover:border-slate-300 rounded-full transition-colors cursor-pointer disabled:opacity-50 shadow-2xs"
-                >
-                  {pill}
-                </button>
-              ))}
-            </div>
+            {/* 快捷推荐词 Pills：仅在初始空白引导阶段展示，对话开启后自动隐匿 */}
+            {showQuickPrompts && (
+              <div className="px-3 py-2 bg-slate-100/70 border-t border-slate-200 flex flex-wrap gap-1.5 flex-shrink-0">
+                {quickPills.map((pill, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleSendMessage(pill)}
+                    disabled={isStreaming || isBusy || isTaskRunning}
+                    className="text-left text-[11px] px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 hover:border-slate-300 rounded-xl transition-colors cursor-pointer disabled:opacity-50 shadow-2xs leading-relaxed"
+                  >
+                    {pill}
+                  </button>
+                ))}
+              </div>
+            )}
 
-            {/* 底部输入框 */}
-            <div className="p-3 bg-white border-t border-slate-200 flex items-center space-x-2">
-              <input
+            {/* 底部输入框与人在回路真实状态操作条（与故事工坊 100% 对齐） */}
+            <div className="p-3 bg-white border-t border-slate-200 flex items-center space-x-2 flex-shrink-0">
+              <textarea
                 ref={inputRef}
-                type="text"
+                rows={1}
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={(e) => {
@@ -450,18 +352,34 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
                     handleSendMessage();
                   }
                 }}
-                disabled={isStreaming}
+                disabled={isStreaming || isTaskRunning}
                 placeholder={
-                  mode === 'storyboard'
-                    ? `对分幕 ${clipId || '当前幕'} 提镜头调度意见...`
-                    : '对角色立绘外貌或场景空间提意见...'
+                  isTaskRunning
+                    ? '后台任务正在执行，请稍候...'
+                    : mode === 'storyboard'
+                    ? `对分幕 ${clipId || '当前幕'} 提镜头调度意见 (Enter 发送)...`
+                    : '对角色立绘外貌或场景空间提意见 (Enter 发送)...'
                 }
-                className="flex-1 text-xs px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 transition-all disabled:bg-slate-50"
+                className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100 transition resize-none leading-relaxed shadow-2xs disabled:opacity-50"
               />
+
+              {/* 发送按钮旁的快捷推进按钮：与故事总监 100% 保持一致 */}
+              {pendingProposal && !isTaskRunning && (
+                <button
+                  type="button"
+                  onClick={() => handleSendMessage('同意')}
+                  disabled={isStreaming || isBusy}
+                  className={`px-3.5 py-2 bg-gradient-to-r ${buttonGradient} text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center space-x-1 shrink-0 active:scale-95 disabled:opacity-40 cursor-pointer`}
+                  title={`点击立即执行: ${pendingProposal.title}`}
+                >
+                  <span>✨ 批准执行</span>
+                </button>
+              )}
+
               <button
                 onClick={() => handleSendMessage()}
-                disabled={!inputText.trim() || isStreaming}
-                className={`px-3.5 py-2 bg-gradient-to-r ${buttonGradient} text-white text-xs font-bold rounded-xl shadow transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
+                disabled={!inputText.trim() || isStreaming || isBusy || isTaskRunning}
+                className={`px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl shadow transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shrink-0`}
               >
                 发送
               </button>

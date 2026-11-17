@@ -197,32 +197,16 @@ export abstract class BaseChatSession<TIntent = any> {
         : baseSystemPrompt;
       const model = LLMProvider.getModel();
 
-      // 3. 构建多轮对白上下文，并为带 taskId 的卡片消息注入真实执行状态与错误标记
-      const taskStore = TaskStore.getInstance();
+      // 3. 构建干净纯粹的多轮对白上下文 (真实任务状态由 System Prompt 的 State Board 统一提供，杜绝历史投毒)
       const serverMessages = this.getMessages();
 
       const effectiveHistory = serverMessages.map((m) => {
-        let content = m.content;
-        if (m.taskId) {
-          const liveTask = taskStore.getTask(m.taskId);
-          const currentStatus = liveTask?.status || m.taskStatus || 'completed';
-          const errorMsg = liveTask?.error || m.taskError;
-          const duration = liveTask?.durationMs || m.taskDurationMs;
-
-          let statusTag = '';
-          if (currentStatus === 'failed') {
-            statusTag = `❌ 执行失败 (错误原因: ${errorMsg || '未知异常'})`;
-          } else if (currentStatus === 'completed') {
-            statusTag = `✓ 执行完成${duration ? ` (耗时: ${(duration / 1000).toFixed(1)}s)` : ''}`;
-          } else if (currentStatus === 'running' || currentStatus === 'pending') {
-            statusTag = `⏳ 正在执行中 (进度: ${liveTask?.progress?.percent || m.taskProgress?.percent || 0}%)`;
-          } else {
-            statusTag = currentStatus;
-          }
-
-          content = `[制片任务记录 | taskId: ${m.taskId} | 工序: ${m.taskTitle || m.taskTool || '制片任务'} | 状态: ${statusTag}]\n${content}`;
+        let content = m.content || '';
+        // 历史任务已完成消息清洗：提取真正的成果复盘部分，剥离中间态的'收到开跑'过程词，彻底消除大模型模仿连体格式偏置
+        if (m.role === 'assistant' && content.includes('\n\n---\n\n')) {
+          const parts = content.split('\n\n---\n\n');
+          content = parts[parts.length - 1].trim();
         }
-
         return {
           role: m.role,
           content,
@@ -268,6 +252,14 @@ export abstract class BaseChatSession<TIntent = any> {
 
       // 5. 组装纯净的流式推演结果与人在回路提案
       let effectiveText = fullRawText.trim();
+
+      // 反事实文本净化门禁：当行动是 approve 授权开跑时，物理算力即将启动，尚未落盘，绝对严禁宣称已物理落盘！
+      if ((capturedIntent as any)?.action === 'approve') {
+        if (effectiveText.includes('\n\n---\n\n')) {
+          effectiveText = effectiveText.split('\n\n---\n\n')[0].trim();
+        }
+      }
+
       if (!effectiveText && capturedIntent) {
         const intentObj = capturedIntent as any;
         const actTitle = intentObj.title || '制片工序';
@@ -305,6 +297,9 @@ export abstract class BaseChatSession<TIntent = any> {
         if (!target && options.targetMessageId.startsWith('msg_task_')) {
           const tid = options.targetMessageId.replace(/^msg_task_/, '');
           target = existingMessages.find((m) => m.taskId === tid);
+        }
+        if (!target) {
+          target = existingMessages.find((m) => m.taskId === options.targetMessageId);
         }
         const originalContent = target ? target.content : '';
         const combinedContent = originalContent
@@ -405,11 +400,19 @@ ${availableToolsDescription}`,
 | 优先级 | 触发特征 (创作者输入或工程状态) | 决策动作 (action) | 行为规约 (必须同步在对话中阐述，严禁正文留空) |
 | :--- | :--- | :--- | :--- |
 | **P0·恢复** | 任务失败/报错，创作者询问原因或要求重试 | \`propose\` | 在对话中解释失败根因，复用失败入参重新出具提案 |
-| **P1·修改** | 当前存在待审提案，创作者提出调整/增删/新约束 | \`modify\` | 在对话中阐明调整逻辑，合并修改意见输出完整新参数 |
-| **P2·授权** | 当前存在待审提案，创作者表达认可/同意/准了/开跑 | \`approve\` | 在对话中给出干练确认回复，声明 targetTool 授权开跑 |
-| **P3·推进** | 当前工序已全部物理落盘，创作者要求进入下一步 | \`next_stage\` | 在对话中总结本阶段成果，声明 stage 提议跨工序移交 |
-| **P4·立项** | 暂无待审提案，创作者输入全新题材/故事设定灵感 | \`propose\` | 在对话中深度剖析戏剧冲突与看点，出具方案待审卡片 |
-| **P5·探讨** | 纯理论咨询或无实质设定的闲聊 (漏斗兜底) | \`chat_only\` | 进行纯自然语言专业解答，无需发起制片提案 |`;
+| **P1·重推** | 创作者对已有剧本/资产不满意、指出题材偏差或要求推倒重来/重新生成 | \`propose\` | targetTool 设为当前工序核心工具（如剧本推演），全量融汇纠偏构思重新出具提案卡片 |
+| **P2·修改** | 当前存在待审提案，创作者提出参数局部调整/增删/新约束 | \`modify\` | 在对话中阐明调整逻辑，合并修改意见输出完整新参数 |
+| **P3·授权** | 当前存在待审提案，创作者表达认可/同意/准了/开跑 | \`approve\` | 在对话中给出干练确认回复，声明 targetTool 授权开跑 |
+| **P4·推进** | 当前工序已全部物理落盘，创作者明确要求进入下一步 | \`next_stage\` | 在对话中总结本阶段成果，声明 stage 提议跨工序移交 |
+| **P5·立项** | 暂无待审提案，创作者输入全新题材/故事设定灵感 | \`propose\` | 在对话中深度剖析戏剧冲突与看点，出具方案待审卡片 |
+| **P6·探讨** | 纯理论咨询或无实质设定的闲聊 (漏斗兜底) | \`chat_only\` | 进行纯自然语言专业解答，无需发起制片提案 |
+
+### 【全系统对话生命周期刚性纪律 (SSOT)】
+- 【严禁自导自演物理落盘与虚假收官（核心红线）】：你不是物理执行引擎！绝对严禁在单条自然语言对话中既声明“收到，授权开跑”，又自说自话在同一条消息中宣称“已物理落盘/工序全线完工/已完成渲染”！绝对严禁在单次回复中拼接“---”分割线伪造任务执行完毕后的收官总结！
+  当创作者表达认可同意（如“同意/好的/准了/开跑”）时，物理算力计算尚未开始，你必须且只能调用 emit_director_intent(action: "approve") 授权启动物理执行，并输出干练简短的开跑确认即可（例如“收到，授权确认，开跑——...”）；
+  真正的物理落盘必须等待物理任务在后台真实跑完后，由系统事件单独驱动你出具阶段复盘！
+- 必须输出对话正文（Mandatory Speech）：在调用 emit_director_intent 发射任何意图的同时，必须在自然语言对话流中向创作者清晰说明你的方案亮点、决策理由或确认对白，绝对严禁只调用工具而正文留空；
+- 严禁在对话正文中打印任何 XML/JSON 意图标签，所有行动必须通过调用 emit_director_intent 工具发起。`;
   }
 
   /**
@@ -432,31 +435,52 @@ ${lines.join('\n')}`;
   }
 
   /**
+   * 子类可覆写的阶段资产验收客观门禁 (Gate Guard)
+   * 用于阻断在资产未物理落盘时大模型擅自发射 next_stage 导致假收官
+   */
+  protected validateStageCompletion(): { canAdvance: boolean; reason?: string } {
+    return { canAdvance: true };
+  }
+
+  /**
    * 将大模型触发的 emit_director_intent 意图识别调用解析为规范的 SessionActionIntent
-   * 内置状态机客观门禁校准（Defense in Depth）：防空跑、防参数丢失、防并发重开
+   * 内置状态机客观门禁校准（Defense in Depth）：防空跑、防参数丢失、防并发重开、防资产缺失假收官、防待审提案越级跳过
    */
   protected resolveDirectorIntent(args: any): any {
     if (!args || typeof args !== 'object') return null;
-    const action = args.action || 'propose';
+    let action = args.action || 'propose';
 
     if (action === 'chat_only') {
       return null;
     }
 
-    if (action === 'next_stage') {
-      return {
-        action: 'next_stage',
-        stage: args.stage || 'visual',
-        title: args.title || '推进至下一阶段',
-        params: { projectId: this.projectId },
-        description: args.summary || args.reasoning || '当前工序已达成，推进至下一工序',
-      };
-    }
-
-    // 1. 读取当前会话最近一条挂起待审提案
+    // 1. 读取当前会话最近一条挂起待审提案 (SSOT)
     const messages = this.getMessages();
     const lastPendingMsg = [...messages].reverse().find((m) => m.proposal && !m.proposalResolved);
     const pendingProposal = lastPendingMsg?.proposal as any;
+
+    // 【刚性代码级资产门禁检查 (Gate Guard)】
+    // 若模型发射 next_stage，必须检验当前工序阶段是否已真实具备物理落盘资产
+    if (action === 'next_stage') {
+      const stageGate = this.validateStageCompletion();
+      if (!stageGate.canAdvance) {
+        console.warn(`[BaseChatSession:${this.sessionId}] 刚性阻断非法 next_stage: ${stageGate.reason}`);
+        // 若当前有挂起的待审提案（如微调剧本或 PRD 拆解），强制校准为 approve 真实启动该物理任务！
+        if (pendingProposal) {
+          action = 'approve';
+        } else {
+          action = 'propose';
+        }
+      } else {
+        return {
+          action: 'next_stage',
+          stage: args.stage || 'visual',
+          title: args.title || '推进至下一阶段',
+          params: { projectId: this.projectId },
+          description: args.summary || args.reasoning || '当前工序已达成，推进至下一工序',
+        };
+      }
+    }
 
     // 2. 目标工序与标题继承：优先从显式入参 > 挂起待审提案 > 声明工序列表
     const specs = this.getIntentToolSpecs();

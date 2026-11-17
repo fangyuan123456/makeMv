@@ -65,9 +65,7 @@ export const characterPortraitStep = createStep({
           : undefined;
 
       const artStyle = entities.artStyle || '电影级写实光影质感，细节丰富，自然色彩影调';
-      const prompt = customPrompt && customPrompt.trim()
-        ? customPrompt.trim()
-        : buildCharacterPortraitPrompt(char, artStyle, Boolean(effectiveRefUrls?.length));
+      const prompt = buildCharacterPortraitPrompt(char, artStyle, Boolean(effectiveRefUrls?.length));
       const negativePrompt = customNegativePrompt
         ? `${customNegativePrompt}，${CHARACTER_PORTRAIT_NEGATIVE}`
         : CHARACTER_PORTRAIT_NEGATIVE;
@@ -118,7 +116,7 @@ export const characterPortraitStep = createStep({
             prompt,
             negativePrompt,
             referenceImageUrls: effectiveRefUrls,
-            mode: effectiveRefUrls?.length ? 'character_ref2i' : 'character_t2i',
+            mode: effectiveRefUrls?.length ? 'character_three_view' : 'character_t2i',
             size: CHARACTER_PORTRAIT_SIZE,
             subfolder: ENTITY_SUBFOLDER,
             customFilename,
@@ -141,7 +139,7 @@ export const characterPortraitStep = createStep({
           const newVersion = {
             versionId,
             imageUrl: res.mediaUrl,
-            promptZh: prompt,
+            promptZh: char.promptZh,
             negativePrompt: customNegativePrompt || undefined,
             instruction: instruction || undefined,
             derivedFromUrl: isCustomRedo ? effectiveRefUrls?.[0] : undefined,
@@ -161,8 +159,21 @@ export const characterPortraitStep = createStep({
       throw new Error(`[CharacterPortraitTool] 角色 [${char.characterId}] 生图未返回有效媒体链接`);
     };
 
-    // 1. 若未指定 characterId，自动批量为所有未定妆角色生成
-    if (!characterId) {
+    // 归一化提取 targetCharacterIds（支持单ID、ID数组、逗号分隔字符串或 characterIds）
+    let targetIds: string[] = [];
+    if (Array.isArray(characterId)) {
+      targetIds = characterId.filter((id) => typeof id === 'string' && id.trim().length > 0);
+    } else if (typeof characterId === 'string' && characterId.trim()) {
+      targetIds = characterId
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    } else if (Array.isArray(input.characterIds)) {
+      targetIds = input.characterIds.filter((id) => typeof id === 'string' && id.trim().length > 0);
+    }
+
+    // 1. 若未指定任何角色 ID，自动批量为所有未定妆角色生成
+    if (targetIds.length === 0) {
       const chars = entities.characters || [];
       let count = 0;
       for (const c of chars) {
@@ -184,20 +195,56 @@ export const characterPortraitStep = createStep({
     }
 
     // 2. 指定了单个角色，单体渲染
-    const char = entities.characters?.find((c: any) => c.characterId === characterId);
-    if (!char) {
-      throw new Error(`[CharacterPortraitTool] 未在视觉资产中找到角色 [${characterId}]`);
+    if (targetIds.length === 1) {
+      const targetId = targetIds[0];
+      const char = entities.characters?.find((c: any) => c.characterId === targetId || c.id === targetId);
+      if (!char) {
+        throw new Error(`[CharacterPortraitTool] 未在视觉资产中找到角色 [${targetId}]`);
+      }
+
+      const url = await renderSingle(char);
+      store.setArtifact(projectId, 'lookdev_entities', entities);
+      const scenesDir = path.join(store.getProjectDir(projectId), 'scenes');
+      if (!fs.existsSync(scenesDir)) fs.mkdirSync(scenesDir, { recursive: true });
+      atomicWriteJsonSync(path.join(scenesDir, 'entities.json'), entities);
+      return {
+        characterId: targetId,
+        portraitImageUrl: url,
+        promptZh: char.promptZh,
+        renderedCount: 1,
+      };
     }
 
-    const url = await renderSingle(char);
+    // 3. 指定了多个角色，批量逐一渲染落盘
+    const matchedChars: any[] = [];
+    for (const id of targetIds) {
+      const c = entities.characters?.find((item: any) => item.characterId === id || item.id === id);
+      if (c) {
+        matchedChars.push(c);
+      } else {
+        console.warn(`[CharacterPortraitTool] 批量定妆中跳过不存在的角色: ${id}`);
+      }
+    }
+
+    if (matchedChars.length === 0) {
+      throw new Error(`[CharacterPortraitTool] 未在视觉资产中找到指定的任何角色: [${targetIds.join(', ')}]`);
+    }
+
+    let renderedCount = 0;
+    for (const c of matchedChars) {
+      await renderSingle(c);
+      renderedCount++;
+    }
+
     store.setArtifact(projectId, 'lookdev_entities', entities);
     const scenesDir = path.join(store.getProjectDir(projectId), 'scenes');
     if (!fs.existsSync(scenesDir)) fs.mkdirSync(scenesDir, { recursive: true });
     atomicWriteJsonSync(path.join(scenesDir, 'entities.json'), entities);
+
     return {
-      characterId,
-      portraitImageUrl: url,
-      promptZh: char.promptZh,
+      characterId: targetIds.join(','),
+      portraitImageUrl: matchedChars[0]?.imageUrl || '',
+      renderedCount,
     };
   },
 });

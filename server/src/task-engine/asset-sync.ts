@@ -34,7 +34,30 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
           if (output.title) {
             const proj = store.getProject(projectId);
             proj.meta.title = output.title;
+            if (output.genre) {
+              proj.meta.genre = output.genre;
+            }
             store.saveProject(proj);
+          }
+
+          // 全景剧本从 0 到 1 正向推演/重推时（非局部 Patch），自动重置下游旧的 PRD 拓扑与分幕资产，
+          // 确保状态机精确转入 STEP_2_PENDING 重新以新剧本为唯一基准拆解 PRD，杜绝下游带着旧剧本脏资产假收敛
+          if (!task.input?.instruction) {
+            delete (store.getProject(projectId).artifacts as any).prd;
+            delete (store.getProject(projectId).artifacts as any).universal_prd;
+            delete (store.getProject(projectId).artifacts as any).prd_markdown;
+            delete (store.getProject(projectId).artifacts as any).story;
+            delete (store.getProject(projectId).artifacts as any).gdd;
+
+            const staleFiles = ['prd.json', 'prd.md', 'story.md'];
+            for (const f of staleFiles) {
+              const p = path.join(projectDir, f);
+              if (fs.existsSync(p)) {
+                try {
+                  fs.unlinkSync(p);
+                } catch {}
+              }
+            }
           }
         }
         break;
