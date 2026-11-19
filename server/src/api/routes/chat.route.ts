@@ -1,15 +1,81 @@
 /**
  * server/src/api/routes/chat.route.ts
- * 通用对话会话路由 (Chat Session Route SSOT)
+ * 导演 Agent 对话路由。
  *
- * 全面基于 BaseChatSession 及其派生子类驱动，彻底消灭特定业务孤岛。
+ * 保持现有 HTTP/SSE 契约，委托 agents/runtime 执行对话与任务派发。
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { Router } from 'express';
-import { ChatSessionFactory } from '../../chat/index.js';
+import { AgentFactory } from '../../agents/registry.js';
+import { dispatchApprovedIntent, recoverPendingSummaries } from '../../agents/runtime/task-events.js';
+import type { ChatImageAttachment } from '../../agents/runtime/types.js';
+import { ProjectStore } from '../../project-store/ProjectStore.js';
+import { MediaResolver } from '../../media/MediaResolver.js';
 import { sendSuccess, sendError } from '../helpers.js';
 
 export const chatRouter = Router();
+
+const MAX_CHAT_UPLOAD_BYTES = 12 * 1024 * 1024;
+const ALLOWED_CHAT_IMAGE_EXT: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+};
+
+/**
+ * 0. 聊天区图片上传落盘
+ * POST /api/chat/uploads
+ * Body: { projectId: string, dataUrl: string, filename?: string }
+ */
+chatRouter.post('/uploads', (req, res) => {
+  try {
+    const { projectId, dataUrl, filename } = req.body || {};
+    if (!projectId || typeof projectId !== 'string') {
+      return sendError(res, 400, '缺少有效参数: projectId');
+    }
+    if (!dataUrl || typeof dataUrl !== 'string') {
+      return sendError(res, 400, '缺少有效参数: dataUrl');
+    }
+
+    const matches = dataUrl.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) {
+      return sendError(res, 400, '图片格式无效，请上传 PNG/JPG/WebP 图片');
+    }
+    const mimeType = matches[1].toLowerCase();
+    const ext = ALLOWED_CHAT_IMAGE_EXT[mimeType];
+    if (!ext) {
+      return sendError(res, 400, `暂不支持的图片类型: ${mimeType}`);
+    }
+
+    const buffer = Buffer.from(matches[2], 'base64');
+    if (buffer.length === 0 || buffer.length > MAX_CHAT_UPLOAD_BYTES) {
+      return sendError(res, 400, '图片大小必须在 1B ~ 12MB 之间');
+    }
+
+    const store = ProjectStore.getInstance();
+    const chatDir = path.join(store.getProjectDir(projectId), 'assets', 'chat');
+    fs.mkdirSync(chatDir, { recursive: true });
+
+    const safeFilename = `chat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}${ext}`;
+    fs.writeFileSync(path.join(chatDir, safeFilename), buffer);
+
+    const mediaUrl = MediaResolver.toMediaUrl(projectId, 'assets/chat', safeFilename);
+    sendSuccess(
+      res,
+      {
+        url: mediaUrl,
+        name: typeof filename === 'string' && filename.trim() ? filename.trim() : safeFilename,
+      },
+      '聊天图片上传成功'
+    );
+  } catch (err: any) {
+    sendError(res, 500, err?.message || '上传聊天图片失败');
+  }
+});
 
 /**
  * 1. 查询指定会话全部历史对白
@@ -24,7 +90,8 @@ chatRouter.get('/sessions/:sessionId', (req, res) => {
   }
 
   try {
-    const session = ChatSessionFactory.create(sessionId, { projectId, sessionId });
+    const session = AgentFactory.create(sessionId, { projectId, sessionId });
+    recoverPendingSummaries(session);
     const messages = session.getMessages();
     sendSuccess(res, messages, '获取会话历史成功');
   } catch (err: any) {
@@ -32,87 +99,43 @@ chatRouter.get('/sessions/:sessionId', (req, res) => {
   }
 });
 
-/**
- * 2. 向指定会话写入消息并落盘（支持提案仲裁）
- * POST /api/chat/sessions/:sessionId/messages
- * Body: { projectId: string, message: any, resolveProposals?: boolean }
- */
-chatRouter.post('/sessions/:sessionId/messages', (req, res) => {
-  const { sessionId } = req.params;
-  const { projectId, message, resolveProposals } = req.body || {};
-
-  if (!projectId || typeof projectId !== 'string') {
-    return sendError(res, 400, '缺少有效参数: projectId (字符串)');
-  }
-  if (!message || typeof message !== 'object') {
-    return sendError(res, 400, '缺少有效参数: message (对象)');
-  }
-
-  try {
-    const session = ChatSessionFactory.create(sessionId, { projectId, sessionId });
-    session.appendMessage(message, Boolean(resolveProposals));
-    sendSuccess(res, session.getMessages(), '消息落盘成功');
-  } catch (err: any) {
-    sendError(res, 500, err?.message || '消息落盘失败');
-  }
-});
-
-/**
- * 2.1 原地更新会话中某条消息（如任务状态、进度与终态成果摘要）
- * PATCH /api/chat/sessions/:sessionId/messages/:messageId
- * Body: { projectId: string, patch: any }
- */
-chatRouter.patch('/sessions/:sessionId/messages/:messageId', (req, res) => {
-  const { sessionId, messageId } = req.params;
-  const { projectId, patch } = req.body || {};
-
-  if (!projectId || typeof projectId !== 'string') {
-    return sendError(res, 400, '缺少有效参数: projectId (字符串)');
-  }
-  if (!patch || typeof patch !== 'object') {
-    return sendError(res, 400, '缺少有效参数: patch (对象)');
-  }
-
-  try {
-    const session = ChatSessionFactory.create(sessionId, { projectId, sessionId });
-    session.updateMessage(messageId, patch);
-    sendSuccess(res, session.getMessages(), '消息更新成功');
-  } catch (err: any) {
-    sendError(res, 500, err?.message || '消息更新失败');
-  }
-});
-
-/**
- * 3. 标记指定会话内所有未决提案为已解决
- * POST /api/chat/sessions/:sessionId/resolve
- * Body: { projectId: string }
- */
-chatRouter.post('/sessions/:sessionId/resolve', (req, res) => {
-  const { sessionId } = req.params;
+chatRouter.post('/sessions/:sessionId/proposals/:proposalId/approve', async (req, res) => {
   const { projectId } = req.body || {};
-
   if (!projectId || typeof projectId !== 'string') {
-    return sendError(res, 400, '缺少有效参数: projectId (字符串)');
+    return sendError(res, 400, '缺少有效参数: projectId');
   }
-
   try {
-    const session = ChatSessionFactory.create(sessionId, { projectId, sessionId });
-    session.markProposalsResolved();
-    sendSuccess(res, session.getMessages(), '提案裁决成功');
+    const session = AgentFactory.create(req.params.sessionId, { projectId, sessionId: req.params.sessionId });
+    const result = session.approveProposal(req.params.proposalId);
+    await dispatchApprovedIntent(session, result);
+    sendSuccess(res, result, '提案已批准');
   } catch (err: any) {
-    sendError(res, 500, err?.message || '提案裁决失败');
+    sendError(res, 409, err?.message || '批准提案失败');
   }
 });
 
 async function streamSessionHandler(req: any, res: any, targetSessionId: string) {
-  const { projectId, message, history, isSystemTrigger, targetMessageId } = req.body || {};
+  const { projectId, message, focus, attachments } = req.body || {};
 
   if (!projectId || typeof projectId !== 'string') {
     return sendError(res, 400, '缺少有效参数: projectId (字符串)');
   }
-  if (!message || typeof message !== 'string') {
-    return sendError(res, 400, '缺少有效参数: message (字符串)');
+
+  const validAttachments: ChatImageAttachment[] = Array.isArray(attachments)
+    ? attachments
+        .filter((item: any) => item && typeof item.url === 'string' && item.url.trim().length > 0)
+        .slice(0, 4)
+        .map((item: any) => ({
+          url: item.url.trim(),
+          ...(typeof item.name === 'string' && item.name.trim() ? { name: item.name.trim() } : {}),
+        }))
+    : [];
+
+  const cleanMessage = typeof message === 'string' ? message.trim() : '';
+  if (!cleanMessage && validAttachments.length === 0) {
+    return sendError(res, 400, '缺少有效消息文本或图片附件');
   }
+  const effectiveMessage = cleanMessage || '请查看我发送的图片，结合当前制片阶段给出你的专业观察与建议。';
 
   // 设置 SSE 响应头
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -120,31 +143,48 @@ async function streamSessionHandler(req: any, res: any, targetSessionId: string)
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders?.();
 
+  const abortController = new AbortController();
+  let completed = false;
+  res.on('close', () => {
+    if (!completed && !res.writableEnded) {
+      abortController.abort();
+    }
+  });
+
   try {
-    const session = ChatSessionFactory.create(targetSessionId, { projectId, sessionId: targetSessionId });
+    const session = AgentFactory.create(targetSessionId, { projectId, sessionId: targetSessionId });
 
     await session.stream({
-      message,
-      history,
-      isSystemTrigger: Boolean(isSystemTrigger),
-      targetMessageId: targetMessageId ? String(targetMessageId) : undefined,
+      message: effectiveMessage,
+      attachments: validAttachments.length > 0 ? validAttachments : undefined,
+      focus: focus && typeof focus === 'object' && typeof focus.location === 'string' ? focus : undefined,
+      abortSignal: abortController.signal,
       onTextChunk: (chunk) => {
+        if (abortController.signal.aborted || res.writableEnded) return;
         res.write(`data: ${JSON.stringify({ type: 'text', chunk })}\n\n`);
         res.flush?.();
       },
-      onDone: (result) => {
+      onDone: async (result) => {
+        if (abortController.signal.aborted || res.writableEnded) return;
+        await dispatchApprovedIntent(session, result);
+        if (abortController.signal.aborted || res.writableEnded) return;
+        completed = true;
         res.write(
           `data: ${JSON.stringify({
             type: 'done',
             cleanText: result.cleanText,
             intent: result.intent,
             messageId: result.messageId,
+            task: result.task,
+            dispatchError: result.dispatchError,
           })}\n\n`
         );
         res.flush?.();
         res.end();
       },
       onError: (err) => {
+        if (abortController.signal.aborted || res.writableEnded) return;
+        completed = true;
         res.write(
           `data: ${JSON.stringify({
             type: 'error',
@@ -155,9 +195,14 @@ async function streamSessionHandler(req: any, res: any, targetSessionId: string)
       },
     });
   } catch (err: any) {
-    console.error(`[ChatSessionRoute Error: ${targetSessionId}]:`, err);
+    if (abortController.signal.aborted || err?.name === 'AbortError') return;
+    console.error(`[AgentRoute Error: ${targetSessionId}]:`, err);
     if (!res.headersSent) {
       sendError(res, 500, err?.message || '流式服务启动失败');
+    } else if (!res.writableEnded) {
+      completed = true;
+      res.write(`data: ${JSON.stringify({ type: 'error', error: err?.message || '流式服务启动失败' })}\n\n`);
+      res.end();
     }
   }
 }
@@ -165,28 +210,8 @@ async function streamSessionHandler(req: any, res: any, targetSessionId: string)
 /**
  * 4. 驱动指定会话的单跳直出流式推演
  * POST /api/chat/sessions/:sessionId/stream
- * Body: { projectId: string, message: string, history?: any[], isSystemTrigger?: boolean }
+ * Body: { projectId: string, message: string }
  */
 chatRouter.post('/sessions/:sessionId/stream', async (req, res) => {
   await streamSessionHandler(req, res, req.params.sessionId);
-});
-
-/**
- * 5. 向下兼容旧版工序 1 别名路由（内部 100% 委托给 PlannerChatSession 实例）
- */
-chatRouter.post('/planner', async (req, res) => {
-  await streamSessionHandler(req, res, 'planner');
-});
-
-chatRouter.get('/planner/history', (req, res) => {
-  const { projectId } = req.query;
-  if (!projectId || typeof projectId !== 'string') {
-    return sendError(res, 400, '缺少有效参数: projectId (字符串)');
-  }
-  try {
-    const session = ChatSessionFactory.create('planner', { projectId, sessionId: 'planner' });
-    sendSuccess(res, session.getMessages(), '获取会话历史成功');
-  } catch (err: any) {
-    sendError(res, 500, err?.message || '获取会话历史失败');
-  }
 });

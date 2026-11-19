@@ -28,8 +28,20 @@ export const CinematicShotOrderSchema = z.object({
   audioPrompt: z.string().describe('与视频同步生成的环境声、动作声、音乐氛围与对白表现描述词'),
   firstFrameImageUrl: z.string().optional().describe('生成后的首帧图片 URL'),
   lastFrameImageUrl: z.string().optional().describe('生成后的尾帧图片 URL'),
-  firstFrameEnhancedUrl: z.string().optional(),
-  lastFrameEnhancedUrl: z.string().optional(),
+  firstFrameUpscale: z
+    .object({
+      multiplier: z.number(),
+      upscaledAt: z.string(),
+    })
+    .optional()
+    .describe('首帧 SeedVR2 高清超分记录'),
+  lastFrameUpscale: z
+    .object({
+      multiplier: z.number(),
+      upscaledAt: z.string(),
+    })
+    .optional()
+    .describe('末帧 SeedVR2 高清超分记录'),
   videoUrl: z.string().optional().describe('生成后的镜头视频 URL'),
   dialogue: z.string().default('').describe('本镜头对白或旁白'),
   ambience: z.string().default('').describe('本镜头环境声与氛围音'),

@@ -19,6 +19,7 @@ export interface CompatToolConfig<TInput extends z.ZodTypeAny = z.ZodTypeAny, TO
   description: string;
   inputSchema?: TInput;
   outputSchema?: z.ZodTypeAny;
+  preserveInputSchema?: boolean;
   execute: (params: { context: z.infer<TInput>; mastra?: any; runId?: string }) => Promise<TOutput>;
   [key: string]: any;
 }
@@ -112,14 +113,14 @@ export function resolveToolArgs<T>(rawArgs: any, originalSchema: z.ZodType<T, an
 export function createTool<TInput extends z.ZodTypeAny = z.ZodTypeAny, TOutput = any>(
   config: CompatToolConfig<TInput, TOutput>
 ): any {
-  const { inputSchema, execute, description, ...rest } = config;
+  const { inputSchema, execute, description, preserveInputSchema = false, ...rest } = config;
 
   if (!inputSchema) {
     return mastraCreateTool(config as any);
   }
 
   const enhancedDescription = (description || '').trim();
-  const cleanedStringSchema = cleanSchemaToStringFields(inputSchema);
+  const cleanedStringSchema = preserveInputSchema ? inputSchema : cleanSchemaToStringFields(inputSchema);
 
   const wrappedExecute = async (params: any) => {
     const hasContext = params && typeof params === 'object' && 'context' in params;

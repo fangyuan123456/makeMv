@@ -14,6 +14,7 @@ import {
 } from '../src/task-engine/index.js';
 import { BaseTaskTool } from '../src/tools/base/task-tool.js';
 import { getProjectDir } from '../src/project-store/artifact-fs.js';
+import { AgentSessionStore } from '../src/agents/runtime/session-store.js';
 
 // 用于测试的轻量模拟工具
 class MockTool extends BaseTaskTool<{ value: number }, { result: number }> {
@@ -44,16 +45,14 @@ console.log('🚀 开始验证现代 Tool-First 任务调度微内核 (Task Engi
 console.log('\n--- 测试 1: 验证任务工具注册表完整性 ---');
 const allTools = taskToolRegistry.getAllTools();
 console.log(`已注册工具总数: ${allTools.length}`);
-assert.ok(allTools.length >= 10, '应当至少注册 10 个标准任务工具');
+assert.ok(allTools.length >= 8, '应当至少注册 8 个标准任务工具');
 
 const expectedToolNames = [
   'planner.screenplay_writer',
   'planner.script_to_prd',
   'film.asset_extraction',
   'film.storyboard_planning',
-  'film.character_portrait',
-  'film.prop_lookdev',
-  'film.scene_atmosphere',
+  'film.lookdev',
   'film.shot_keyframe',
   'film.shot_video',
   'game.assembly',
@@ -65,7 +64,7 @@ for (const name of expectedToolNames) {
   const toolInstance = taskToolRegistry.getTool(name);
   assert.ok(toolInstance, `必须能成功获取工具实例: ${name}`);
 }
-console.log('✅ 测试 1 通过: 10 大标准任务工具全部成功注册并可查！');
+console.log('✅ 测试 1 通过: 8 大标准任务工具全部成功注册并可查！');
 
 // 测试 2: 任务派发与双阶段生命周期
 console.log('\n--- 测试 2: 任务派发同步响应与异步状态流转 (TaskDispatcher & SSE 事件) ---');
@@ -118,7 +117,7 @@ const retryMessageId = 'msg_retry_binding';
 const retryChatDir = path.join(getProjectDir(testProjectId), 'chat');
 fs.mkdirSync(retryChatDir, { recursive: true });
 const retryChatPath = path.join(retryChatDir, `${retrySessionId}.json`);
-fs.writeFileSync(retryChatPath, JSON.stringify([{ id: retryMessageId, role: 'assistant', content: '任务失败', taskId: initialTask.taskId, taskStatus: 'failed' }]));
+fs.writeFileSync(retryChatPath, JSON.stringify([{ id: retryMessageId, role: 'assistant', content: '任务失败', taskId: initialTask.taskId }]));
 taskStore.saveTask({
   ...completedTask,
   status: 'failed',
@@ -127,13 +126,17 @@ taskStore.saveTask({
 });
 const retriedTask = await taskDispatcher.retry(initialTask.taskId);
 let retryMessage = JSON.parse(fs.readFileSync(retryChatPath, 'utf-8'))[0];
-assert.strictEqual(retryMessage.taskId, retriedTask.taskId, '聊天卡片必须绑定重试任务');
+assert.strictEqual(retryMessage.taskId, initialTask.taskId, '会话文件保持原始任务绑定');
+assert.strictEqual(new AgentSessionStore(testProjectId, retrySessionId).getMessages()[0].taskId,
+  retriedTask.taskId, '聊天卡片读取时必须解析到重试任务');
 assert.strictEqual(retryMessage.taskError, undefined, '重试时必须清除旧错误');
 for (let i = 0; i < 20 && taskStore.getTask(retriedTask.taskId)?.status !== 'completed'; i++) {
   await new Promise((r) => setTimeout(r, 50));
 }
 retryMessage = JSON.parse(fs.readFileSync(retryChatPath, 'utf-8'))[0];
-assert.strictEqual(retryMessage.taskStatus, 'completed', '新任务完成后卡片必须同步完成');
+assert.strictEqual(retryMessage.taskStatus, undefined, '会话文件不应存储任务状态快照');
+assert.strictEqual(new AgentSessionStore(testProjectId, retrySessionId).getMessages()[0].taskStatus,
+  'completed', '新任务完成后读取卡片必须投影真实状态');
 fs.unlinkSync(retryChatPath);
 
 // 测试 3: 任务状态磁盘落盘与恢复机制 (tasks.json)

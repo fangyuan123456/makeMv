@@ -85,6 +85,15 @@ export abstract class BaseTaskTool<TInput, TOutput> extends EventEmitter {
   public outputSchema?: z.ZodType<TOutput, any, any>;
 
   /**
+   * 声明单目标并发互斥键（多态扩展点，零调度器硬编码）：
+   * - 返回 null（默认）：工具需要项目级独占排他执行；
+   * - 返回具体实体键（如 `${projectId}:character:${id}`）：不同实体可按项目并发池受控并发，同实体严格互斥。
+   */
+  public resolveConcurrencyKey(_projectId: string, _input?: Record<string, any>): string | null {
+    return null;
+  }
+
+  /**
    * 将当前物理工具输出为标准合规的 Mastra / AI SDK Tool 实体 (Mastra Tool SSOT)
    * 自动清洗为合规合法的下划线真名，大模型原生 Function Calling 直通底层
    */

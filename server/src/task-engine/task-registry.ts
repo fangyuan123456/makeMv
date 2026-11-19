@@ -8,11 +8,10 @@ import { screenplayTool, scriptToPrdTool } from '../tools/planner/index.js';
 import {
   assetExtractionTool,
   storyboardPlanningTool,
-  characterPortraitTool,
-  propLookdevTool,
-  sceneAtmosphereTool,
+  lookdevTool,
   shotKeyframeTool,
   shotVideoTool,
+  imageUpscaleTool,
 } from '../tools/film-production/index.js';
 import { gameAssemblyTool } from '../tools/game-assembly/index.js';
 
@@ -44,11 +43,10 @@ export class TaskToolRegistry {
       // 2. 影视视听制作类
       assetExtractionTool,
       storyboardPlanningTool,
-      characterPortraitTool,
-      propLookdevTool,
-      sceneAtmosphereTool,
+      lookdevTool,
       shotKeyframeTool,
       shotVideoTool,
+      imageUpscaleTool,
       // 3. 游戏总装类
       gameAssemblyTool,
     ];

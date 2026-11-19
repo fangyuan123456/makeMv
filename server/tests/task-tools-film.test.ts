@@ -1,6 +1,6 @@
 /**
  * tests/task-tools-film.test.ts
- * 验证影视制作工坊 7 大细粒度任务工具 (Film Production Task Tools)
+ * 验证影视制作工坊 6 个公开任务工具 (Film Production Task Tools)
  * 验证：目录零外层 schema/prompt 契约、双阶段回调（onTaskId -> onResult）、Mastra 工作流装配
  */
 
@@ -11,33 +11,31 @@ import { ProjectStore } from '../src/project-store/ProjectStore.js';
 import {
   assetExtractionTool,
   storyboardPlanningTool,
-  characterPortraitTool,
-  propLookdevTool,
-  sceneAtmosphereTool,
+  lookdevTool,
   shotKeyframeTool,
   shotVideoTool,
+  imageUpscaleTool,
 } from '../src/tools/film-production/index.js';
 
-console.log('🎬 开始验证影视制作工坊 7 大细粒度任务工具架构 (Film Production Task Tools)...\n');
+console.log('🎬 开始验证影视制作工坊 6 个公开任务工具架构 (Film Production Task Tools)...\n');
 
-// 1. 架构红线自检：验证 7 个工具目录外层绝无 schema.ts 和 prompt.ts
+// 1. 架构红线自检：公开工具保持单一 workflow，定妆类型为内部模块
 function testDirectoryArchitecture() {
   console.log('--- 测试 1: 架构红线自检：外层无 schema/prompt & 一步一文件夹高内聚 ---');
   const baseDir = path.resolve(process.cwd(), 'src/tools/film-production');
   const fallbackDir = path.resolve(process.cwd(), 'server/src/tools/film-production');
   const filmDir = fs.existsSync(baseDir) ? baseDir : fallbackDir;
 
-  const toolFolders = [
-    '01-asset-extraction-tool',
-    '02-storyboard-planning-tool',
-    '03-character-portrait-tool',
-    '04-prop-lookdev-tool',
-    '05-scene-atmosphere-tool',
-    '06-shot-keyframe-tool',
-    '07-shot-video-tool',
+  const multiStepToolFolders = [
+    'asset-extraction-tool',
+    'storyboard-planning-tool',
+    'lookdev-tool',
+    'shot-keyframe-tool',
+    'shot-video-tool',
   ];
+  const singleStepToolFolders = ['image-upscale-tool'];
 
-  for (const folder of toolFolders) {
+  for (const folder of [...multiStepToolFolders, ...singleStepToolFolders]) {
     const fullFolderPath = path.join(filmDir, folder);
     assert.ok(fs.existsSync(fullFolderPath), `工具目录应存在: ${folder}`);
 
@@ -55,26 +53,35 @@ function testDirectoryArchitecture() {
       `[架构违规拦截] 工具外层禁止出现 prompt.ts: ${folder}/prompt.ts`
     );
 
-    // 必须有 steps 目录与 workflow.ts, index.ts
-    assert.ok(fs.existsSync(path.join(fullFolderPath, 'workflow.ts')), `应存在 workflow.ts: ${folder}`);
     assert.ok(fs.existsSync(path.join(fullFolderPath, 'index.ts')), `应存在 index.ts: ${folder}`);
-    assert.ok(fs.existsSync(path.join(fullFolderPath, 'steps')), `应存在 steps 子目录: ${folder}`);
+    if (multiStepToolFolders.includes(folder)) {
+      // 多步工具必须有 steps 目录与 workflow.ts
+      assert.ok(fs.existsSync(path.join(fullFolderPath, 'workflow.ts')), `应存在 workflow.ts: ${folder}`);
+      assert.ok(fs.existsSync(path.join(fullFolderPath, 'steps')), `应存在 steps 子目录: ${folder}`);
+    }
   }
 
-  console.log('✅ 测试 1 通过: 7 个工具目录全部符合一步一文件夹、外层零 schema/prompt 规范！\n');
+  const lookdevDir = path.join(filmDir, 'lookdev-tool');
+  for (const kind of ['character', 'location', 'item']) {
+    assert.ok(fs.existsSync(path.join(lookdevDir, kind, 'index.ts')));
+    assert.ok(fs.existsSync(path.join(lookdevDir, kind, 'prompt.ts')));
+    assert.strictEqual(fs.existsSync(path.join(lookdevDir, kind, 'workflow.ts')), false);
+    assert.strictEqual(fs.existsSync(path.join(lookdevDir, kind, 'steps')), false);
+  }
+
+  console.log('✅ 测试 1 通过: 6 个工具目录与定妆内部模块结构正确！\n');
 }
 
 // 2. 验证工具定义与元数据
 function testToolDefinitions() {
-  console.log('--- 测试 2: 7 大工具元数据与契约定义校验 ---');
+  console.log('--- 测试 2: 6 个工具元数据与契约定义校验 ---');
   const tools = [
     { tool: assetExtractionTool, expectedId: 'film.asset_extraction' },
     { tool: storyboardPlanningTool, expectedId: 'film.storyboard_planning' },
-    { tool: characterPortraitTool, expectedId: 'film.character_portrait' },
-    { tool: propLookdevTool, expectedId: 'film.prop_lookdev' },
-    { tool: sceneAtmosphereTool, expectedId: 'film.scene_atmosphere' },
+    { tool: lookdevTool, expectedId: 'film.lookdev' },
     { tool: shotKeyframeTool, expectedId: 'film.shot_keyframe' },
     { tool: shotVideoTool, expectedId: 'film.shot_video' },
+    { tool: imageUpscaleTool, expectedId: 'film.image_upscale' },
   ];
 
   for (const { tool, expectedId } of tools) {
@@ -84,7 +91,7 @@ function testToolDefinitions() {
     assert.ok(wf, `工具内部 workflow 必须能成功构建: ${expectedId}`);
   }
 
-  console.log('✅ 测试 2 通过: 7 个工具元数据定义完备合规！\n');
+  console.log('✅ 测试 2 通过: 6 个工具元数据定义完备合规！\n');
 }
 
 // 3. 验证双阶段回调机制 (onTaskId -> onResult)
@@ -198,7 +205,7 @@ async function runAllTests() {
     testDirectoryArchitecture();
     testToolDefinitions();
     await testDualCallbackOnTools();
-    console.log('🎉 所有影视制作工坊 7 大任务工具测试 100% 运行通过！');
+    console.log('🎉 所有影视制作工坊 6 个任务工具测试运行通过！');
   } catch (err) {
     console.error('❌ 测试失败:', err);
     process.exit(1);

@@ -41,6 +41,8 @@ export class TaskStore extends EventEmitter {
    * 保存或更新任务
    */
   public saveTask(task: TaskRecord): void {
+    const previous = this.tasks.get(task.taskId);
+    const hadProject = this.projectTasks.has(task.projectId);
     this.tasks.set(task.taskId, { ...task });
 
     if (!this.projectTasks.has(task.projectId)) {
@@ -49,9 +51,23 @@ export class TaskStore extends EventEmitter {
     this.projectTasks.get(task.projectId)!.add(task.taskId);
 
     // 持久化到项目目录
-    this.persistProjectTasks(task.projectId);
+    try {
+      this.persistProjectTasks(task.projectId);
+    } catch (error) {
+      if (previous) this.tasks.set(task.taskId, previous);
+      else {
+        this.tasks.delete(task.taskId);
+        this.projectTasks.get(task.projectId)?.delete(task.taskId);
+      }
+      if (!hadProject) this.projectTasks.delete(task.projectId);
+      throw error;
+    }
 
     // 触发事件通知
+    this.emitTaskEvent(task);
+  }
+
+  private emitTaskEvent(task: TaskRecord): void {
     const payload: TaskEventPayload = {
       taskId: task.taskId,
       projectId: task.projectId,
@@ -61,6 +77,9 @@ export class TaskStore extends EventEmitter {
       progress: task.progress,
       output: task.output,
       error: task.error,
+      createdAt: task.createdAt,
+      startedAt: task.startedAt,
+      completedAt: task.completedAt,
       durationMs: task.durationMs,
       timestamp: Date.now(),
     };
@@ -81,6 +100,20 @@ export class TaskStore extends EventEmitter {
       if (restored) return restored;
     }
     return undefined;
+  }
+
+  public getLatestTask(taskId: string): TaskRecord | undefined {
+    let current = this.getTask(taskId);
+    if (!current) return undefined;
+    const tasks = this.getTasksByProject(current.projectId);
+    const visited = new Set<string>();
+    while (!visited.has(current.taskId)) {
+      visited.add(current.taskId);
+      const replacement = tasks.find((task) => task.replacesTaskId === current!.taskId);
+      if (!replacement) break;
+      current = replacement;
+    }
+    return current;
   }
 
   public findByIdempotencyKey(projectId: string, idempotencyKey: string): TaskRecord | undefined {
@@ -120,7 +153,7 @@ export class TaskStore extends EventEmitter {
     if (!taskIds || taskIds.size === 0) return [];
 
     const list: TaskRecord[] = [];
-    let hasZombieCleaned = false;
+    const reclaimedTasks: TaskRecord[] = [];
     for (const id of taskIds) {
       const t = this.tasks.get(id);
       if (t) {
@@ -135,13 +168,16 @@ export class TaskStore extends EventEmitter {
           t.error = '执行线程丢失或服务已重启，请重新触发渲染';
           t.completedAt = Date.now();
           if (t.startedAt) t.durationMs = t.completedAt - t.startedAt;
-          hasZombieCleaned = true;
+          reclaimedTasks.push(t);
         }
         list.push(t);
       }
     }
-    if (hasZombieCleaned) {
+    if (reclaimedTasks.length > 0) {
       this.persistProjectTasks(projectId);
+      for (const task of reclaimedTasks) {
+        this.emitTaskEvent(task);
+      }
     }
     return list.sort((a, b) => b.createdAt - a.createdAt);
   }
@@ -163,61 +199,45 @@ export class TaskStore extends EventEmitter {
    */
   private ensureProjectLoaded(projectId: string): void {
     if (this.projectTasks.has(projectId)) return;
-
-    this.projectTasks.set(projectId, new Set());
+    const filePath = path.join(getProjectDir(projectId), 'tasks.json');
+    const raw = fs.existsSync(filePath) ? safeReadJsonSync<TaskRecord[]>(filePath) : [];
+    if (!Array.isArray(raw)) throw new Error(`任务账本损坏: ${filePath}`);
+    const taskIds = new Set<string>();
     let hasZombieCleaned = false;
-    try {
-      const filePath = path.join(getProjectDir(projectId), 'tasks.json');
-      if (fs.existsSync(filePath)) {
-        const raw = safeReadJsonSync<TaskRecord[]>(filePath);
-        if (Array.isArray(raw)) {
-          for (const item of raw) {
-            if (item && item.taskId) {
-              // 自动回收僵尸运行态：若任务在磁盘上处于 running 或 pending，但当前为首次自磁盘恢复，说明该任务在上次进程退出前未完结，刚性标记为中断失败
-              if (item.status === 'running' || item.status === 'pending') {
-                item.status = 'failed';
-                item.error = '服务重启中断，任务已终止，可重新触发渲染';
-                item.recovery = 'restart';
-                item.recoveryAttempts = item.recoveryAttempts || 0;
-                item.completedAt = item.completedAt || Date.now();
-                if (item.startedAt) {
-                  item.durationMs = item.completedAt - item.startedAt;
-                }
-                hasZombieCleaned = true;
-              }
-              this.tasks.set(item.taskId, item);
-              this.projectTasks.get(projectId)!.add(item.taskId);
-            }
-          }
-        }
+    for (const item of raw) {
+      if (!item?.taskId) continue;
+      // 进程退出前未完结的任务在首次加载时收敛为失败。
+      if (item.status === 'running' || item.status === 'pending') {
+        item.status = 'failed';
+        item.error = '服务重启中断，任务已终止，可重新触发渲染';
+        item.recovery = 'restart';
+        item.recoveryAttempts = item.recoveryAttempts || 0;
+        item.completedAt = item.completedAt || Date.now();
+        if (item.startedAt) item.durationMs = item.completedAt - item.startedAt;
+        hasZombieCleaned = true;
       }
-      if (hasZombieCleaned) {
-        this.persistProjectTasks(projectId);
-      }
-    } catch {
-      // 容错读取，不抛崩
+      this.tasks.set(item.taskId, item);
+      taskIds.add(item.taskId);
     }
+    this.projectTasks.set(projectId, taskIds);
+    if (hasZombieCleaned) this.persistProjectTasks(projectId);
   }
 
   /**
    * 将某项目的任务列表原子写盘
    */
   private persistProjectTasks(projectId: string): void {
-    try {
-      const taskIds = this.projectTasks.get(projectId);
-      if (!taskIds) return;
+    const taskIds = this.projectTasks.get(projectId);
+    if (!taskIds) return;
 
-      const list: TaskRecord[] = [];
-      for (const id of taskIds) {
-        const t = this.tasks.get(id);
-        if (t) list.push(t);
-      }
-
-      const filePath = path.join(getProjectDir(projectId), 'tasks.json');
-      atomicWriteJsonSync(filePath, list);
-    } catch {
-      // 静默写入失败保护
+    const list: TaskRecord[] = [];
+    for (const id of taskIds) {
+      const t = this.tasks.get(id);
+      if (t) list.push(t);
     }
+
+    const filePath = path.join(getProjectDir(projectId), 'tasks.json');
+    atomicWriteJsonSync(filePath, list);
   }
 
   /**

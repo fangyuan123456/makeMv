@@ -37,4 +37,8 @@ export class MockImageProvider implements IImageProvider {
     const base64 = Buffer.from(svg).toString('base64');
     return `data:image/svg+xml;base64,${base64}`;
   }
+
+  public async upscaleImage(imageUrl: string): Promise<string> {
+    return imageUrl;
+  }
 }

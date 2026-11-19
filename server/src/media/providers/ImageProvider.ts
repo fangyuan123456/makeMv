@@ -20,6 +20,16 @@ export interface ImageGenerationOptions {
     | 'general_t2i';
 }
 
+export interface ImageUpscaleOptions {
+  requestId?: string;
+  /** 超分放大倍率（默认 2，可选 4） */
+  multiplier?: number;
+  /** 色彩校正方式（SeedVR2 官方原版默认 none，可选 lab / wavelet / adain） */
+  colorCorrection?: 'none' | 'lab' | 'wavelet' | 'adain';
+  seed?: number;
+  abortSignal?: AbortSignal;
+}
+
 export interface IImageProvider {
   readonly name: string;
 
@@ -30,4 +40,9 @@ export interface IImageProvider {
    * @returns 生成图像的临时或本地 URL (由 MediaDownloader 负责持久化)
    */
   generateImage(prompt: string, options?: ImageGenerationOptions): Promise<string>;
+
+  /**
+   * 使用超分模型（如 SeedVR2）对已有图片执行高清放大与细节增强
+   */
+  upscaleImage?(imageUrl: string, options?: ImageUpscaleOptions): Promise<string>;
 }

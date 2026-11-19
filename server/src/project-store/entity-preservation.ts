@@ -67,6 +67,49 @@ export function hydrateEntitiesWithDiskAssets(
         modified = true;
       }
     });
+
+    // 1.5 扫描道具物理特写图 (assets/entities)
+    (entities.items || []).forEach((item: any) => {
+      item.versions = item.versions || [];
+      const itemId = item.itemId || item.id;
+      if (!itemId) return;
+      const matchedFiles = files.filter(
+        (f) => f.startsWith(`${itemId}_`) || f.startsWith(`${itemId}.`)
+      );
+
+      matchedFiles.forEach((file) => {
+        const mediaUrl = `/media/${encodeURIComponent(projectId)}/assets/entities/${encodeURIComponent(file)}`;
+        const versionMatch = file.match(/_v_(\d+)\./);
+        const versionId = versionMatch
+          ? `v_${versionMatch[1]}`
+          : `v_${file.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const createdAt = versionMatch
+          ? new Date(Number(versionMatch[1])).toISOString()
+          : new Date().toISOString();
+
+        if (
+          !item.versions.some(
+            (v: any) => v.imageUrl === mediaUrl || v.versionId === versionId
+          )
+        ) {
+          item.versions.push({
+            versionId,
+            imageUrl: mediaUrl,
+            promptZh: item.promptZh || '',
+            referenceImageUrl: item.referenceImageUrl,
+            createdAt,
+          });
+          modified = true;
+        }
+      });
+
+      if (!item.imageUrl && item.versions.length > 0) {
+        const latest = item.versions[item.versions.length - 1];
+        item.imageUrl = latest.imageUrl;
+        item.selectedVersionId = latest.versionId;
+        modified = true;
+      }
+    });
   }
 
   // 2. 扫描场景物理空镜 (assets/locations)
@@ -129,19 +172,27 @@ export function hydrateEntitiesWithDiskAssets(
 }
 
 /**
- * 将提取的新设定与已有旧设定进行无损增量合并
+ * 将提取的新设定与已有旧设定进行无损增量合并。
+ * 若传入 targetKinds（如 ['character']），仅更新指定类别，未选中类别原样保留旧设定与已出图资产。
  */
 export function mergeExtractedEntities(
   oldEntities: any,
-  newEntities: any
+  newEntities: any,
+  targetKinds?: Array<'character' | 'location' | 'item'>
 ): any {
   if (!oldEntities || !oldEntities.characters) return newEntities;
   if (!newEntities || !newEntities.characters) return oldEntities;
 
-  const merged = { ...newEntities };
+  const allowed = Array.isArray(targetKinds) && targetKinds.length > 0 ? new Set(targetKinds) : null;
+  const merged = {
+    ...newEntities,
+    ...(allowed && oldEntities.artStyle ? { artStyle: oldEntities.artStyle } : {}),
+  };
 
   // 1. 合并角色资产
-  merged.characters = (newEntities.characters || []).map((newChar: any) => {
+  merged.characters = allowed && !allowed.has('character')
+    ? oldEntities.characters || []
+    : (newEntities.characters || []).map((newChar: any) => {
     const oldChar = (oldEntities.characters || []).find(
       (c: any) =>
         c.characterId === newChar.characterId || c.name === newChar.name
@@ -165,7 +216,9 @@ export function mergeExtractedEntities(
   });
 
   // 2. 合并场景资产
-  merged.locations = (newEntities.locations || []).map((newLoc: any) => {
+  merged.locations = allowed && !allowed.has('location')
+    ? oldEntities.locations || []
+    : (newEntities.locations || []).map((newLoc: any) => {
     const oldLoc = (oldEntities.locations || []).find(
       (l: any) =>
         l.locationId === newLoc.locationId || l.name === newLoc.name
@@ -184,6 +237,31 @@ export function mergeExtractedEntities(
       referenceImageUrl:
         oldLoc.referenceImageUrl || newLoc.referenceImageUrl,
       promptZh: oldLoc.promptZh || newLoc.promptZh,
+    };
+  });
+
+  // 3. 合并道具资产（保留已有特写图、参考底图与高清超分版本库）
+  merged.items = allowed && !allowed.has('item')
+    ? oldEntities.items || []
+    : (newEntities.items || []).map((newItem: any) => {
+    const oldItem = (oldEntities.items || []).find(
+      (i: any) =>
+        i.itemId === newItem.itemId || i.name === newItem.name
+    );
+    if (!oldItem) return newItem;
+
+    return {
+      ...newItem,
+      imageUrl: oldItem.imageUrl || newItem.imageUrl,
+      versions:
+        oldItem.versions && oldItem.versions.length > 0
+          ? oldItem.versions
+          : newItem.versions || [],
+      selectedVersionId:
+        oldItem.selectedVersionId || newItem.selectedVersionId,
+      referenceImageUrl:
+        oldItem.referenceImageUrl || newItem.referenceImageUrl,
+      promptZh: oldItem.promptZh || newItem.promptZh,
     };
   });
 

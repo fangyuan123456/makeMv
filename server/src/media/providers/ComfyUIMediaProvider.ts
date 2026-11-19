@@ -13,7 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'url';
-import type { IImageProvider, ImageGenerationOptions } from './ImageProvider.js';
+import type { IImageProvider, ImageGenerationOptions, ImageUpscaleOptions } from './ImageProvider.js';
 import type { IVideoProvider, VideoGenerationOptions } from './VideoProvider.js';
 import { config } from '../../utils/config.js';
 import { ensureApiPromptFormat } from '../comfyui/comfyui-converter.js';
@@ -395,6 +395,42 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
       referenceImages: refs.length > 0 ? refs : undefined,
       abortSignal: options?.abortSignal,
       requestId: options?.requestId || this.buildRequestId('image', prompt, options),
+    });
+  }
+
+  /**
+   * 图片高清超分（基于官方 SeedVR2 3B INT8 工作流）
+   */
+  public async upscaleImage(imageUrl: string, options?: ImageUpscaleOptions): Promise<string> {
+    if (!imageUrl || !imageUrl.trim()) {
+      throw new Error('[ComfyUIMediaProvider] 超分缺少有效的源图片地址');
+    }
+
+    const templatePath = this.resolveTemplatePath('comfyui_seedvr2_upscale.json');
+    if (!fs.existsSync(templatePath)) {
+      throw new Error(`[ComfyUIMediaProvider] 未找到超分工作流模板: ${templatePath}`);
+    }
+
+    const templateRaw = fs.readFileSync(templatePath, 'utf-8');
+    const workflow = ensureApiPromptFormat(JSON.parse(templateRaw));
+
+    const multiplier = Math.min(4, Math.max(1, Number(options?.multiplier) || 2));
+    const colorCorrection = options?.colorCorrection || 'none';
+
+    for (const node of Object.values(workflow)) {
+      if (node?.class_type === 'ResizeImageMaskNode' && node.inputs) {
+        node.inputs['resize_type'] = 'scale by multiplier';
+        node.inputs['resize_type.multiplier'] = multiplier;
+      } else if (node?.class_type === 'SeedVR2PostProcessing' && node.inputs) {
+        node.inputs.color_correction_method = colorCorrection;
+      }
+    }
+
+    return this.executeWorkflow(workflow, 'image', {
+      seed: options?.seed,
+      referenceImages: [imageUrl.trim()],
+      abortSignal: options?.abortSignal,
+      requestId: options?.requestId || this.buildRequestId('upscale', imageUrl, { multiplier, colorCorrection }),
     });
   }
 

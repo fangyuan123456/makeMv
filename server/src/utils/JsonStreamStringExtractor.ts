@@ -17,7 +17,10 @@ export class JsonStreamStringExtractor {
   private targetKeys: Set<string>;
   private onChunk: (chunk: string) => void;
 
-  private state: 'WAITING_KEY' | 'IN_KEY' | 'WAITING_COLON' | 'WAITING_VALUE' | 'IN_VALUE' = 'WAITING_KEY';
+  private state: 'DEFAULT' | 'IN_KEY' | 'IN_TARGET_VALUE' | 'SKIP_STRING' = 'DEFAULT';
+  private depth: number = 0;
+  private expectingValue: boolean = false;
+  private matchedTargetKey: boolean = false;
   private currentKey: string = '';
   private isEscaped: boolean = false;
   private isUnicode: boolean = false;
@@ -37,7 +40,7 @@ export class JsonStreamStringExtractor {
     for (let i = 0; i < chunk.length; i++) {
       const ch = chunk[i];
 
-      if (this.state === 'IN_VALUE') {
+      if (this.state === 'IN_TARGET_VALUE') {
         if (this.isUnicode) {
           this.unicodeHex += ch;
           if (this.unicodeHex.length === 4) {
@@ -76,8 +79,9 @@ export class JsonStreamStringExtractor {
         }
 
         if (ch === '"') {
-          // 当前目标字符串值解析完毕
-          this.state = 'WAITING_KEY';
+          this.state = 'DEFAULT';
+          this.matchedTargetKey = false;
+          this.expectingValue = false;
           continue;
         }
 
@@ -85,11 +89,16 @@ export class JsonStreamStringExtractor {
         continue;
       }
 
-      if (this.state === 'WAITING_KEY') {
-        if (ch === '"') {
-          this.state = 'IN_KEY';
-          this.currentKey = '';
+      if (this.state === 'SKIP_STRING') {
+        if (this.isEscaped) {
           this.isEscaped = false;
+        } else if (ch === '\\') {
+          this.isEscaped = true;
+        } else if (ch === '"') {
+          this.state = 'DEFAULT';
+          if (this.depth === 1 && this.expectingValue) {
+            this.matchedTargetKey = false;
+          }
         }
         continue;
       }
@@ -101,37 +110,65 @@ export class JsonStreamStringExtractor {
         } else if (ch === '\\') {
           this.isEscaped = true;
         } else if (ch === '"') {
-          this.state = 'WAITING_COLON';
+          this.matchedTargetKey = this.targetKeys.has(this.currentKey);
+          this.state = 'DEFAULT';
         } else {
           this.currentKey += ch;
         }
         continue;
       }
 
-      if (this.state === 'WAITING_COLON') {
-        if (ch === ':') {
-          if (this.targetKeys.has(this.currentKey)) {
-            this.state = 'WAITING_VALUE';
-          } else {
-            this.state = 'WAITING_KEY';
-          }
-        } else if (!/\s/.test(ch)) {
-          this.state = 'WAITING_KEY';
+      // DEFAULT 状态：追踪 JSON 嵌套层级，仅在顶层 (depth === 1) 匹配目标字段
+      if (ch === '{' || ch === '[') {
+        if (this.depth === 1) {
+          this.matchedTargetKey = false;
+        }
+        this.depth++;
+        if (this.depth === 1) {
+          this.expectingValue = false;
+          this.matchedTargetKey = false;
         }
         continue;
       }
 
-      if (this.state === 'WAITING_VALUE') {
-        if (ch === '"') {
-          this.state = 'IN_VALUE';
-          this.isEscaped = false;
-          this.isUnicode = false;
-          this.unicodeHex = '';
-        } else if (!/\s/.test(ch)) {
-          // 值不是字符串（可能是 null/对象/数字），放弃当前 key
-          this.state = 'WAITING_KEY';
+      if (ch === '}' || ch === ']') {
+        this.depth = Math.max(0, this.depth - 1);
+        if (this.depth === 0) {
+          this.expectingValue = false;
+          this.matchedTargetKey = false;
         }
         continue;
+      }
+
+      if (this.depth === 1) {
+        if (ch === ':') {
+          this.expectingValue = true;
+          continue;
+        }
+        if (ch === ',') {
+          this.expectingValue = false;
+          this.matchedTargetKey = false;
+          continue;
+        }
+        if (ch === '"') {
+          if (!this.expectingValue) {
+            this.state = 'IN_KEY';
+            this.currentKey = '';
+            this.isEscaped = false;
+          } else if (this.matchedTargetKey) {
+            this.state = 'IN_TARGET_VALUE';
+            this.isEscaped = false;
+            this.isUnicode = false;
+            this.unicodeHex = '';
+          } else {
+            this.state = 'SKIP_STRING';
+            this.isEscaped = false;
+          }
+          continue;
+        }
+      } else if (ch === '"') {
+        this.state = 'SKIP_STRING';
+        this.isEscaped = false;
       }
     }
   }
@@ -140,7 +177,10 @@ export class JsonStreamStringExtractor {
    * 重置状态机
    */
   public reset(): void {
-    this.state = 'WAITING_KEY';
+    this.state = 'DEFAULT';
+    this.depth = 0;
+    this.expectingValue = false;
+    this.matchedTargetKey = false;
     this.currentKey = '';
     this.isEscaped = false;
     this.isUnicode = false;

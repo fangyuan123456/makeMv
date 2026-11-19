@@ -1,6 +1,10 @@
 /**
  * media/comfyui/comfyui-converter.ts
- * ComfyUI 工作流格式自适应解析与转换器 (UI Workflow -> API Prompt SSOT)
+ * ComfyUI 工作流模板格式守卫 + 离线转换工具
+ *
+ * 运行时只接受 /prompt API 格式（class_type + 具名 inputs）。
+ * UI 画布导出格式（nodes/links + widgets_values 位置数组）不是 API 契约，
+ * 在运行时按节点类型/位置猜字段名会静默丢字段，因此统一在离线阶段转换。
  */
 
 export interface ComfyUINode {
@@ -9,8 +13,9 @@ export interface ComfyUINode {
   inputs?: Array<{
     name: string;
     link: number | null;
+    widget?: { name: string };
   }>;
-  widgets_values?: any[];
+  widgets_values_named?: Record<string, unknown>;
 }
 
 export interface ComfyUIWorkflow {
@@ -27,15 +32,14 @@ export type ComfyUIApiPrompt = Record<
 >;
 
 /**
- * 将 ComfyUI 画布导出格式 (UI Workflow) 自动转换为 /prompt API 可执行格式
- * 如果已经是 API Prompt 格式，则直接原样返回深拷贝
+ * 运行时模板加载：只放行 /prompt API 格式，原样深拷贝返回。
+ * 遇到 UI 画布格式直接抛错，不做任何格式猜测。
  */
 export function ensureApiPromptFormat(rawWorkflow: any): ComfyUIApiPrompt {
   if (!rawWorkflow || typeof rawWorkflow !== 'object') {
     throw new Error('[ComfyUIConverter] 无效的工作流数据结构');
   }
 
-  // 1. 如果已经是 API Prompt 格式 (键名为节点 ID 字符串，包含 class_type 与 inputs)
   const isApiFormat =
     !Array.isArray(rawWorkflow.nodes) &&
     Object.values(rawWorkflow).some(
@@ -46,11 +50,21 @@ export function ensureApiPromptFormat(rawWorkflow: any): ComfyUIApiPrompt {
     return JSON.parse(JSON.stringify(rawWorkflow));
   }
 
-  // 2. 如果是 UI Workflow 格式 (包含 nodes 与 links)
+  throw new Error(
+    '[ComfyUIConverter] 工作流模板不是 /prompt API 格式（检测到 nodes/links 画布结构）。' +
+      '请在 ComfyUI 中用「Save (API Format)」重新导出，或离线调用 convertUiWorkflowToApiPrompt 转换；运行时不做格式猜测。'
+  );
+}
+
+/**
+ * 离线工具：把 ComfyUI 新版 UI 画布导出（inputs[].widget + widgets_values_named）
+ * 转成 /prompt API 格式。仅供一次性迁移 / 导出脚本使用，运行时禁止调用。
+ * 旧版画布（只有 widgets_values 位置数组）请直接从 ComfyUI 导出 API 格式，勿按位置猜字段。
+ */
+export function convertUiWorkflowToApiPrompt(rawWorkflow: ComfyUIWorkflow): ComfyUIApiPrompt {
   const nodes: ComfyUINode[] = rawWorkflow.nodes || [];
   const links: Array<[number, number, number, number, number, string]> = rawWorkflow.links || [];
 
-  // 构建 linkId -> [fromNodeIdStr, fromSlotIndex]
   const linksMap = new Map<number, [string, number]>();
   for (const link of links) {
     const [linkId, fromNode, fromSlot] = link;
@@ -60,85 +74,34 @@ export function ensureApiPromptFormat(rawWorkflow: any): ComfyUIApiPrompt {
   const promptApi: ComfyUIApiPrompt = {};
 
   for (const node of nodes) {
-    // 忽略纯 UI 注释与展示类节点
     if (node.type === 'MarkdownNote' || node.type === 'Note') {
       continue;
     }
 
-    const nodeIdStr = String(node.id);
     const inputs: Record<string, any> = {};
 
-    // 处理连线输入（保留 COMFY_AUTOGROW_V3 的 group.slot 完整键名，如 images.image_1）
     if (Array.isArray(node.inputs)) {
       for (const input of node.inputs) {
-        if (input.link != null && linksMap.has(input.link)) {
-          inputs[input.name] = linksMap.get(input.link)!;
+        if (input.link != null) {
+          const source = linksMap.get(input.link);
+          if (!source) {
+            throw new Error(
+              `[ComfyUIConverter] 节点 ${node.id} 的输入 ${input.name} 引用了不存在的连线 ${input.link}`
+            );
+          }
+          inputs[input.name] = source;
+        } else if (input.widget) {
+          const widgetName = input.widget.name;
+          const value = node.widgets_values_named?.[widgetName];
+          if (value === undefined) {
+            throw new Error(`[ComfyUIConverter] 节点 ${node.id} 的控件 ${widgetName} 缺少具名值`);
+          }
+          inputs[input.name] = value;
         }
       }
     }
 
-    // 处理控件值 (widgets_values)
-    const widgets = node.widgets_values || [];
-
-    switch (node.type) {
-      case 'UNETLoader':
-        if (widgets.length >= 1) inputs.unet_name = widgets[0];
-        if (widgets.length >= 2) inputs.weight_dtype = widgets[1];
-        break;
-
-      case 'CLIPLoader':
-        if (widgets.length >= 1) inputs.clip_name = widgets[0];
-        if (widgets.length >= 2) inputs.type = widgets[1];
-        if (widgets.length >= 3) inputs.device = widgets[2];
-        break;
-
-      case 'VAELoader':
-        if (widgets.length >= 1) inputs.vae_name = widgets[0];
-        break;
-
-      case 'LoadImage':
-        if (widgets.length >= 1) inputs.image = widgets[0];
-        if (widgets.length >= 2) inputs.upload = widgets[1];
-        break;
-
-      case 'TextEncodeQwenImage21':
-        if (widgets.length >= 1) inputs.prompt = widgets[0];
-        if (widgets.length >= 2) inputs.negative_prompt = widgets[1];
-        if (widgets.length >= 3) inputs.resolution = widgets[2];
-        break;
-
-      case 'CLIPTextEncode':
-        if (widgets.length >= 1) inputs.text = widgets[0];
-        break;
-
-      case 'EmptyLatentImage':
-        if (widgets.length >= 1) inputs.width = widgets[0];
-        if (widgets.length >= 2) inputs.height = widgets[1];
-        if (widgets.length >= 3) inputs.batch_size = widgets[2];
-        break;
-
-      case 'KSampler':
-        if (widgets.length >= 1) inputs.seed = widgets[0];
-        if (widgets.length >= 3) inputs.steps = widgets[2];
-        if (widgets.length >= 4) inputs.cfg = widgets[3];
-        if (widgets.length >= 5) inputs.sampler_name = widgets[4];
-        if (widgets.length >= 6) inputs.scheduler = widgets[5];
-        if (widgets.length >= 7) inputs.denoise = widgets[6];
-        break;
-
-      case 'VAEDecode':
-        // link 输入已在上面由 node.inputs 赋值 (samples, vae)
-        break;
-
-      case 'SaveImage':
-        if (widgets.length >= 1) inputs.filename_prefix = widgets[0];
-        break;
-
-      default:
-        break;
-    }
-
-    promptApi[nodeIdStr] = {
+    promptApi[String(node.id)] = {
       class_type: node.type,
       inputs,
     };

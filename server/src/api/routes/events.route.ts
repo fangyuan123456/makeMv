@@ -5,6 +5,7 @@
 
 import { Router } from 'express';
 import { taskStore, type TaskEventPayload } from '../../task-engine/index.js';
+import { summaryEvents } from '../../agents/runtime/summary-events.js';
 
 export const eventsRouter = Router();
 
@@ -28,19 +29,34 @@ eventsRouter.get('/', (req, res) => {
 
   // 心跳定时器，防止代理超时断开
   const heartbeatTimer = setInterval(() => {
-    res.write(`event: ping\ndata: ${Date.now()}\n\n`);
+    if (!res.writableEnded) {
+      res.write(`event: ping\ndata: ${Date.now()}\n\n`);
+    }
   }, 15000);
 
   // 监听任务状态事件
   const unsubscribe = taskStore.onTaskEvent((event: TaskEventPayload) => {
     if (!targetProjectId || event.projectId === targetProjectId) {
-      res.write(`event: task_event\ndata: ${JSON.stringify(event)}\n\n`);
+      if (!res.writableEnded) {
+        res.write(`event: task_event\ndata: ${JSON.stringify(event)}\n\n`);
+      }
     }
   });
+
+  const unsubscribeSummaries = summaryEvents.subscribe((event) => {
+    if (targetProjectId && event.projectId !== targetProjectId) return;
+    if (!res.writableEnded) res.write(`event: summary_event\ndata: ${JSON.stringify(event)}\n\n`);
+  });
+  if (targetProjectId) {
+    for (const event of summaryEvents.snapshots(targetProjectId)) {
+      res.write(`event: summary_event\ndata: ${JSON.stringify(event)}\n\n`);
+    }
+  }
 
   // 客户端断开连接时清理
   req.on('close', () => {
     clearInterval(heartbeatTimer);
     unsubscribe();
+    unsubscribeSummaries();
   });
 });

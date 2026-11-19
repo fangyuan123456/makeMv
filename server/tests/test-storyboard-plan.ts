@@ -1,4 +1,4 @@
-import { storyboardPlanningStep } from '../src/tools/film-production/02-storyboard-planning-tool/steps/01-plan/step.js';
+import { storyboardPlanningStep } from '../src/tools/film-production/storyboard-planning-tool/steps/01-plan/step.js';
 
 async function main() {
   const projectId = 'proj_1794797707117_z776';

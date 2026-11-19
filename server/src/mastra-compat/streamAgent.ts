@@ -25,6 +25,8 @@ export interface CompatAgentStreamOptions {
   maxSteps?: number;
   temperature?: number;
   abortSignal?: AbortSignal;
+  toolChoice?: StepToolChoice;
+  experimentalToolCallStreaming?: boolean;
   prepareStep?: (ctx: { stepNumber: number; maxSteps: number }) => {
     toolChoice?: StepToolChoice;
     experimental_activeTools?: string[];
@@ -112,12 +114,16 @@ function buildDefaultToolCallRepair(rawTools: Record<string, any>): ToolCallRepa
           args: JSON.stringify(checked.data),
         };
       }
-      // 尝试用最小安全默认值补齐，确保 AI SDK 不会因校验失败阻断后续流式吐字
+      // 按当前意图工具契约尝试最小安全补齐（仅在校验通过时采用，不注入废弃字段）
       const fallbackObj = {
-        action: 'propose_stage',
-        summary: typeof normalized?.summary === 'string' && normalized.summary.trim() ? normalized.summary : '推进当前工序',
-        payload: typeof normalized?.payload === 'object' ? normalized.payload : {},
         ...normalized,
+        action: typeof normalized?.action === 'string' && normalized.action.trim() ? normalized.action : 'chat_only',
+        reply:
+          typeof normalized?.reply === 'string' && normalized.reply.trim()
+            ? normalized.reply
+            : typeof normalized?.reasoning === 'string' && normalized.reasoning.trim()
+              ? normalized.reasoning
+              : '已收到，请确认后续操作。',
       };
       const fallbackCheck = targetSchema.safeParse(fallbackObj);
       if (fallbackCheck.success) {
@@ -146,7 +152,7 @@ export function streamAgentWithCompat(
   messages: CoreMessage[],
   options: CompatAgentStreamOptions = {}
 ) {
-  const baseModel = options.model || (agent.model as LanguageModelV1);
+  const baseModel = options.model || (agent.model as LanguageModelV1) || agent.llm.getModel();
   if (!baseModel) {
     throw new Error(`[mastra-compat/streamAgent] Agent [${agent.name}] 缺少有效 LanguageModelV1`);
   }
@@ -206,6 +212,8 @@ export function streamAgentWithCompat(
     messages,
     tools: aiTools,
     maxSteps,
+    ...(options.toolChoice ? { toolChoice: options.toolChoice } : {}),
+    ...(options.experimentalToolCallStreaming ? { experimental_toolCallStreaming: true } : {}),
     ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
     ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
     experimental_repairToolCall: options.repairToolCall || buildDefaultToolCallRepair(rawTools),

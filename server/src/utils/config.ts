@@ -43,6 +43,31 @@ export const config = {
     maxConcurrency: Math.max(1, parseInt(process.env.LLM_MAX_CONCURRENCY || '6', 10) || 6),
     // 单次真实 LLM 请求硬超时（毫秒），防止云端结构化推理异常卡死长期占用并发槽位
     timeoutMs: Math.max(5_000, parseInt(process.env.LLM_CALL_TIMEOUT_MS || '120000', 10) || 120_000),
+    // 主模型本身是否原生支持多模态图像输入（如切到 gemini / gpt-4o / qwen-vl 时设为 true 可直传原图零中转）
+    supportsVision: (process.env.LLM_SUPPORTS_VISION || 'false').toLowerCase() === 'true',
+  },
+
+  // 视觉多模态识图模型配置 (VLM Inspector，默认复用主 LLM 网关与 Key)
+  vlm: {
+    enabled: (process.env.VLM_ENABLED || 'true').toLowerCase() !== 'false',
+    apiKey:
+      process.env.VLM_API_KEY ||
+      process.env.LLM_API_KEY ||
+      process.env.DASHSCOPE_API_KEY ||
+      process.env.OPENAI_API_KEY ||
+      '',
+    baseURL:
+      process.env.VLM_BASE_URL ||
+      process.env.LLM_BASE_URL ||
+      process.env.OPENAI_BASE_URL ||
+      'https://api.siliconflow.cn/v1',
+    model: (process.env.VLM_MODEL || '').trim(),
+    timeoutMs: Math.max(5_000, parseInt(process.env.VLM_TIMEOUT_MS || '25000', 10) || 25_000),
+  },
+
+  // 多步 Plan 同波次无依赖步骤受控并发上限
+  plan: {
+    maxConcurrency: Math.max(1, parseInt(process.env.PLAN_MAX_CONCURRENCY || '2', 10) || 2),
   },
 
   // 文生图 / 图生视频 / ComfyUI 配置

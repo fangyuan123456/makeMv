@@ -1,0 +1,68 @@
+/**
+ * project-store/story-sections.ts
+ * 分幕剧本正文统一解析器 (Story Sections SSOT)
+ *
+ * 唯一事实来源：从 story.md（或回退 screenplay.md）按 `## <clipId>｜<title>` 标准标题
+ * 解析各分幕剧本正文，供接口读取、分镜规划工具与分镜导演上下文统一消费。
+ */
+
+import { ProjectStore } from './ProjectStore.js';
+
+export interface StorySection {
+  title: string;
+  narrativeText: string;
+}
+
+/**
+ * 从标准分幕 Markdown 文本逐行解析 clipId -> { title, narrativeText } 字典
+ */
+export function parseStorySections(markdown?: string | null): Record<string, StorySection> {
+  const sections: Record<string, StorySection> = {};
+  if (!markdown || typeof markdown !== 'string') return sections;
+
+  const lines = markdown.replace(/\r\n/g, '\n').split('\n');
+  let currentId: string | null = null;
+  let currentTitle = '';
+  let bodyLines: string[] = [];
+
+  const flush = () => {
+    if (!currentId) return;
+    sections[currentId] = {
+      title: currentTitle || currentId,
+      narrativeText: bodyLines.join('\n').trim(),
+    };
+  };
+
+  for (const line of lines) {
+    const headingMatch = line.match(/^##\s*([A-Za-z0-9_.-]+)(?:\s*[｜|]\s*(.+))?$/);
+    if (headingMatch) {
+      flush();
+      currentId = headingMatch[1].trim();
+      currentTitle = (headingMatch[2] || currentId).trim();
+      bodyLines = [];
+      continue;
+    }
+    if (currentId !== null) {
+      bodyLines.push(line);
+    }
+  }
+  flush();
+
+  return sections;
+}
+
+/**
+ * 读取指定项目的分幕剧本字典 (优先 story.md，缺失时回退 screenplay.md)
+ */
+export function getProjectStorySections(
+  projectId: string,
+  overrideMarkdown?: string
+): Record<string, StorySection> {
+  const store = ProjectStore.getInstance();
+  const text =
+    overrideMarkdown ||
+    store.getArtifact<string>(projectId, 'story') ||
+    store.getArtifact<string>(projectId, 'screenplay') ||
+    '';
+  return parseStorySections(text);
+}

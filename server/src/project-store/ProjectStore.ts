@@ -160,6 +160,22 @@ export class ProjectStore {
     const inMemory = project.artifacts[artifactKey] as T | undefined;
     if (inMemory !== undefined && inMemory !== null) return inMemory;
 
+    // film_spec 以 storyboards.json 为磁盘唯一事实来源 (SSOT)，进程重启后直接从 storyboards 水合
+    if (artifactKey === 'film_spec') {
+      const clips = this.getArtifact<any[]>(projectId, 'storyboards');
+      if (Array.isArray(clips) && clips.length > 0) {
+        const hydrated = {
+          projectId,
+          schemaVersion: '1.0.0',
+          projectTitle: project.meta.title || '',
+          clips,
+        };
+        project.artifacts.film_spec = hydrated;
+        return hydrated as unknown as T;
+      }
+      return null;
+    }
+
     // 唯一规范字典查表，杜绝任何下游硬编码胶水分支
     const spec = CANONICAL_ARTIFACT_MAP[artifactKey];
     if (!spec) return null;

@@ -15,6 +15,14 @@ import {
   mergeExtractedEntities,
   hydrateEntitiesWithDiskAssets,
 } from '../project-store/entity-preservation.js';
+import {
+  recordEntityUpdated,
+  recordPrdUpdated,
+  recordScreenplayUpdated,
+  recordShotKeyframeUpdated,
+  recordShotVideoUpdated,
+  recordStoryboardUpdated,
+} from '../project-store/freshness.js';
 import type { TaskRecord } from './types.js';
 import { taskStore } from './task-store.js';
 
@@ -60,6 +68,8 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
               }
             }
           }
+          // 记账剧本更新（局部 Patch 会让既有 PRD 精确标脏；全量重推已在上方清理旧 PRD）
+          recordScreenplayUpdated(projectId);
         }
         break;
       }
@@ -89,6 +99,7 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
             store.setArtifact(projectId, 'story', output.storyMarkdown);
             fs.writeFileSync(path.join(projectDir, 'story.md'), output.storyMarkdown, 'utf-8');
           }
+          recordPrdUpdated(projectId);
         }
         break;
       }
@@ -103,8 +114,8 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
             safeReadJsonSync(entitiesPath) ||
             {};
 
-          // 1. 无损增量合并已有设定与版本
-          const merged = mergeExtractedEntities(oldEntities, rawEntities);
+          // 1. 无损增量合并已有设定与版本（支持 targetKinds 局部重提，未选中类别原样保留）
+          const merged = mergeExtractedEntities(oldEntities, rawEntities, task.input?.targetKinds);
           // 2. 结合磁盘物理资产自愈水合
           const finalEntities = hydrateEntitiesWithDiskAssets(projectId, projectDir, merged);
 
@@ -115,44 +126,86 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
         break;
       }
 
-      case 'film.character_portrait': {
-        const scenesDir = path.join(projectDir, 'scenes');
-        const entitiesPath = path.join(scenesDir, 'entities.json');
-        // 工具已在执行完成时原子写盘最新的 entities (含 versions)，直接同步黑板
-        const entities = safeReadJsonSync(entitiesPath) || store.getArtifact<any>(projectId, 'lookdev_entities') || {};
-        const characterId = output.characterId;
-        const imageUrl = output.imageUrl || output.portraitImageUrl;
-
-        if (characterId && characterId !== 'all' && imageUrl) {
-          const chars = entities.characters || [];
-          const target = chars.find((c: any) => c.characterId === characterId);
-          if (target && !target.imageUrl) {
-            target.imageUrl = imageUrl;
+      case 'film.lookdev': {
+        // 各渲染模块已逐项持久化；父任务完成后以磁盘资产清单同步项目黑板。
+        const entitiesPath = path.join(projectDir, 'scenes', 'entities.json');
+        const entities = safeReadJsonSync<any>(entitiesPath);
+        if (!entities) throw new Error('定妆完成后缺少资产清单');
+        store.setArtifact(projectId, 'lookdev_entities', entities);
+        const { targetKind, targetId } = output;
+        if (targetKind && targetId && ['character', 'location', 'item'].includes(targetKind)) {
+          const list =
+            targetKind === 'character'
+              ? entities?.characters
+              : targetKind === 'location'
+              ? entities?.locations
+              : entities?.items;
+          const idKey = targetKind === 'character' ? 'characterId'
+            : targetKind === 'location' ? 'locationId' : 'itemId';
+          const matched = Array.isArray(list)
+            ? list.find((e: any) => e[idKey] === targetId)
+            : undefined;
+          if (!matched) throw new Error(`定妆完成后找不到资产 ${targetKind} [${targetId}]`);
+          const generatedVersion = matched?.versions?.find((version: any) => version.versionId === output.versionId);
+          if (output.renderedCount && !generatedVersion) {
+            throw new Error(`定妆完成后找不到生成版本 ${output.versionId}`);
+          }
+          if (output.renderedCount && generatedVersion?.reviewStatus !== 'pending') {
+            recordEntityUpdated(projectId, { kind: targetKind, id: targetId, label: matched.name });
           }
         }
-        store.setArtifact(projectId, 'lookdev_entities', entities);
-        if (!fs.existsSync(scenesDir)) fs.mkdirSync(scenesDir, { recursive: true });
-        atomicWriteJsonSync(entitiesPath, entities);
         break;
       }
 
-      case 'film.scene_atmosphere': {
-        const scenesDir = path.join(projectDir, 'scenes');
-        const entitiesPath = path.join(scenesDir, 'entities.json');
-        const entities = safeReadJsonSync(entitiesPath) || store.getArtifact<any>(projectId, 'lookdev_entities') || {};
-        const locationId = output.locationId;
-        const imageUrl = output.imageUrl || output.mediaUrl;
+      case 'film.image_upscale': {
+        const targetKind = output.targetKind || task.input?.targetKind;
+        const targetId = output.targetId || task.input?.targetId;
+        if (targetKind === 'shot_keyframe' && targetId) {
+          const isLastFrame = output.frame === 'last' || task.input?.frame === 'last';
+          const multiplier = Number(output.multiplier || task.input?.multiplier || 2);
+          const upscaledAt = new Date().toISOString();
+          const mediaUrl =
+            (isLastFrame ? output.lastFrameImageUrl : output.firstFrameImageUrl) || output.mediaUrl;
 
-        if (locationId && locationId !== 'all' && imageUrl) {
-          const locs = entities.locations || [];
-          const target = locs.find((l: any) => l.locationId === locationId);
-          if (target && !target.imageUrl) {
-            target.imageUrl = imageUrl;
+          // 同步更新分镜画布节点的高清地址与超分元数据，确保画布与 storyboards SSOT 一致
+          const canvas = store.getArtifact<any>(projectId, 'storyboard_canvas');
+          if (canvas?.nodes) {
+            let updated = false;
+            for (const n of Object.values<any>(canvas.nodes)) {
+              if (n.shotId === targetId || n.id === `node_${targetId}`) {
+                if (isLastFrame) {
+                  if (mediaUrl) n.lastFrameUrl = mediaUrl;
+                  n.lastFrameUpscale = { multiplier, upscaledAt };
+                } else {
+                  if (mediaUrl) n.keyframeUrl = mediaUrl;
+                  n.firstFrameUpscale = { multiplier, upscaledAt };
+                }
+                updated = true;
+              }
+            }
+            if (updated) {
+              store.setArtifact(projectId, 'storyboard_canvas', canvas);
+              atomicWriteJsonSync(path.join(projectDir, 'storyboard_canvas.json'), canvas);
+            }
           }
+
+          recordShotKeyframeUpdated(projectId, targetId, isLastFrame ? 'last' : 'first');
+        } else if (targetKind && targetId && ['character', 'location', 'item'].includes(targetKind)) {
+          const entitiesPath = path.join(projectDir, 'scenes', 'entities.json');
+          const entities =
+            safeReadJsonSync<any>(entitiesPath) || store.getArtifact<any>(projectId, 'lookdev_entities');
+          if (entities) store.setArtifact(projectId, 'lookdev_entities', entities);
+          const list =
+            targetKind === 'character'
+              ? entities?.characters
+              : targetKind === 'location'
+              ? entities?.locations
+              : entities?.items;
+          const matched = Array.isArray(list)
+            ? list.find((e: any) => (e.characterId || e.locationId || e.itemId || e.id) === targetId)
+            : undefined;
+          recordEntityUpdated(projectId, { kind: targetKind, id: targetId, label: matched?.name || targetId });
         }
-        store.setArtifact(projectId, 'lookdev_entities', entities);
-        if (!fs.existsSync(scenesDir)) fs.mkdirSync(scenesDir, { recursive: true });
-        atomicWriteJsonSync(entitiesPath, entities);
         break;
       }
 
@@ -169,37 +222,53 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
             store.setArtifact(projectId, 'film_spec', output.filmSpec);
           }
           atomicWriteJsonSync(path.join(projectDir, 'storyboards.json'), rawClips);
+          const updatedClipIds = task.input?.clipId
+            ? [String(task.input.clipId)]
+            : rawClips.map((c: any) => c?.clipId || c?.id).filter(Boolean);
+          recordStoryboardUpdated(projectId, updatedClipIds);
         }
         break;
       }
 
       case 'film.shot_keyframe': {
-        const { shotId, keyframeUrl } = output;
+        const { shotId, firstFrameImageUrl, lastFrameImageUrl } = output;
         const storyboardsPath = path.join(projectDir, 'storyboards.json');
         const shots = store.getArtifact<any[]>(projectId, 'storyboards') || safeReadJsonSync(storyboardsPath) || [];
 
-        if (shotId && keyframeUrl) {
-          // 兼容打平数组或 clips 嵌套结构
+        if (shotId && (firstFrameImageUrl || lastFrameImageUrl)) {
           for (const item of shots) {
-            if (item.shotId === shotId) {
-              item.keyframeUrl = keyframeUrl;
-              item.firstFrameImageUrl = keyframeUrl;
-            } else if (Array.isArray(item.shots)) {
-              const matched = item.shots.find((s: any) => s.shotId === shotId);
-              if (matched) {
-                matched.keyframeUrl = keyframeUrl;
-                matched.firstFrameImageUrl = keyframeUrl;
+            const matched = item.shotId === shotId
+              ? item
+              : Array.isArray(item.shots)
+              ? item.shots.find((s: any) => s.shotId === shotId)
+              : undefined;
+            if (matched) {
+              if (firstFrameImageUrl) {
+                matched.keyframeUrl = firstFrameImageUrl;
+                matched.firstFrameImageUrl = firstFrameImageUrl;
+                delete matched.firstFrameUpscale;
+              }
+              if (lastFrameImageUrl) {
+                matched.lastFrameImageUrl = lastFrameImageUrl;
+                delete matched.lastFrameUpscale;
               }
             }
           }
 
-          // 同步更新分镜画布节点
+          // 同步更新分镜画布节点（重绘覆盖后清除对应帧的旧超分标记）
           const canvas = store.getArtifact<any>(projectId, 'storyboard_canvas');
           if (canvas?.nodes) {
             let updated = false;
             for (const n of Object.values<any>(canvas.nodes)) {
               if (n.shotId === shotId || n.id === `node_${shotId}`) {
-                n.keyframeUrl = keyframeUrl;
+                if (firstFrameImageUrl) {
+                  n.keyframeUrl = firstFrameImageUrl;
+                  delete n.firstFrameUpscale;
+                }
+                if (lastFrameImageUrl) {
+                  n.lastFrameUrl = lastFrameImageUrl;
+                  delete n.lastFrameUpscale;
+                }
                 updated = true;
               }
             }
@@ -211,6 +280,13 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
         }
         store.setArtifact(projectId, 'storyboards', shots);
         atomicWriteJsonSync(storyboardsPath, shots);
+        if (shotId && (firstFrameImageUrl || lastFrameImageUrl)) {
+          recordShotKeyframeUpdated(
+            projectId,
+            shotId,
+            firstFrameImageUrl && lastFrameImageUrl ? 'both' : lastFrameImageUrl ? 'last' : 'first'
+          );
+        }
         break;
       }
 
@@ -255,6 +331,9 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
         }
         store.setArtifact(projectId, 'storyboards', shots);
         atomicWriteJsonSync(storyboardsPath, shots);
+        if (shotId && effectiveVideoUrl) {
+          recordShotVideoUpdated(projectId, shotId);
+        }
         break;
       }
 

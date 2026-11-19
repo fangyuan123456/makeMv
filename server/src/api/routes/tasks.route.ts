@@ -79,15 +79,8 @@ tasksRouter.post('/:taskId/retry', async (req, res) => {
 
 /**
  * 查询指定项目下的所有任务历史
- * GET /api/tasks/project/:projectId
- * 或者 GET /api/tasks?projectId=xxx
+ * GET /api/tasks?projectId=xxx
  */
-tasksRouter.get('/project/:projectId', (req, res) => {
-  const { projectId } = req.params;
-  const list = taskStore.getTasksByProject(projectId);
-  sendSuccess(res, list, '获取项目任务列表成功');
-});
-
 tasksRouter.get('/', (req, res) => {
   const projectId = req.query.projectId as string;
   if (!projectId) {
