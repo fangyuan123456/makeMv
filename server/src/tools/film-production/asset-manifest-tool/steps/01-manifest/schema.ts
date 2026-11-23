@@ -8,14 +8,14 @@ import { z } from 'zod';
 export const ManifestCharacterItemSchema = z.object({
   name: z.string().describe('角色姓名（有对白发言或独立能动主体性者，严禁提取无名背景路人）'),
   role: z.string().describe('身份/职业定位（如：纸扎匠人、知情者、灵体化身）'),
-  importance: z.enum(['primary', 'supporting', 'minor']).default('supporting').describe('剧情戏份层级（全剧主角1~2位，核心配角2~3位）'),
+  importance: z.enum(['primary', 'supporting', 'minor']).default('supporting').describe('剧情戏份层级（primary: 核心主角，supporting: 重要配角，minor: 次要角色）'),
   brief: z.string().describe('一句话外貌与气质核心定位（不展开复杂服化道）'),
 });
 
 export const ManifestLocationItemSchema = z.object({
   name: z.string().describe('宏观母场景名称（Master Location，如：陈家古宅、古镇纸扎老街；必须是宏观三维建筑实体，严禁碎片化为桌角/偏房）'),
   type: z.string().describe('空间类型（如：南方夯土古民居、古镇街巷、地下密室）'),
-  importance: z.enum(['primary', 'secondary']).default('secondary').describe('场景重要度（全剧核心主场景仅2~3个）'),
+  importance: z.enum(['primary', 'secondary']).default('secondary').describe('场景重要度（primary: 核心主场景，secondary: 次要/过渡场景）'),
   brief: z.string().describe('宏观空间核心建筑风格、物理格局与主采光基调简述'),
   subScenes: z.array(z.string()).default([]).describe('该母场景涵盖的剧本场次子机位/偏房角落列表（如：["灵堂主堂", "东偏房/侧间", "大门门槛"]）'),
 });

@@ -71,10 +71,10 @@ export const ShotCanvasCard: React.FC<ShotCanvasCardProps> = ({
             : 'border-slate-200/60 z-10 opacity-60 bg-slate-50'
       }`}
     >
-      {/* 左右连接桩端点 (Port Anchors 用于 SVG 连线对齐) */}
+      {/* 左右连接桩端点 (Port Anchors 对齐 16:9 视听窗口正中) */}
       <div
         id={`port-in-${node.id}`}
-        className="absolute -left-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white border-2 border-slate-300 hover:border-indigo-600 transition shadow-xs z-20 flex items-center justify-center pointer-events-auto"
+        className="absolute -left-2 top-[116px] -translate-y-1/2 w-4 h-4 rounded-full bg-white border-2 border-slate-300 hover:border-indigo-600 transition shadow-xs z-20 flex items-center justify-center pointer-events-auto"
         title="输入端点 (前序因果)"
       >
         <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
@@ -82,7 +82,7 @@ export const ShotCanvasCard: React.FC<ShotCanvasCardProps> = ({
 
       <div
         id={`port-out-${node.id}`}
-        className="absolute -right-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white border-2 border-slate-300 hover:border-indigo-600 transition shadow-xs z-20 flex items-center justify-center pointer-events-auto"
+        className="absolute -right-2 top-[116px] -translate-y-1/2 w-4 h-4 rounded-full bg-white border-2 border-slate-300 hover:border-indigo-600 transition shadow-xs z-20 flex items-center justify-center pointer-events-auto"
         title="输出端点 (后续分支)"
       >
         <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
@@ -204,6 +204,41 @@ export const ShotCanvasCard: React.FC<ShotCanvasCardProps> = ({
               <span>等待前一镜头完成</span>
             </div>
           </div>
+        )}
+      </div>
+
+      {/* 底部：动作切片正文与视听机位/天气标签外显 */}
+      <div className="px-3 py-2 bg-slate-50/90 border-t border-slate-100 flex flex-col gap-1.5">
+        {/* 视听标签栏：机位/景别、天气光影约束标签 */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {node.cameraDirective?.label && (
+            <span
+              className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200/60 shrink-0"
+              title={`机位景别: ${node.cameraDirective.instruction}`}
+            >
+              🎥 {node.cameraDirective.label}
+            </span>
+          )}
+          {node.weatherDirective?.label && (
+            <span
+              className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200/60 shrink-0"
+              title={`天气光影: ${node.weatherDirective.instruction}`}
+            >
+              ⛅ {node.weatherDirective.label}
+            </span>
+          )}
+        </div>
+
+        {/* 核心动作切片正文 (sliceSummary / sceneSubject) */}
+        {(node.sliceSummary || node.sceneSubject) ? (
+          <p
+            className="text-[11px] leading-relaxed text-slate-600 line-clamp-2 select-text hover:text-slate-900 transition-colors"
+            title={node.sliceSummary || node.sceneSubject}
+          >
+            {node.sliceSummary || node.sceneSubject}
+          </p>
+        ) : (
+          <p className="text-[10px] text-slate-400 italic">待切片演绎动作细节</p>
         )}
       </div>
 

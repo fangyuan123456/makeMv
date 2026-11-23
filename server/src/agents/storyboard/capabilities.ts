@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import {
-  storyboardBreakdownTool,
+  shootingScriptTool,
   shotPromptTool,
   shotKeyframeTool,
   imageUpscaleTool,
@@ -11,11 +11,11 @@ import type { SubmittableToolSpec } from '../runtime/types.js';
 export function storyboardCapabilities(clipId: string): SubmittableToolSpec[] {
   return [
     {
-      toolName: storyboardBreakdownTool.toolName,
-      title: `拆解或微调分幕[${clipId || '当前'}]分镜文学台本`,
-      stageName: '分镜台本拆解',
-      description: storyboardBreakdownTool.description,
-      schema: storyboardBreakdownTool.inputSchema || z.any(),
+      toolName: shootingScriptTool.toolName,
+      title: `规划分幕[${clipId || '当前'}]工业级分镜摄制台本（时空环境锁、物理动作流与镜头清单）`,
+      stageName: '工业级分镜摄制台本',
+      description: shootingScriptTool.description,
+      schema: shootingScriptTool.inputSchema || z.any(),
       targetKind: 'global',
     },
     {

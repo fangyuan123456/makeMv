@@ -28,10 +28,56 @@ export function resolveShotContinuity(shots: any[], targetShotId?: string) {
   };
 }
 
+export type StoryboardPhase =
+  | 'STAGE_0_PENDING' // 视听演绎剧本待生成 (需升级故事剧本为视听演绎剧本)
+  | 'STAGE_1_PENDING' // 分镜台本待细化拆解 (已有演绎剧本，待细化拆出镜头)
+  | 'STAGE_2_PENDING' // 镜头视听推演与关键帧生图 (已有镜头，待推演或生图)
+  | 'STAGE_COMPLETED'; // 全幕制作就绪
+
+export function evaluateStoryboardPhase(params: {
+  hasShootingScript: boolean;
+  shotsCount: number;
+  unrenderedShotsCount: number;
+  unrenderedVideosCount: number;
+}): { phase: StoryboardPhase; description: string; currentMission: string } {
+  const { hasShootingScript, shotsCount, unrenderedShotsCount, unrenderedVideosCount } = params;
+
+  if (!hasShootingScript) {
+    return {
+      phase: 'STAGE_0_PENDING',
+      description: '阶段 0/3: 故事剧本升级为视听演绎剧本 (待推进)',
+      currentMission: '当前分幕尚未生成视听演绎剧本。首要任务是提炼场景时空环境锁，将文学剧情升级为场面调度与对白表演流，杜绝直接盲目出粗糙分镜。',
+    };
+  }
+
+  if (shotsCount === 0) {
+    return {
+      phase: 'STAGE_1_PENDING',
+      description: '阶段 1/3: 工业级分镜台本细化切片 (待拆解)',
+      currentMission: '视听演绎剧本已就绪。首要任务是依据演绎剧本的场面与对白，细化切分出单镜头动作明确、对白精准绑定的镜头台本序列 (shots)。',
+    };
+  }
+
+  if (unrenderedShotsCount > 0 || unrenderedVideosCount > 0) {
+    return {
+      phase: 'STAGE_2_PENDING',
+      description: '阶段 2/3: 镜头视听推演与物理生图/视频渲染 (进行中)',
+      currentMission: `当前已排布 ${shotsCount} 个镜头。首要任务是针对具体镜头执行首帧生图词与同相运镜词推演、关键帧生图出图或动态视频渲染。`,
+    };
+  }
+
+  return {
+    phase: 'STAGE_COMPLETED',
+    description: '阶段 3/3: 当前分幕全流程视听制作收官',
+    currentMission: '本幕所有分镜镜头均已完成视听推演与渲染制作，当前分幕已处于高质量交付状态。',
+  };
+}
+
 export function getStoryboardContext(projectId: string, clipId: string, targetShotId?: string) {
   const store = ProjectStore.getInstance();
   const project = store.getProject(projectId) as any;
   const prd = (store.getArtifact(projectId, 'prd') as any) || project?.prd || {};
+  const filmSpec = (store.getArtifact(projectId, 'film_spec') as any) || {};
   const storyboards = (store.getArtifact(projectId, 'storyboards') as any[]) || project?.storyboards || [];
   const storySections = getProjectStorySections(projectId);
 
@@ -41,6 +87,11 @@ export function getStoryboardContext(projectId: string, clipId: string, targetSh
 
   const currentSection = clipId ? storySections[clipId] : undefined;
   const currentStoryboardClip = storyboards.find((board: any) => board.clipId === clipId);
+  const currentFilmClip = (filmSpec.clips || []).find((c: any) => c.clipId === clipId);
+
+  const shootingScript = currentStoryboardClip?.shootingScript || currentFilmClip?.shootingScript;
+  const hasShootingScript = Boolean(shootingScript && Array.isArray(shootingScript.actionBeats) && shootingScript.actionBeats.length > 0);
+
   const shots: any[] = Array.isArray(currentStoryboardClip?.shots) ? currentStoryboardClip.shots : [];
   const unupscaledFirstShots = shots.filter(
     (shot) => Boolean(shot.firstFrameImageUrl) && !shot.firstFrameUpscale
@@ -48,6 +99,15 @@ export function getStoryboardContext(projectId: string, clipId: string, targetSh
   const unupscaledLastShots = shots.filter(
     (shot) => Boolean(shot.lastFrameImageUrl) && !shot.lastFrameUpscale
   );
+  const unrenderedShotsCount = shots.filter((s) => !s.firstFrameImageUrl).length;
+  const unrenderedVideosCount = shots.filter((s) => !s.videoUrl).length;
+
+  const phaseEvaluation = evaluateStoryboardPhase({
+    hasShootingScript,
+    shotsCount: shots.length,
+    unrenderedShotsCount,
+    unrenderedVideosCount,
+  });
 
   const storyOverview = prd?.premiseAndPerspective || prd?.gameTitle || '全剧主线推演';
   const { previousClipSummary, nextClipSummary } = buildBranchContext({
@@ -60,6 +120,24 @@ export function getStoryboardContext(projectId: string, clipId: string, targetSh
   const continuity = resolveShotContinuity(shots, targetShotId);
   const taskHealth = getTaskHealthSnapshot(projectId, 'film.');
 
+  // 格式化视听演绎剧本摘要看板
+  let shootingScriptSummary = '  (当前幕尚未生成视听演绎剧本)';
+  if (hasShootingScript && shootingScript) {
+    const env = shootingScript.environmentLock;
+    const envLines = [
+      `时段: ${env?.timeOfDay || '未指定'}`,
+      `天气约束: ${env?.weatherDirective?.label || '无'} (${env?.weatherDirective?.instruction || ''})`,
+      `影调光照: ${env?.lightingDirective?.label || '无'} (${env?.lightingDirective?.instruction || ''})`,
+      `色彩倾向: ${env?.colorTone?.label || '无'}`,
+    ];
+    const beatsLines = (shootingScript.actionBeats || []).map((b: any, bIdx: number) => {
+      const dialogueText = b.dialogue ? ` | 对白: ${b.dialogue}` : '';
+      const sfxText = b.audioAmbience ? ` | 拟音: ${b.audioAmbience}` : '';
+      return `    ${bIdx + 1}. [${b.beatTitle}] (${b.estimatedSeconds || 3}s): ${b.actionDescription}${dialogueText}${sfxText}`;
+    });
+    shootingScriptSummary = `  - 场景时空与光影环境锁：\n    ${envLines.join(' | ')}\n  - 场面调度与对白表演流 (${shootingScript.actionBeats.length} 个场面情境):\n${beatsLines.join('\n')}`;
+  }
+
   return {
     storyOverview,
     previousClipSummary,
@@ -70,6 +148,10 @@ export function getStoryboardContext(projectId: string, clipId: string, targetSh
     clipTitle: currentPrdClip.title || currentSection?.title || clipId || '当前分幕',
     narrativeText: currentPrdClip.narrativeText || currentSection?.narrativeText || '暂无剧本正文',
     targetDurationSec: currentStoryboardClip?.targetDurationSec || 0,
+    hasShootingScript,
+    shootingScript,
+    shootingScriptSummary,
+    phaseEvaluation,
     shots,
     unupscaledFirstShots,
     unupscaledLastShots,
@@ -92,7 +174,8 @@ export function getStoryboardContext(projectId: string, clipId: string, targetSh
       const mediaStatus = `${firstStatus}${lastStatus}`;
       const firstPrompt = (shot.firstFramePrompt || '').trim();
       const promptSnippet = firstPrompt ? `\n    首帧画面原词: "${firstPrompt}"` : ' (首帧尚未编写提示词)';
-      return `  - 镜号 ${index + 1} (${shot.shotId}): [${shot.shotType || 'MEDIUM_SHOT'}] 运镜: ${shot.cameraMovement || 'locked-off'} | 角色: ${chars} | 时长: ${shot.durationSec || 4}s | 画面状态: ${mediaStatus}${promptSnippet}`;
+      const dialoguePart = shot.dialogue ? ` | 台词: "${shot.dialogue}"` : '';
+      return `  - 镜号 ${index + 1} (${shot.shotId}): [${shot.cameraDirective?.label || shot.shotType || '中景'}] 运镜: ${shot.cameraMovement || '推进'} | 角色: ${chars}${dialoguePart} | 时长: ${shot.durationSec || 4}s | 状态: ${mediaStatus}${promptSnippet}`;
     }).join('\n'),
   };
 }

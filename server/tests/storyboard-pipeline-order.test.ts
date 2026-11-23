@@ -4,12 +4,11 @@ import { storyboardRolePrompt } from '../src/agents/storyboard/prompt.js';
 import { StoryboardAgent } from '../src/agents/storyboard/agent.js';
 
 describe('Storyboard Pipeline Causal Order SSOT', () => {
-  it('角色提示词中必须包含影视工业三级解耦流水线规范', () => {
+  it('角色提示词中必须包含影视工业分镜摄制与推演流水线规范', () => {
     const prompt = storyboardRolePrompt('c1', '第一幕');
-    assert.ok(prompt.includes('三级解耦流水线'));
-    assert.ok(prompt.includes('film.storyboard_breakdown'));
+    assert.ok(prompt.includes('两大进阶基石'));
+    assert.ok(prompt.includes('film.shooting_script'));
     assert.ok(prompt.includes('film.shot_prompt'));
-    assert.ok(prompt.includes('film.shot_motion'));
     assert.ok(prompt.includes('film.shot_keyframe'));
     assert.ok(prompt.includes('film.shot_video'));
   });

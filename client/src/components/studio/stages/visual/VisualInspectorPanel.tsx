@@ -11,6 +11,61 @@
 
 import React from 'react';
 import type { ProjectData } from '../../../../types/index.js';
+import { updateShootingScript } from '../../../../lib/api.js';
+
+
+
+const AutoResizeTextarea: React.FC<{
+  value: string;
+  onChange: (val: string) => void;
+  placeholder?: string;
+  className?: string;
+  minRows?: number;
+}> = ({ value, onChange, placeholder, className, minRows = 1 }) => {
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  const resize = React.useCallback(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.max(textareaRef.current.scrollHeight, minRows * 18)}px`;
+    }
+  }, [minRows]);
+
+  React.useEffect(() => {
+    resize();
+  }, [value, resize]);
+
+  return (
+    <textarea
+      ref={textareaRef}
+      rows={minRows}
+      value={value}
+      onChange={(e) => {
+        onChange(e.target.value);
+        resize();
+      }}
+      placeholder={placeholder}
+      className={`resize-none overflow-hidden block ${className || ''}`}
+    />
+  );
+};
+
+const InsertDivider: React.FC<{
+  onInsert: () => void;
+}> = ({ onInsert }) => {
+  return (
+    <div
+      onClick={onInsert}
+      className="group/divider relative h-4 -my-1 cursor-pointer flex items-center justify-center transition-all z-10 select-none"
+      title="点击在此处插入新镜头"
+    >
+      <div className="absolute inset-x-2 h-[1.5px] bg-transparent group-hover/divider:bg-indigo-400/80 transition-colors rounded-full" />
+      <div className="relative w-4 h-4 rounded-full bg-white border border-indigo-300 text-indigo-600 shadow-xs flex items-center justify-center text-[11px] font-bold opacity-0 scale-75 group-hover/divider:opacity-100 group-hover/divider:scale-100 group-hover/divider:bg-indigo-600 group-hover/divider:text-white group-hover/divider:border-indigo-600 transition-all duration-150">
+        +
+      </div>
+    </div>
+  );
+};
 
 interface StoryboardShotItem {
   id?: string;
@@ -46,6 +101,7 @@ export interface VisualInspectorPanelProps {
   onClose: () => void;
   onEnterCanvas: (kind: 'lookdev' | 'clip', clipId?: string, clipTitle?: string) => void;
   onEnlargeMedia?: (media: { title: string; imageUrl?: string; videoUrl?: string }) => void;
+  onRefreshProject?: () => Promise<void> | void;
 }
 
 export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
@@ -54,7 +110,10 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
   onClose,
   onEnterCanvas,
   onEnlargeMedia,
+  onRefreshProject,
 }) => {
+  const [activeScriptTab, setActiveScriptTab] = React.useState<'story' | 'performance'>('story');
+
   // 1. 提取定妆视觉实体
   const entities = projectData?.entities || projectData?.artifacts?.lookdev_entities;
   const characters = entities?.characters || [];
@@ -74,14 +133,20 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
   const filmSpec = projectData?.artifacts?.film_spec;
 
   const currentClipId = node.clipId;
+  const [beats, setBeats] = React.useState<any[]>([]);
+  const [originalBeatsJson, setOriginalBeatsJson] = React.useState<string>('');
+  const [deletingBeatIndex, setDeletingBeatIndex] = React.useState<number | null>(null);
+  const [isSavingScript, setIsSavingScript] = React.useState(false);
+  const [saveSuccessTip, setSaveSuccessTip] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
+
   let shots: StoryboardShotItem[] = [];
   if (currentClipId && Array.isArray(rawStoryboards) && rawStoryboards.length > 0) {
     const matchedClip = rawStoryboards.find(
       (item: any) =>
         item.clipId === currentClipId ||
         item.id === currentClipId ||
-        item.sourceNodeId === currentClipId ||
-        item.clipId === `c${currentClipId.replace(/\D/g, '')}`
+        item.sourceNodeId === currentClipId
     );
     if (matchedClip && Array.isArray(matchedClip.shots)) {
       shots = matchedClip.shots;
@@ -96,11 +161,185 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
     const matched = filmSpec.clips.find(
       (c: any) =>
         c.clipId === currentClipId ||
-        c.sourceNodeId === currentClipId ||
-        c.clipId === `c${currentClipId.replace(/\D/g, '')}`
+        c.sourceNodeId === currentClipId
     );
     if (matched?.shots) shots = matched.shots;
   }
+
+  // 4. 提取当前幕导演演绎剧本 (Performance Script)
+  const matchedFilmClip = filmSpec?.clips?.find(
+    (c: any) =>
+      c.clipId === currentClipId ||
+      c.sourceNodeId === currentClipId
+  );
+  const matchedRawClip = Array.isArray(rawStoryboards)
+    ? rawStoryboards.find(
+        (c: any) =>
+          c.clipId === currentClipId ||
+          c.sourceNodeId === currentClipId
+      )
+    : undefined;
+  const shootingScript = matchedFilmClip?.shootingScript || matchedRawClip?.shootingScript;
+
+  // 自动从 shootingScript 同步到直接可编辑的 beats 状态
+  React.useEffect(() => {
+    const rawBeats = Array.isArray(shootingScript?.actionBeats)
+      ? shootingScript.actionBeats.map((b: any, idx: number) => ({
+          ...b,
+          beatId: b.beatId || `beat_init_${idx + 1}`,
+        }))
+      : [];
+    const jsonStr = JSON.stringify(rawBeats);
+    setBeats(JSON.parse(jsonStr));
+    setOriginalBeatsJson(jsonStr);
+  }, [currentClipId, shootingScript]);
+
+  const originalBeats = React.useMemo(() => {
+    try {
+      return originalBeatsJson ? JSON.parse(originalBeatsJson) : [];
+    } catch {
+      return [];
+    }
+  }, [originalBeatsJson]);
+
+  const originalBeatsMap = React.useMemo(() => {
+    const map = new Map<string, any>();
+    for (const b of originalBeats) {
+      if (b.beatId) {
+        map.set(b.beatId, b);
+      }
+    }
+    return map;
+  }, [originalBeats]);
+
+  const isFieldModified = (index: number, field: string) => {
+    const curr = beats[index];
+    if (!curr) return false;
+    const orig = curr.beatId ? originalBeatsMap.get(curr.beatId) : undefined;
+    if (!orig) return true; // 新增镜头的字段标记为修改态
+    if (field === 'shotNumber') return false; // 顺延序号变化不作为用户字段修改
+    const origVal = orig[field] ?? '';
+    const currVal = curr[field] ?? '';
+    return String(origVal).trim() !== String(currVal).trim();
+  };
+
+  const isBeatModified = React.useCallback(
+    (index: number) => {
+      const curr = beats[index];
+      if (!curr) return false;
+      const orig = curr.beatId ? originalBeatsMap.get(curr.beatId) : undefined;
+      if (!orig) return true; // 新增镜头卡片整体标记为修改态
+      const checkFields = [
+        'beatTitle',
+        'actionDescription',
+        'cinematicIntent',
+        'dialogue',
+        'audioAmbience',
+        'estimatedSeconds',
+        'space',
+      ];
+      return checkFields.some((f) => {
+        const origVal = orig[f] ?? '';
+        const currVal = curr[f] ?? '';
+        return String(origVal).trim() !== String(currVal).trim();
+      });
+    },
+    [beats, originalBeatsMap]
+  );
+
+  const isDirty = React.useMemo(() => {
+    if (beats.length !== originalBeats.length) return true;
+    return beats.some((_, idx) => isBeatModified(idx));
+  }, [beats, originalBeats, isBeatModified]);
+
+  const handleUpdateBeat = (index: number, field: string, value: any) => {
+    setBeats((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      return next;
+    });
+  };
+
+  const handleInsertBeatAt = (targetIndex: number) => {
+    setBeats((prev) => {
+      const refBeat = prev[targetIndex] || (targetIndex > 0 ? prev[targetIndex - 1] : prev[0]);
+      const newBeat = {
+        beatId: `beat_user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        shotNumber: targetIndex + 1,
+        space: refBeat?.space || '空间一',
+        beatTitle: '新增镜头',
+        actionDescription: '',
+        dialogue: '',
+        audioAmbience: '',
+        cinematicIntent: '中景固定机位',
+        estimatedSeconds: 4,
+      };
+      const next = [...prev];
+      next.splice(targetIndex, 0, newBeat);
+      return next.map((b, idx) => ({ ...b, shotNumber: idx + 1 }));
+    });
+  };
+
+  const handleDeleteBeat = (index: number) => {
+    setBeats((prev) => {
+      if (prev.length <= 1) return prev;
+      const next = prev.filter((_, idx) => idx !== index);
+      return next.map((b, idx) => ({ ...b, shotNumber: idx + 1 }));
+    });
+    setDeletingBeatIndex(null);
+  };
+
+  const handleResetSingleBeat = (index: number) => {
+    const curr = beats[index];
+    if (!curr) return;
+    const orig = curr.beatId ? originalBeatsMap.get(curr.beatId) : undefined;
+    if (orig) {
+      setBeats((prev) => {
+        const next = [...prev];
+        next[index] = {
+          ...JSON.parse(JSON.stringify(orig)),
+          shotNumber: curr.shotNumber, // 保留当前合理的顺延序号
+        };
+        return next;
+      });
+    } else {
+      // 若是用户自主新增的镜头，重置即删除该新增镜头
+      handleDeleteBeat(index);
+    }
+  };
+
+  const handleResetAll = () => {
+    try {
+      setBeats(JSON.parse(originalBeatsJson));
+    } catch {}
+    setDeletingBeatIndex(null);
+    setSaveError(null);
+  };
+
+  const handleSaveEdit = async () => {
+    const projectId = projectData?.meta?.projectId;
+    if (!currentClipId || !projectId) return;
+    try {
+      setIsSavingScript(true);
+      setSaveError(null);
+      const updatedScript = {
+        ...shootingScript,
+        clipId: currentClipId,
+        actionBeats: beats,
+      };
+      await updateShootingScript(projectId, currentClipId, updatedScript);
+      setOriginalBeatsJson(JSON.stringify(beats));
+      setSaveSuccessTip(true);
+      setTimeout(() => setSaveSuccessTip(false), 2500);
+      if (onRefreshProject) {
+        await onRefreshProject();
+      }
+    } catch (err: any) {
+      setSaveError(err.message || '保存失败');
+    } finally {
+      setIsSavingScript(false);
+    }
+  };
 
   return (
     <aside className="absolute top-4 right-4 bottom-4 w-[420px] max-w-[calc(100vw-2rem)] bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-3xl shadow-xl z-30 flex flex-col overflow-hidden animate-in slide-in-from-right-4 duration-200 select-none">
@@ -389,64 +628,343 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
               )}
             </div>
 
-            {/* 2. 剧集文本 (完整阅读剧情大纲描述，全部显示不截断不出现内嵌滑动条) */}
-            <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                  <span>📖</span>
-                  <span>剧集剧情文本</span>
-                </span>
-                <span className="text-[10px] text-slate-500 font-medium">
-                  本幕剧情蓝本
-                </span>
+            {/* 2. 剧本文本分页切换：故事剧本 vs 视听演绎剧本 */}
+            <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-3.5 space-y-3">
+              {/* 分页切换 Tab Header */}
+              <div className="flex items-center space-x-1 p-1 bg-slate-200/60 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setActiveScriptTab('story')}
+                  className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1 ${
+                    activeScriptTab === 'story'
+                      ? 'bg-white text-slate-800 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <span>📖 故事剧本</span>
+                  <span className="text-[10px] text-slate-400 font-normal">文学</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveScriptTab('performance')}
+                  className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1 ${
+                    activeScriptTab === 'performance'
+                      ? 'bg-white text-indigo-700 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <span>🎬 视听演绎剧本</span>
+                  {shootingScript ? (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  ) : (
+                    <span className="text-[9px] bg-amber-100 text-amber-700 px-1 py-0.2 rounded font-normal">待生成</span>
+                  )}
+                </button>
               </div>
-              <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">
-                {narrativeText}
-              </p>
-            </div>
 
-            {/* 3. 分镜镜头清单概览 (全部自然展示，不设内部截断滚动条) */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                  <span>🎞️</span>
-                  <span>分镜镜头速览 ({shots.length})</span>
-                </span>
-              </div>
-
-              {shots.length > 0 ? (
+              {/* Tab 1: 故事剧本文学正文 */}
+              {activeScriptTab === 'story' && (
                 <div className="space-y-2">
-                  {shots.map((shot: StoryboardShotItem, idx) => (
-                    <div
-                      key={shot.id || shot.shotId || idx}
-                      className="p-2.5 bg-slate-50/80 border border-slate-200/80 rounded-xl flex items-center justify-between text-xs"
-                    >
-                      <div className="flex items-center space-x-2 truncate">
-                        <span className="w-5 h-5 rounded-md bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold text-[10px] flex items-center justify-center shrink-0">
-                          {idx + 1}
-                        </span>
-                        <div className="truncate">
-                          <div className="font-semibold text-slate-800 truncate">
-                            {shot.shotSize || shot.shotType || '中景'} · {shot.cameraMovement || '固定镜头'}
-                          </div>
-                          <div className="text-[11px] text-slate-500 truncate mt-0.5">
-                            {shot.narration || shot.dialogue || shot.visualPromptZh || shot.promptZh || '无旁白台词'}
-                          </div>
-                        </div>
-                      </div>
-                      {(shot.imageUrl || shot.keyframeUrl || shot.firstFrameImageUrl) && (
-                        <img
-                          src={shot.imageUrl || shot.keyframeUrl || shot.firstFrameImageUrl}
-                          alt={`Shot ${idx + 1}`}
-                          className="w-10 h-7 rounded object-cover shrink-0 ml-2 border border-slate-200"
-                        />
-                      )}
-                    </div>
-                  ))}
+                  <div className="flex items-center justify-between text-[11px] text-slate-500">
+                    <span className="font-medium">本幕剧情故事蓝本</span>
+                    <span className="text-[10px] text-slate-400">文学情节与对白</span>
+                  </div>
+                  <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap select-text bg-white p-3 rounded-xl border border-slate-200/60">
+                    {narrativeText}
+                  </p>
                 </div>
-              ) : (
-                <div className="p-3 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-400">
-                  暂未推演分镜镜头，双击节点即可进入推演
+              )}
+
+              {/* Tab 2: 视听演绎剧本 (环境锁 + 连续纯物理动作流) */}
+              {activeScriptTab === 'performance' && (
+                <div className="space-y-3">
+                  {shootingScript ? (
+                    <>
+                      {/* 顶部操作条：无修改时极简清爽，有修改时平滑浮现保存按钮 */}
+                      <div className="flex items-center justify-between pb-1 min-h-[32px]">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-semibold text-slate-700 flex items-center gap-1">
+                            <span>🎬</span>
+                            <span>导演视听摄制单</span>
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            ({beats.length} 镜)
+                          </span>
+                          {isDirty && (
+                            <span className="text-[10px] font-medium text-amber-800 bg-amber-100/80 border border-amber-300/80 px-2 py-0.5 rounded-full animate-in fade-in duration-200 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                              <span>未保存改动</span>
+                            </span>
+                          )}
+                          {saveSuccessTip && (
+                            <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full animate-in fade-in duration-150">
+                              ✓ 已保存生效
+                            </span>
+                          )}
+                          {saveError && (
+                            <span className="text-[10px] font-medium text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded">
+                              {saveError}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* 只要有修改，最上面直接出来保存按钮与全部重置按钮 */}
+                        {isDirty && (
+                          <div className="flex items-center gap-1.5 animate-in slide-in-from-top-1 fade-in duration-150">
+                            <button
+                              type="button"
+                              onClick={handleResetAll}
+                              disabled={isSavingScript}
+                              className="text-[11px] text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200/80 border border-slate-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                              title="将全幕所有修改还原为初始状态"
+                            >
+                              <span>↺</span>
+                              <span>重置全部</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleSaveEdit}
+                              disabled={isSavingScript}
+                              className="text-[11px] text-white bg-indigo-600 hover:bg-indigo-700 font-medium px-3 py-1 rounded-lg transition-all flex items-center gap-1 shadow-sm disabled:opacity-50 cursor-pointer"
+                            >
+                              <span>{isSavingScript ? '⏳' : '💾'}</span>
+                              <span>{isSavingScript ? '保存中...' : '保存修改'}</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 视听动作表演流：直接可编辑 + 修改黄色高亮 */}
+                      <div className="space-y-2.5">
+                        {(() => {
+                          let lastSpace = '';
+                          return beats.map((beat: any, bIdx: number) => {
+                            const currentSpace = beat.space || 
+                              (beat.beatTitle && beat.beatTitle.includes('空间') 
+                                ? beat.beatTitle.match(/【(空间[^】]+)】/)?.[1] 
+                                : undefined);
+                            const showSpaceHeader = currentSpace && currentSpace !== lastSpace;
+                            if (currentSpace) {
+                              lastSpace = currentSpace;
+                            }
+
+                            const beatModified = isBeatModified(bIdx);
+                            const titleModified = isFieldModified(bIdx, 'beatTitle');
+                            const descModified = isFieldModified(bIdx, 'actionDescription');
+                            const dialogueModified = isFieldModified(bIdx, 'dialogue');
+                            const intentModified = isFieldModified(bIdx, 'cinematicIntent');
+                            const audioModified = isFieldModified(bIdx, 'audioAmbience');
+                            const secModified = isFieldModified(bIdx, 'estimatedSeconds');
+
+                            return (
+                              <React.Fragment key={beat.beatId || `beat_${bIdx}`}>
+                                {showSpaceHeader && (
+                                  <div className="pt-2 pb-0.5">
+                                    <div className="px-3 py-1.5 rounded-lg bg-slate-900 text-white flex items-center justify-between shadow-xs">
+                                      <span className="text-xs font-bold flex items-center gap-1.5">
+                                        <span>🎬</span>
+                                        <span>{currentSpace}</span>
+                                      </span>
+                                      {shootingScript.environmentLock?.timeOfDay && !currentSpace.includes(shootingScript.environmentLock.timeOfDay) && (
+                                        <span className="text-[10px] font-medium bg-slate-800 border border-slate-700 text-amber-300 px-2 py-0.5 rounded">
+                                          {shootingScript.environmentLock.timeOfDay}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* 每个场景空间标头下方（或者全剧第0镜头开头），都可以精准插入新镜头 */}
+                                {(showSpaceHeader || bIdx === 0) && (
+                                  <InsertDivider onInsert={() => handleInsertBeatAt(bIdx)} />
+                                )}
+
+                                {/* 单镜头卡片：修改了呈现温暖琥珀黄边框高亮 */}
+                                <div className={`group p-3 bg-white border rounded-xl space-y-2 text-xs shadow-2xs transition-all ${
+                                  beatModified
+                                    ? 'border-amber-300 bg-amber-50/15 ring-1 ring-amber-200/50'
+                                    : 'border-slate-200/80 hover:border-indigo-300'
+                                }`}>
+                                  {/* 顶部镜号与标题栏 */}
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                      {/* 统一专业镜号徽标 */}
+                                      <span className={`w-5 h-5 rounded-md text-[10px] font-mono font-bold flex items-center justify-center shrink-0 border transition-colors ${
+                                        beatModified
+                                          ? 'bg-amber-100 border-amber-300 text-amber-800'
+                                          : 'bg-indigo-50 border border-indigo-200 text-indigo-700'
+                                      }`}>
+                                        {String(beat.shotNumber || bIdx + 1).padStart(2, '0')}
+                                      </span>
+
+                                      {/* 标题：直接点击编辑，修改了黄色高亮 */}
+                                      <AutoResizeTextarea
+                                        minRows={1}
+                                        value={(beat.beatTitle || '')
+                                          .replace(/^镜头\s*\d+[\s·:：]*/, '')
+                                          .replace(/【空间[^】]+】/, '')
+                                          .replace(/\(?\d+s\)?$/, '')
+                                          .trim()}
+                                        onChange={(val) => handleUpdateBeat(bIdx, 'beatTitle', val)}
+                                        placeholder="镜头标题（如：近景甩镜 · 违规回头）"
+                                        className={`text-xs font-bold px-1 py-0.5 flex-1 min-w-0 outline-none focus:outline-none focus:ring-0 leading-normal rounded transition-colors ${
+                                          titleModified
+                                            ? 'bg-amber-100/70 border border-amber-300 text-amber-950'
+                                            : 'text-slate-800 bg-transparent hover:bg-slate-50 focus:bg-white border-b border-transparent focus:border-indigo-400'
+                                        }`}
+                                      />
+                                    </div>
+
+                                    {/* 右侧时长与删除/重置操作区 */}
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      {/* 修改状态对应的单卡片 Reset 按钮 */}
+                                      {beatModified && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleResetSingleBeat(bIdx)}
+                                          className="text-[9px] font-medium text-amber-800 hover:text-amber-950 bg-amber-100 hover:bg-amber-200/90 border border-amber-300 px-1.5 py-0.5 rounded flex items-center gap-0.5 cursor-pointer transition-colors shadow-2xs"
+                                          title="将此镜头还原至修改前"
+                                        >
+                                          <span>↺</span>
+                                          <span>重置</span>
+                                        </button>
+                                      )}
+
+                                      <div className={`flex items-center gap-0.5 text-[10px] font-mono rounded-md px-1.5 py-0.5 border transition-colors ${
+                                        secModified
+                                          ? 'bg-amber-100 border-amber-300 text-amber-900 font-bold'
+                                          : 'text-slate-500 bg-slate-50 hover:bg-slate-100 border-slate-200'
+                                      }`} title="点击直接修改时长">
+                                        <input
+                                          type="number"
+                                          min={1}
+                                          max={20}
+                                          value={beat.estimatedSeconds || 4}
+                                          onChange={(e) => handleUpdateBeat(bIdx, 'estimatedSeconds', parseInt(e.target.value, 10) || 4)}
+                                          className="w-5 text-center font-bold text-slate-700 bg-transparent outline-none focus:outline-none"
+                                        />
+                                        <span className="text-slate-400 font-sans">秒</span>
+                                      </div>
+
+                                      {/* 删除镜头：内联二次确认，防止误触 */}
+                                      {deletingBeatIndex === bIdx ? (
+                                        <div className="flex items-center gap-1 text-[10px] bg-rose-50 border border-rose-200 rounded px-1.5 py-0.5 animate-in fade-in duration-100">
+                                          <span className="text-rose-700 font-medium">删镜?</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteBeat(bIdx)}
+                                            className="px-1.5 py-0.2 rounded bg-rose-600 text-white font-medium hover:bg-rose-700 cursor-pointer"
+                                          >
+                                            确定
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setDeletingBeatIndex(null)}
+                                            className="px-1.5 py-0.2 rounded bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 cursor-pointer"
+                                          >
+                                            取消
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => setDeletingBeatIndex(bIdx)}
+                                          disabled={beats.length <= 1}
+                                          className="w-5 h-5 flex items-center justify-center text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors disabled:opacity-0 group-hover:text-slate-400 cursor-pointer"
+                                          title="删除此镜头"
+                                        >
+                                          ✕
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* 物理动作与画面描述：直接可编辑 + 修改黄色高亮 */}
+                                  <AutoResizeTextarea
+                                    minRows={2}
+                                    value={beat.actionDescription || ''}
+                                    onChange={(val) => handleUpdateBeat(bIdx, 'actionDescription', val)}
+                                    placeholder="输入角色纯物理动作与环境镜头画面..."
+                                    className={`w-full text-[11px] rounded-lg p-2 leading-relaxed outline-none focus:outline-none focus:ring-0 transition-colors ${
+                                      descModified
+                                        ? 'bg-amber-100/50 border border-amber-300 ring-1 ring-amber-200 text-amber-950 font-medium'
+                                        : 'text-slate-700 bg-slate-50/40 hover:bg-slate-50 focus:bg-white border border-slate-200/70 focus:border-indigo-400'
+                                    }`}
+                                  />
+
+                                  {/* 角色对白：影视剧本竖线优雅排版 + 修改黄色高亮 */}
+                                  <div className="border-l-2 border-indigo-500 pl-2 py-0.5 my-1 flex items-start gap-1.5">
+                                    <span className="text-[10px] text-indigo-600 font-semibold shrink-0 pt-0.5">💬 对白:</span>
+                                    <AutoResizeTextarea
+                                      minRows={1}
+                                      value={beat.dialogue || ''}
+                                      onChange={(val) => handleUpdateBeat(bIdx, 'dialogue', val)}
+                                      placeholder="角色台词（无对白可留空）"
+                                      className={`text-xs rounded-md px-2 py-0.5 flex-1 min-w-0 leading-relaxed outline-none focus:outline-none focus:ring-0 transition-colors ${
+                                        dialogueModified
+                                          ? 'bg-amber-100/60 border border-amber-300 text-amber-950 font-semibold'
+                                          : 'text-indigo-950 font-medium bg-indigo-50/30 hover:bg-indigo-50/70 focus:bg-white border border-indigo-100/80 focus:border-indigo-400'
+                                      }`}
+                                    />
+                                  </div>
+
+                                  {/* 视听机位与拟音参数行：直接可编辑 + 修改黄色高亮 */}
+                                  <div className="pt-1 space-y-1.5">
+                                    <div className={`flex items-start gap-1.5 rounded-lg px-2 py-1.5 transition-colors border ${
+                                      intentModified
+                                        ? 'bg-amber-100/60 border-amber-300 ring-1 ring-amber-200/50 text-amber-950'
+                                        : 'bg-slate-50 hover:bg-slate-100/70 focus-within:bg-white border-slate-200/80 focus-within:border-indigo-400 text-slate-700'
+                                    }`}>
+                                      <span className="text-[10px] font-medium shrink-0 pt-0.5 flex items-center gap-0.5">
+                                        <span>🎥</span>
+                                        <span className={intentModified ? 'text-amber-900' : 'text-slate-600'}>机位:</span>
+                                      </span>
+                                      <AutoResizeTextarea
+                                        minRows={1}
+                                        value={beat.cinematicIntent || ''}
+                                        onChange={(val) => handleUpdateBeat(bIdx, 'cinematicIntent', val)}
+                                        placeholder="机位镜头调度与运镜描述..."
+                                        className="w-full text-[10px] bg-transparent outline-none focus:outline-none focus:ring-0 leading-relaxed"
+                                      />
+                                    </div>
+
+                                    <div className={`flex items-start gap-1.5 rounded-lg px-2 py-1.5 transition-colors border ${
+                                      audioModified
+                                        ? 'bg-amber-200/50 border-amber-400 ring-1 ring-amber-300/50 text-amber-950'
+                                        : 'bg-amber-50/60 hover:bg-amber-50 focus-within:bg-white border-amber-200/60 focus-within:border-amber-400 text-amber-900'
+                                    }`}>
+                                      <span className="text-[10px] font-medium shrink-0 pt-0.5 flex items-center gap-0.5">
+                                        <span>🔊</span>
+                                        <span className="text-amber-900">拟音:</span>
+                                      </span>
+                                      <AutoResizeTextarea
+                                        minRows={1}
+                                        value={beat.audioAmbience || ''}
+                                        onChange={(val) => handleUpdateBeat(bIdx, 'audioAmbience', val)}
+                                        placeholder="动作拟音与环境声音效..."
+                                        className="w-full text-[10px] bg-transparent outline-none focus:outline-none focus:ring-0 leading-relaxed"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* 卡片之间的优雅横线与+号插入点（hover 时显现，点击直接插入） */}
+                                <InsertDivider onInsert={() => handleInsertBeatAt(bIdx + 1)} />
+                              </React.Fragment>
+                            );
+                          });
+                        })()}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="p-4 bg-white border border-dashed border-slate-200 rounded-xl text-center space-y-2">
+                      <span className="text-2xl block">🎬</span>
+                      <h5 className="text-xs font-bold text-slate-700">当前幕尚未升级为视听演绎剧本</h5>
+                      <p className="text-[11px] text-slate-400 leading-relaxed max-w-xs mx-auto">
+                        视听演绎剧本负责提炼黄昏薄雾等场景时空环境锁，并将故事升级为纯物理动作表演流。点击下方「进入画布制作」即可自动深化生成。
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

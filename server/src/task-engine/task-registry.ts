@@ -8,7 +8,7 @@ import { screenplayTool, scriptToPrdTool } from '../tools/planner/index.js';
 import {
   assetManifestTool,
   entitySpecTool,
-  storyboardBreakdownTool,
+  shootingScriptTool,
   shotPromptTool,
   lookdevTool,
   shotKeyframeTool,
@@ -45,7 +45,7 @@ export class TaskToolRegistry {
       // 2. 影视视听制作类
       assetManifestTool,
       entitySpecTool,
-      storyboardBreakdownTool,
+      shootingScriptTool,
       shotPromptTool,
       lookdevTool,
       shotKeyframeTool,

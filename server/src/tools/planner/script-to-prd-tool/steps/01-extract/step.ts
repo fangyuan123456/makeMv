@@ -12,6 +12,8 @@ import { Agent } from '@mastra/core/agent';
 import { LLMProvider } from '../../../../../llm/index.js';
 import { generateStructured } from '../../../../../utils/llm-diagnostics.js';
 import { ProjectStore } from '../../../../../project-store/ProjectStore.js';
+import { validateExtractedRouting } from './validate-routing.js';
+import { parseGeneratedScreenplay } from './parse-generated.js';
 import {
   ExtractStepInputSchema,
   ExtractedScriptStructureSchema,
@@ -56,6 +58,12 @@ export const extractScriptStep = createStep({
       );
     }
 
+    const generated = parseGeneratedScreenplay(scriptMarkdown);
+    if (generated) {
+      validateExtractedRouting(scriptMarkdown, generated);
+      return generated;
+    }
+
     const agent = new Agent({
       name: 'script-parser-agent',
       instructions: buildScriptToPrdSystemPrompt(),
@@ -74,6 +82,7 @@ export const extractScriptStep = createStep({
       abortSignal,
     })) as ExtractedScriptStructure;
 
+    validateExtractedRouting(scriptMarkdown, extracted);
     return extracted;
   },
 });

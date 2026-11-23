@@ -15,12 +15,14 @@ import {
   reconstructVideoPrompt,
   type VideoDirectives,
 } from './presets/promptDeconstructor.js';
+import { PromptMentionEditor } from './PromptMentionEditor.js';
 
 interface ShotProcessCanvasProps {
   node: CanvasShotNode;
   allNodes?: CanvasShotNode[];
   onSelectNode?: (node: CanvasShotNode) => void;
   projectId: string;
+  projectData?: any;
   tasks?: TaskRecord[];
   onClose: () => void;
   onRunTool: (toolName: string, input: Record<string, any>) => Promise<any>;
@@ -45,6 +47,7 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
   allNodes = [],
   onSelectNode,
   projectId,
+  projectData,
   tasks = [],
   onClose,
   onRunTool,
@@ -54,6 +57,14 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
   onSwitchSubCanvas,
   isBusy,
 }) => {
+  const lookdevEntities = useMemo(() => {
+    return (
+      projectData?.entities ||
+      projectData?.artifacts?.lookdev_entities ||
+      {}
+    );
+  }, [projectData]);
+
   const [selected, setSelected] = useState<ProcessNode>('first');
   const [shotDropdownOpen, setShotDropdownOpen] = useState(false);
   const shotMenuRef = React.useRef<HTMLDivElement>(null);
@@ -1486,18 +1497,25 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
             </div>
           </div>
         ) : (
-          <textarea
-            value={draftPrompt}
-            onChange={(e) => setDraftPrompt(e.target.value)}
-            disabled={isSelectedRunning}
-            rows={6}
-            className={`mt-2 w-full rounded-xl border bg-slate-50/70 focus:bg-white px-3 py-2 text-xs leading-relaxed text-slate-800 outline-none resize-y disabled:opacity-60 transition shadow-2xs ${
-              isPromptChanged
-                ? 'border-amber-300 ring-1 ring-amber-300/40'
-                : 'border-slate-200/90 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400'
-            }`}
-            placeholder="暂无提示词，可在这里补充或点击上方重新推演"
-          />
+          <div className="mt-2">
+            <PromptMentionEditor
+              value={draftPrompt}
+              onChange={(next) => setDraftPrompt(next)}
+              disabled={isSelectedRunning}
+              rows={6}
+              entities={lookdevEntities}
+              className={
+                isPromptChanged
+                  ? 'border-amber-300 ring-1 ring-amber-300/40'
+                  : 'border-slate-200/90 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400'
+              }
+              placeholder={
+                selected === 'video'
+                  ? '输入视频运镜动作流，输入 @ 快速引用相关角色或道具...'
+                  : '输入首帧画面提示词，输入 @ 快速绑定定妆角色、场景或道具...'
+              }
+            />
+          </div>
         )}
 
         <button

@@ -28,16 +28,16 @@ export function shouldDisableThinking(baseURL: string): boolean {
 }
 
 /**
- * 给 OpenAI 兼容请求体注入 enable_thinking:false，用于关掉 DeepSeek 系推理模型的思考链。
+ * 给支持该字段的网关注入当前工序的思考开关，不改写全局配置。
  * 只改请求体 JSON，其他一切原样透传。
  */
-function withThinkingDisabled() {
+function withThinkingSetting(enabled: boolean) {
   return async (input: any, init?: any) => {
     if (init && typeof init.body === 'string') {
       try {
         const body = JSON.parse(init.body);
         if (!('enable_thinking' in body)) {
-          body.enable_thinking = false;
+          body.enable_thinking = enabled;
           init = { ...init, body: JSON.stringify(body) };
         }
       } catch {
@@ -167,6 +167,9 @@ function wrapStreamLifecycle(
 export class LLMProvider {
   private static modelInstance: LanguageModelV1 | null = null;
   private static proxyInstance: LanguageModelV1 | null = null;
+  private static modelOverride = false;
+  private static reasoningModelInstance: LanguageModelV1 | null = null;
+  private static reasoningProxyInstance: LanguageModelV1 | null = null;
   private static batchPool: ConcurrencyPool = new ConcurrencyPool(config.llm.maxConcurrency);
 
   public static getBatchPool(): ConcurrencyPool {
@@ -176,8 +179,12 @@ export class LLMProvider {
   /**
    * 获取底层当前真实激活的模型实例
    */
-  public static getActiveModel(): LanguageModelV1 {
-    if (!this.modelInstance) {
+  public static getActiveModel(enableThinking?: boolean): LanguageModelV1 {
+    if(this.modelInstance && (this.modelOverride || isMockModel(this.modelInstance))) return this.modelInstance;
+    const reasoningVariant=enableThinking===true && !config.llm.enableThinking;
+    const thinking=enableThinking ?? config.llm.enableThinking;
+    let instance=reasoningVariant ? this.reasoningModelInstance : this.modelInstance;
+    if (!instance) {
       const isReal =
         (config.llm.provider === 'real' || config.llm.provider === 'openai') &&
         Boolean(config.llm.apiKey);
@@ -186,35 +193,39 @@ export class LLMProvider {
           config.llm.baseURL || 'https://dashscope.aliyuncs.com/compatible-mode/v1'
         ).replace(/\/+$/, '');
         console.log(
-          `[LLMProvider] 挂载生产级商用模型 (LanguageModelV1): ${config.llm.model} (${baseURL}) | 思考链: ${config.llm.enableThinking ? '开' : '关'}`
+          `[LLMProvider] 挂载生产级商用模型 (LanguageModelV1): ${config.llm.model} (${baseURL}) | 思考链: ${thinking ? '开' : '关'}`
         );
         const openai = createOpenAI({
           baseURL,
           apiKey: config.llm.apiKey,
           // 硅基流动的推理模型支持 enable_thinking 开关；其他网关不透传该字段，避免请求体被拒
-          ...(shouldDisableThinking(baseURL)
-            ? { fetch: withThinkingDisabled() }
+          ...((shouldDisableThinking(baseURL) || enableThinking===true) && /siliconflow\.cn/i.test(baseURL)
+            ? { fetch: withThinkingSetting(thinking) }
             : {}),
         });
-        this.modelInstance = openai(
+        instance = openai(
           config.llm.model || 'qwen-plus'
         ) as unknown as LanguageModelV1;
       } else {
         console.log(`[LLMProvider] 挂载离线确定性驱动 (MockLanguageModel)`);
-        this.modelInstance = new MockLanguageModel();
+        instance = new MockLanguageModel();
       }
     }
-    return this.modelInstance;
+    if(reasoningVariant) this.reasoningModelInstance=instance;
+    else this.modelInstance=instance;
+    return instance;
   }
 
   /**
    * 获取 Mastra 原生 Agent 所需的标准 LanguageModelV1 实例 (动态透明代理)
    */
-  public static getModel(): LanguageModelV1 {
-    if (!this.proxyInstance) {
-      this.proxyInstance = new Proxy({} as LanguageModelV1, {
+  public static getModel(options: { enableThinking?: true } = {}): LanguageModelV1 {
+    const reasoning=options.enableThinking===true;
+    let proxy=reasoning ? this.reasoningProxyInstance : this.proxyInstance;
+    if (!proxy) {
+      proxy = new Proxy({} as LanguageModelV1, {
         get(_target, prop) {
-          const active = LLMProvider.getActiveModel();
+          const active = LLMProvider.getActiveModel(options.enableThinking);
           // 商业网关统一以 json_object 模式生成结构化对象，避免 OpenAI tool_choice 在 DeepSeek 等模型上陷入复读死锁
           if (prop === 'defaultObjectGenerationMode' && !isMockModel(active)) {
             return 'json';
@@ -286,7 +297,9 @@ export class LLMProvider {
         },
       });
     }
-    return this.proxyInstance;
+    if(reasoning) this.reasoningProxyInstance=proxy;
+    else this.proxyInstance=proxy;
+    return proxy;
   }
 
   /**
@@ -294,6 +307,7 @@ export class LLMProvider {
    */
   public static setMockModel(mock: LanguageModelV1): void {
     this.modelInstance = mock;
+    this.modelOverride = true;
   }
 
   /**
@@ -301,5 +315,7 @@ export class LLMProvider {
    */
   public static reset(): void {
     this.modelInstance = null;
+    this.modelOverride = false;
+    this.reasoningModelInstance = null;
   }
 }

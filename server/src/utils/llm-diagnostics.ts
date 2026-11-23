@@ -115,7 +115,7 @@ export function dumpStructuredFailure(
     hints.push('模型输出被 maxTokens 截断（JSON 没写完）');
   }
   if (finishReason === 'content-filter') hints.push('被内容安全策略拦截');
-  if (!rawOutput) hints.push('模型完全没有返回文本');
+  if (!rawOutput && (typeof e.text === 'string' || e.name === 'AI_NoObjectGeneratedError')) hints.push('模型完全没有返回文本');
   if (rawOutput && !issues.length) hints.push('返回的是文本但不是合法 JSON');
 
   const head = issues.length
@@ -201,6 +201,7 @@ export async function generateStructured<S extends ZodTypeAny>(params: {
   label: string;
   projectId?: string;
   abortSignal?: AbortSignal;
+  retryEmptyResponse?: boolean;
 }): Promise<ZodInfer<S>> {
   const { agent, prompt, schema, abortSignal, ...rest } = params;
 
@@ -209,7 +210,7 @@ export async function generateStructured<S extends ZodTypeAny>(params: {
     throw new RunAbortedError(`【${params.label}】任务已被取消`);
   }
 
-  const effectiveModel = params.model || (agent?.model as LanguageModelV1) || LLMProvider.getModel();
+  const effectiveModel = params.model || (agent?.model as LanguageModelV1) || agent?.llm?.getModel() || LLMProvider.getModel();
   const effectiveSystem = params.system || agent?.instructions;
 
   try {
@@ -229,10 +230,15 @@ export async function generateStructured<S extends ZodTypeAny>(params: {
     if (isAbortError(err) || abortSignal?.aborted) {
       throw err instanceof RunAbortedError ? err : new RunAbortedError(`【${params.label}】任务已被取消`);
     }
+    if (params.retryEmptyResponse && typeof err?.text === 'string' && !err.text.trim()) {
+      console.warn(`[llm-diagnostics] ${params.label} 返回空内容，仅重试本次请求一次`);
+      return generateStructured({...params,retryEmptyResponse:false});
+    }
     const digest = dumpStructuredFailure(rest, err, prompt);
     const suffix = digest.dumpDir ? `（原始输出与提示词已落盘：${digest.dumpDir}）` : '';
     const structuredErr = new Error(`${digest.summary}${suffix}`);
     (structuredErr as any).failureType = 'llm_contract_error';
+    (structuredErr as any).cause = err;
     throw structuredErr;
   }
 }

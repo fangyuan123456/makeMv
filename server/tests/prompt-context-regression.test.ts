@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildBranchContext } from '../src/project-store/story-context.js';
-import { buildStoryboardBreakdownPrompt } from '../src/tools/film-production/storyboard-breakdown-tool/steps/01-breakdown/prompt.js';
+import { buildShootingScriptPrompt } from '../src/tools/film-production/shooting-script-tool/prompt.js';
 import { buildCharacterPortraitPrompt } from '../src/tools/film-production/lookdev-tool/character/prompt.js';
 import { buildShotKeyframePrompt } from '../src/tools/film-production/shot-keyframe-tool/steps/01-render/prompt.js';
 import { buildShotPromptPrompt } from '../src/tools/film-production/shot-prompt-tool/steps/01-prompt/prompt.js';
@@ -43,8 +43,8 @@ test('merged branches stay alternatives and cycles terminate', () => {
 });
 
 test('missing narrative fails instead of creating a replacement story', () => {
-  assert.throws(() => buildStoryboardBreakdownPrompt({ clipId: 'c2', clipTitle: '续幕', narrativeText: '  ' }), /非空剧情正文/);
-  const prompt = buildStoryboardBreakdownPrompt({ clipId: 'c2', clipTitle: '续幕', narrativeText: '她放下钥匙。' });
+  assert.throws(() => buildShootingScriptPrompt({ clipId: 'c2', clipTitle: '续幕', narrativeText: '  ' }), /非空剧情正文/);
+  const prompt = buildShootingScriptPrompt({ clipId: 'c2', clipTitle: '续幕', narrativeText: '她放下钥匙。' });
   assert.match(prompt, /前序信息未知/);
 });
 
@@ -61,8 +61,8 @@ test('render packaging preserves animation, symmetric composition, and slow moti
   assert.doesNotMatch(motion, /写实电影物理速率/);
 });
 
-test('first-frame prompt stays within the still-image output contract', () => {
+test('shot-prompt combines still-image and video dynamic motion contract', () => {
   const prompt = buildShotPromptPrompt({ shot: { shotId: 'c1-01', title: '空镜', sceneSubject: '湖面' }, clipTitle: '湖畔' });
-  assert.doesNotMatch(prompt, /动态表演与运镜规范|videoPrompt|结构化数组/);
+  assert.match(prompt, /videoPrompt/);
   assert.match(prompt, /ShotPromptOutputSchema/);
 });

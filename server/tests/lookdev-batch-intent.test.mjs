@@ -163,14 +163,14 @@ test('one Plan approval dispatches all operations bound to a single parent messa
         operations: [
           { tool: 'film.lookdev', title: '角色定妆', params: { targetKind: 'character', targetId: 'char_a' } },
           { tool: 'film.asset_manifest', title: '资产调整', params: { mode: 'modify' } },
-          { tool: 'film.storyboard_breakdown', title: '分镜规划', params: {} },
+          { tool: 'film.shooting_script', title: '台本规划', params: {} },
         ],
       },
     };
     await dispatchApprovedIntent(session, result);
     assert.deepEqual(
       calls.map((call) => call.toolName),
-      ['film.lookdev', 'film.asset_manifest', 'film.storyboard_breakdown']
+      ['film.lookdev', 'film.asset_manifest', 'film.shooting_script']
     );
     // 所有步骤均绑定至同一父消息，避免聊天流刷屏
     assert.equal(new Set(calls.map((call) => call.input.__chatContext.messageId)).size, 1);

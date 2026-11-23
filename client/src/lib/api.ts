@@ -400,3 +400,24 @@ export async function refineShotImage(
   }
   return data;
 }
+
+/** 更新指定分幕的视听摄制台本 (Shooting Script) */
+export async function updateShootingScript(
+  projectId: string,
+  clipId: string,
+  shootingScript: any
+): Promise<{ success: boolean; shootingScript: any; shots: any[] }> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/shooting-script/update`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clipId, shootingScript }),
+    }
+  );
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || '保存视听摄制台本失败');
+  }
+  return data;
+}

@@ -11,7 +11,7 @@ import { ProjectStore } from '../src/project-store/ProjectStore.js';
 import {
   assetManifestTool,
   entitySpecTool,
-  storyboardBreakdownTool,
+  shootingScriptTool,
   shotPromptTool,
   lookdevTool,
   shotKeyframeTool,
@@ -27,7 +27,7 @@ function testToolDefinitions() {
   const tools = [
     { tool: assetManifestTool, expectedId: 'film.asset_manifest' },
     { tool: entitySpecTool, expectedId: 'film.entity_spec' },
-    { tool: storyboardBreakdownTool, expectedId: 'film.storyboard_breakdown' },
+    { tool: shootingScriptTool, expectedId: 'film.shooting_script' },
     { tool: shotPromptTool, expectedId: 'film.shot_prompt' },
     { tool: lookdevTool, expectedId: 'film.lookdev' },
     { tool: shotKeyframeTool, expectedId: 'film.shot_keyframe' },

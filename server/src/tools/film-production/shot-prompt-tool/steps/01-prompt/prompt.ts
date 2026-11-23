@@ -24,6 +24,7 @@ export function buildShotPromptPrompt(params: {
     cameraDirective?: any;
     colorDirective?: any;
     poseDirective?: any;
+    weatherDirective?: any;
     motionDirective?: any;
     dynamicDirective?: any;
     focusDirective?: any;
@@ -80,6 +81,7 @@ ${previousShot.videoPrompt ? `- 上一镜动态运镜：${previousShot.videoProm
 - 镜头时长：${shot.durationSec || 3} 秒
 - 既定机位景别与摄影角度：${formatDirective(shot.cameraDirective, '全景/中景')}
 - 既定调色影调：${formatDirective(shot.colorDirective, '沿用项目与场景风格')}
+- 既定天气与环境光影硬约束：${formatDirective(shot.weatherDirective, '沿用场景全局环境')}
 - 既定动作姿态与视线：${formatDirective(shot.poseDirective, '写实自然')}
 - 既定运镜动向：${formatDirective(shot.motionDirective, '固定机位稳健构图')}
 - 既定运动幅度：${formatDirective(shot.dynamicDirective, '电影级平缓 5/10')}
@@ -112,6 +114,7 @@ ${CINEMATIC_TEMPORAL_DYNAMICS_SPEC}
    - 描写次级环境流（微风轻拂衣角、枝叶摇曳、薄雾缓慢流转）。
 2. 【阶段二 · 严格反切第 0 秒起幅首帧（firstFramePrompt）】：
    - 描述摄影机快门在上述视频动作第 0 毫秒捕获的起幅定格画面（150~220 字）。
+   - ⭐【环境与天气光影首位定调（杜绝白昼漂移）】：首帧提示词开篇第一句必须严格依据【既定天气与环境光影硬约束】定下场景时空与光质（例如：“深秋黄昏时分，薄雾低垂笼罩，低角度暗橙色斜阳余晖照射，地表泛着冷色阴影……”），将其置于最高提示词权重，绝不能被人物服饰细节冲淡稀释成大白天白光！
    - ⚠️【动作起点物理切片】：首帧主体必须严格处于视频动作的第一毫秒起点状态！若视频动作是“迈出最后两步走到石碑前”，则首帧中主体必须处于离石碑一步半处正迈步前行（重心在前脚，后脚轻离地），而石碑前必须空无一人（绝不能提前画在终点碑前造成分身）！
    - 必须遵循五层公理：明确写出摄影机角度（平视/微低角度仰拍/俯拍）与焦段透视（如35mm广角）；
    - 人物视线与交互物体的物理高度对齐；

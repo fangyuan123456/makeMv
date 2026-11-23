@@ -14,6 +14,9 @@ export function buildScriptToPrdSystemPrompt(): string {
    - 提取该片段对应的剧情视听文本，作为该切片的 narrativeText；
    - 提取该片段所包含的镜头/画面描述，赋予预设 media 标识（如 "c1_scene.mp4"）。
 
+   - 新剧本有【节点：ID】时保留原 ID（含结局），根据【入口：ID】提取 startNodeId；终局节点只进入 endings，不重复放入 clips；【走向节点：ID】按目标类型填入选项目标字段。旧剧本根据标题与合流标记解析。
+   - 无选项片段必须提取 nextNodeId，来自【后继】、【合流】或明确剧情去向；兄弟分支不能按文本相邻关系串联。不确定时留空，由校验阻断，禁止猜测。
+
 2. **互动决策识别 (Choices)**：
    - 识别剧本中所有【互动抉择点】中的选项（选项 A、选项 B 等）；
    - 明确每个选项的文案 text；

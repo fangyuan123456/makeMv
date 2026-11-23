@@ -42,6 +42,9 @@ export class TaskStore extends EventEmitter {
    * 保存或更新任务
    */
   public saveTask(task: TaskRecord): void {
+    // 刚性自愈防线：保存任务前必须确保该项目的历史任务账本已完全载入内存，防止直接覆盖抹杀历史任务
+    this.ensureProjectLoaded(task.projectId);
+
     const previous = this.tasks.get(task.taskId);
     const hadProject = this.projectTasks.has(task.projectId);
     this.tasks.set(task.taskId, { ...task });

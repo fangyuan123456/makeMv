@@ -27,6 +27,7 @@ import type {
 } from '../../../types/index.js';
 import { PlannerChat } from '../chat/PlannerChat.js';
 import { PlannerTopologyDiagram } from './planner/PlannerTopologyDiagram.js';
+import { ScreenplayReader } from './planner/ScreenplayReader.js';
 import { useReportFocus } from '../../../hooks/StudioFocusContext.js';
 
 interface PlannerStageProps {
@@ -528,10 +529,7 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
                     {originalMode === 'reading' ? (
                       /* 故事原文高保真文章阅读器 */
                       <div className="flex-1 overflow-y-auto p-5 bg-slate-50/90 rounded-2xl border border-slate-200 text-xs font-mono text-slate-800 leading-relaxed shadow-2xs">
-                        <pre className="whitespace-pre-wrap font-sans text-xs text-slate-800 leading-relaxed">
-                          {screenplayMarkdown ||
-                            '当前项目暂无故事剧本原文。请在左侧与故事总监对话构思剧情，或切换到「编辑」模式直接粘贴正文。'}
-                        </pre>
+                        <ScreenplayReader markdown={screenplayMarkdown || '当前项目暂无故事剧本原文。请在左侧与故事总监对话构思剧情，或切换到「编辑」模式直接粘贴正文。'} />
                       </div>
                     ) : (
                       /* 剧本在线微调编辑输入框 */

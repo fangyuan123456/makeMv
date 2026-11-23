@@ -131,6 +131,33 @@ export interface VisualDirective {
   presetId?: string;
 }
 
+export interface ShootingScriptEnvironmentLock {
+  timeOfDay: string;
+  weatherDirective: VisualDirective;
+  lightingDirective: VisualDirective;
+  colorTone?: VisualDirective;
+}
+
+export interface ShootingScriptActionBeat {
+  beatId: string;
+  beatTitle: string;
+  actionDescription: string;
+  cinematicIntent: string;
+  characterIds?: string[];
+  itemIds?: string[];
+  dialogue?: string;
+  audioAmbience?: string;
+  estimatedSeconds?: number;
+}
+
+export interface ShootingScript {
+  clipId: string;
+  clipTitle: string;
+  environmentLock: ShootingScriptEnvironmentLock;
+  actionBeats: ShootingScriptActionBeat[];
+  generatedAt?: string;
+}
+
 export interface CinematicShotOrder {
   shotId: string;
   clipId: string;
@@ -145,7 +172,9 @@ export interface CinematicShotOrder {
   cameraDirective?: VisualDirective;
   colorDirective?: VisualDirective;
   poseDirective?: VisualDirective;
+  weatherDirective?: VisualDirective;
   sceneSubject?: string;
+  sliceSummary?: string;
   // 视频专属开放元数据体系
   motionDirective?: VisualDirective;
   dynamicDirective?: VisualDirective;
@@ -176,6 +205,7 @@ export interface CinematicClipOrder {
   title?: string;
   targetDurationSec?: number;
   shots: CinematicShotOrder[];
+  shootingScript?: ShootingScript;
   videoUrl?: string;
 }
 
@@ -363,6 +393,7 @@ export interface CanvasShotNode {
   firstFramePrompt?: string;
   lastFramePrompt?: string;
   videoPrompt?: string;
+  audioPrompt?: string;
   // 视听工业级开放元数据体系 (SSOT: 首帧/末帧/视频三轨独立存储)
   firstFrameCameraDirective?: VisualDirective;
   firstFrameColorDirective?: VisualDirective;
@@ -373,7 +404,9 @@ export interface CanvasShotNode {
   cameraDirective?: VisualDirective;
   colorDirective?: VisualDirective;
   poseDirective?: VisualDirective;
+  weatherDirective?: VisualDirective;
   sceneSubject?: string;
+  sliceSummary?: string;
   // 视频专属开放元数据体系
   motionDirective?: VisualDirective;
   dynamicDirective?: VisualDirective;
@@ -383,6 +416,13 @@ export interface CanvasShotNode {
   isUnlocked?: boolean;
   staleKeyframeReason?: string;
   staleVideoReason?: string;
+  // 视听摄制台本结构化要素 (Shooting Script Action Beat)
+  actionDescription?: string;
+  cinematicIntent?: string;
+  dialogue?: string;
+  audioAmbience?: string;
+  shotType?: string;
+  cameraMovement?: string;
   // 前序镜头视听连续性模式：auto（智能决策）、linked（强制承接尾帧）、detached（独立机位）
   continuityMode?: 'auto' | 'linked' | 'detached';
 }

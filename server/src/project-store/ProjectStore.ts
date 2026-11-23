@@ -47,6 +47,7 @@ export const CANONICAL_ARTIFACT_MAP: Record<
 
   // 工序 3 资产与无限分镜画布
   storyboards: { filename: 'storyboards.json', type: 'json' },
+  film_spec: { filename: 'film_spec.json', type: 'json' },
   storyboard_canvas: { filename: 'storyboard_canvas.json', type: 'json' },
 
   // 全局多维工序任务树
@@ -192,8 +193,16 @@ export class ProjectStore {
     const inMemory = project.artifacts[artifactKey] as T | undefined;
     if (inMemory !== undefined && inMemory !== null) return inMemory;
 
-    // film_spec 以 storyboards.json 为磁盘唯一事实来源 (SSOT)，进程重启后直接从 storyboards 水合
+    // 优先从磁盘 film_spec.json 读取；若缺失才尝试从 storyboards.json 水合
     if (artifactKey === 'film_spec') {
+      const specPath = path.join(this.getProjectDir(projectId), 'film_spec.json');
+      if (fs.existsSync(specPath)) {
+        const parsed = safeReadJsonSync<any>(specPath);
+        if (parsed) {
+          project.artifacts.film_spec = parsed;
+          return parsed as unknown as T;
+        }
+      }
       const clips = this.getArtifact<any[]>(projectId, 'storyboards');
       if (Array.isArray(clips) && clips.length > 0) {
         const hydrated = {

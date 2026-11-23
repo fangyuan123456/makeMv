@@ -192,7 +192,7 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
       const targetClipId = t.input?.clipId || t.input?.id;
       if (!targetClipId) return false;
       if (
-        t.toolName === 'film.storyboard_breakdown' ||
+        t.toolName === 'film.shooting_script' ||
         t.toolName === 'film.shot_keyframe' ||
         t.toolName === 'film.shot_video'
       ) {
@@ -208,8 +208,7 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
       (s: any) =>
         s.clipId === clipId ||
         s.id === clipId ||
-        s.sourceNodeId === clipId ||
-        s.clipId === `c${clipId.replace(/\D/g, '')}`
+        s.sourceNodeId === clipId
     );
     if (inStoryboards) return inStoryboards;
 
@@ -217,8 +216,7 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
       return filmSpec.clips.find(
         (c: any) =>
           c.clipId === clipId ||
-          c.sourceNodeId === clipId ||
-          c.clipId === `c${clipId.replace(/\D/g, '')}`
+          c.sourceNodeId === clipId
       );
     }
     return undefined;

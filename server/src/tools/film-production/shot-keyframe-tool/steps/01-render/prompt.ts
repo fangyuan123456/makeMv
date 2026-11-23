@@ -58,7 +58,19 @@ export function buildShotKeyframePrompt(
   overrideBasePrompt?: string,
   instruction?: string
 ): string {
-  const base = (overrideBasePrompt || shot.firstFramePrompt || `${shot.shotType} ${shot.cameraMovement}`).trim();
+  const rawBase = (overrideBasePrompt || shot.firstFramePrompt || `${shot.shotType} ${shot.cameraMovement}`).trim();
+
+  // 智能多模态图文注意力对齐：将 @实体名称 精确规范化为 <imageN>(实体名称)
+  let normalizedBase = rawBase;
+  if (references.length > 0) {
+    references.forEach((ref, idx) => {
+      if (ref.name) {
+        const mentionRegex = new RegExp(`[@＠]\\s*${ref.name}`, 'g');
+        normalizedBase = normalizedBase.replace(mentionRegex, `<image${idx + 1}>(${ref.name})`);
+      }
+    });
+  }
+
   const mappingSection = buildReferenceMappingSection(references);
 
   const editInstructionSection = instruction?.trim()
@@ -68,7 +80,7 @@ export function buildShotKeyframePrompt(
   // 核心公理：画面核心叙事与主体动作必须占据 Prompt 黄金前排（Subject & Action First）
   // 杜绝参考图长篇八股文霸占黄金窗口，消灭正向提示词中的否定句
   const sections = [
-    base,
+    normalizedBase,
     editInstructionSection,
     mappingSection,
     CINEMATIC_CONTINUITY_LOCK,

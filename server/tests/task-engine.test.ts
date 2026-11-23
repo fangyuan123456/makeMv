@@ -52,7 +52,7 @@ const expectedToolNames = [
   'planner.script_to_prd',
   'film.asset_manifest',
   'film.entity_spec',
-  'film.storyboard_breakdown',
+  'film.shooting_script',
   'film.shot_prompt',
   'film.lookdev',
   'film.shot_keyframe',

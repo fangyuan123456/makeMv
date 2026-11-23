@@ -1,12 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ProjectStore } from '../src/project-store/ProjectStore.js';
-import { storyboardBreakdownModifierStep } from '../src/tools/film-production/storyboard-breakdown-tool/index.js';
+import { shootingScriptModifierStep } from '../src/tools/film-production/shooting-script-tool/index.js';
 import { shotPromptModifierStep } from '../src/tools/film-production/shot-prompt-tool/index.js';
-import { shotMotionModifierStep } from '../src/tools/film-production/shot-motion-tool/index.js';
 import type { FilmAdapterArtifact } from '../src/project-store/contracts/film-production/film-spec.js';
 
-test('🎬 验证分镜解耦三工具定向微调模式 (Breakdown/Prompt/Motion Modifier)', async (t) => {
+test('🎬 验证分镜解耦三工具定向微调模式 (ShootingScript/Prompt/Motion Modifier)', async (t) => {
   const projectId = 'test_modify_shot_proj_001';
   const store = ProjectStore.getInstance();
 
@@ -20,6 +19,35 @@ test('🎬 验证分镜解耦三工具定向微调模式 (Breakdown/Prompt/Motio
         clipId: 'c1',
         sourceNodeId: 'c1',
         targetDurationSec: 8,
+        shootingScript: {
+          clipId: 'c1',
+          clipTitle: '第1幕',
+          environmentLock: {
+            timeOfDay: '日间',
+            weatherDirective: { label: '自然光照', instruction: '自然漫反射光影' },
+            lightingDirective: { label: '主光柔和', instruction: '写实柔和照明' },
+          },
+          actionBeats: [
+            {
+              beatId: 'b1',
+              shotNumber: 1,
+              space: '空间一',
+              beatTitle: '镜头 01（全景 · 4s）',
+              actionDescription: '原版旧动作：全景，林航站在控制台前',
+              cinematicIntent: '全景机位',
+              estimatedSeconds: 4,
+            },
+            {
+              beatId: 'b2',
+              shotNumber: 2,
+              space: '空间一',
+              beatTitle: '镜头 02（近景 · 4s）',
+              actionDescription: '原版第二动作',
+              cinematicIntent: '近景机位',
+              estimatedSeconds: 4,
+            },
+          ],
+        },
         shots: [
           {
             shotId: 'c1-01',
@@ -64,28 +92,28 @@ test('🎬 验证分镜解耦三工具定向微调模式 (Breakdown/Prompt/Motio
     clips: [{ id: 'c1', title: '第1幕', narrativeText: '舰桥爆发警报，林航查看屏幕' }],
   });
 
-  await t.test('1. StoryboardBreakdownModifier 执行镜头结构化更新 (0 LLM 开销)', async () => {
-    const res = await storyboardBreakdownModifierStep.execute({
+  await t.test('1. ShootingScriptModifier 执行台本节拍结构化更新 (0 LLM 开销)', async () => {
+    const res = await shootingScriptModifierStep.execute({
       context: {
         projectId,
         clipId: 'c1',
         modifications: [
           {
             action: 'update',
-            shotId: 'c1-01',
-            shot: {
-              durationSec: 5,
-              sceneSubject: '林航紧急按下闭锁阀',
+            beatId: 'b1',
+            beat: {
+              estimatedSeconds: 5,
+              actionDescription: '林航紧急按下闭锁阀',
             },
           },
         ],
       },
     } as any);
 
-    assert.equal(res.shots.length, 2);
-    const updatedShot = res.shots.find((s: any) => s.shotId === 'c1-01');
-    assert.equal(updatedShot?.durationSec, 5);
-    assert.equal(updatedShot?.sceneSubject, '林航紧急按下闭锁阀');
+    assert.equal(res.actionBeats.length, 2);
+    const updatedBeat = res.actionBeats.find((b: any) => b.beatId === 'b1');
+    assert.equal(updatedBeat?.estimatedSeconds, 5);
+    assert.equal(updatedBeat?.actionDescription, '林航紧急按下闭锁阀');
   });
 
   await t.test('2. ShotPromptModifier 执行单镜首帧词自定义极速覆盖 (0 LLM 开销)', async () => {
@@ -102,14 +130,14 @@ test('🎬 验证分镜解耦三工具定向微调模式 (Breakdown/Prompt/Motio
     assert.equal(res.firstFramePrompt, customFirstFrame);
   });
 
-  await t.test('3. ShotMotionModifier 执行单镜视频运镜词自定义极速覆盖 (0 LLM 开销)', async () => {
+  await t.test('3. ShotPromptModifier 执行单镜视频运镜词自定义极速覆盖 (0 LLM 开销)', async () => {
     const customVideo = '0~1.5s 镜头微推 ➔ 1.5~3.5s 林航猛按闭锁阀 ➔ 3.5~5s 警报红光扫射定势';
-    const res = await shotMotionModifierStep.execute({
+    const res = await shotPromptModifierStep.execute({
       context: {
         projectId,
         clipId: 'c1',
         shotId: 'c1-01',
-        customPrompt: customVideo,
+        customVideoPrompt: customVideo,
       },
     } as any);
 

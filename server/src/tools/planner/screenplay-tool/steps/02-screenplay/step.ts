@@ -6,18 +6,20 @@
 import { createStep } from '@mastra/core/workflows';
 import { Agent } from '@mastra/core/agent';
 import { LLMProvider } from '../../../../../llm/index.js';
-import { generateStructured } from '../../../../../utils/llm-diagnostics.js';
+import { writeSceneText } from './write-node.js';
 import {
   ScreenplayOutputSchema,
   ScreenplayStepInputSchema,
   FullScriptTextOutputSchema,
+  NodeScriptOutputSchema,
   type ScreenplayOutput,
-  type FullScriptTextOutput,
 } from './schema.js';
 import type { PremiseOutput } from '../01-premise/schema.js';
+import { renderScreenplay } from './render.js';
+import { expandStoryPaths } from './expand-paths.js';
 import {
   buildScreenplaySystemPrompt,
-  buildFullScriptPrompt,
+  buildNodeScriptPrompt,
 } from './prompt.js';
 
 export const screenplayStep = createStep({
@@ -37,36 +39,20 @@ export const screenplayStep = createStep({
       throw new Error('[screenplayStep] 契约执行阻断：前序步骤 premise 未生成合法的角色与标题设定');
     }
     const originalInput = ctx.triggerData || ctx;
-    const userPrompt = originalInput?.userPrompt || premise.logline || '';
+    const userPrompt = originalInput?.userPrompt || premise.sourcePrompt || premise.logline || '';
     const abortSignal = originalInput?.abortSignal || originalInput?._context?.abortSignal || ctx.abortSignal;
 
-    const agent = new Agent({
-      name: 'screenplay-writer-agent',
-      instructions: buildScreenplaySystemPrompt(),
-      model: LLMProvider.getModel(),
-    });
-
-    const prompt = buildFullScriptPrompt({
-      premise,
-      userPrompt,
-    });
-
-    const parsed = (await generateStructured({
-      agent,
-      prompt,
-      schema: FullScriptTextOutputSchema,
-      stage: 'planner-tool',
-      step: 'screenplay-markdown',
-      label: '互动全景剧本生成',
+    const parsed = await expandStoryPaths(premise, (node, history) => writeSceneText({
+      prompt: buildNodeScriptPrompt({ premise, userPrompt, node, history }),
       abortSignal,
-    })) as FullScriptTextOutput;
+    }));
 
     const finalOutput: ScreenplayOutput = {
       title: premise.title,
       genre: premise.genre,
       logline: premise.logline,
       characters: premise.characters,
-      scriptMarkdown: parsed.scriptMarkdown,
+      scriptMarkdown: renderScreenplay(premise, FullScriptTextOutputSchema.parse(parsed)),
     };
 
     return finalOutput;

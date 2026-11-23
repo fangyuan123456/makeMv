@@ -22,10 +22,17 @@ export const ScreenplayOutputSchema = z.object({
 export type ScreenplayOutput = z.infer<typeof ScreenplayOutputSchema>;
 
 export const FullScriptTextOutputSchema = z.object({
-  scriptMarkdown: z.string().describe('完整的 Markdown 互动影游剧本正文'),
+  nodes: z.array(z.object({
+    id: z.string().describe('严格对应大纲节点 ID'),
+    narrativeText: z.string().min(1).describe('本节点可拍摄的场景、行动与对白；不含选项、连接或终局标记'),
+  })).min(1),
 });
 
 export type FullScriptTextOutput = z.infer<typeof FullScriptTextOutputSchema>;
+
+export const NodeScriptOutputSchema = z.object({
+  narrativeText: z.string().min(1).describe('当前唯一路径节点的场景、行动和对白，不输出其他节点或流程标记'),
+});
 
 export const ScreenplayStepInputSchema = PremiseOutputSchema.extend({
   _context: z.any().optional(),

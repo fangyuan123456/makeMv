@@ -71,8 +71,13 @@ export const shotPromptStep = createStep({
       model: LLMProvider.getModel(),
     });
 
+    const effectiveShot = {
+      ...targetShot,
+      weatherDirective: targetShot.weatherDirective || currentClip.shootingScript?.environmentLock?.weatherDirective,
+    };
+
     const prompt = buildShotPromptPrompt({
-      shot: targetShot,
+      shot: effectiveShot,
       clipTitle,
       narrativeText,
       instruction: input.instruction,

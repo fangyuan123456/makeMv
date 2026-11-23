@@ -20,7 +20,7 @@ import {
   type ShotFrameVersion,
   type ShotVideoVersion,
 } from '../../project-store/shot-frame-versions.js';
-import { recordShotKeyframeUpdated, recordShotPromptUpdated } from '../../project-store/freshness.js';
+import { recordShotKeyframeUpdated, recordShotPromptUpdated, recordStoryboardUpdated } from '../../project-store/freshness.js';
 import { atomicWriteJsonSync } from '../../utils/atomicFile.js';
 import { compileVisualEditPrompt } from '../../tools/film-production/shared/visual-edit-prompt.js';
 import { taskDispatcher } from '../../task-engine/index.js';
@@ -362,5 +362,86 @@ export const refineShotImage = async (req: Request, res: Response) => {
     res.json({ success: true, directedPrompt, baseImageUrl: effectiveBaseImage, task });
   } catch (err: any) {
     sendError(res, 500, `镜头定向微调失败: ${err.message}`);
+  }
+};
+
+/**
+ * 更新指定分幕的视听摄制台本 (Shooting Script)
+ * POST /api/projects/:id/shooting-script/update
+ * Body: { clipId: string, shootingScript: any }
+ */
+export const updateShootingScript = async (req: Request, res: Response) => {
+  try {
+    const projectId = req.params.id;
+    const { clipId, shootingScript } = req.body || {};
+    if (!clipId || !shootingScript) {
+      return sendError(res, 400, '缺少必要参数: clipId, shootingScript');
+    }
+
+    const filmSpec = store.getArtifact<any>(projectId, 'film_spec') || { clips: [] };
+    filmSpec.clips = Array.isArray(filmSpec.clips) ? filmSpec.clips : [];
+    let targetClip = filmSpec.clips.find((c: any) => c.clipId === clipId || c.sourceNodeId === clipId);
+    if (!targetClip) {
+      targetClip = { clipId, title: shootingScript.clipTitle || clipId, shots: [] };
+      filmSpec.clips.push(targetClip);
+    }
+
+    const existingShots = Array.isArray(targetClip.shots) ? targetClip.shots : [];
+    // 建立基于 beatId 与 shotId 的双重索引，确保插镜、删镜时资产（图片、视频、提示词）精准跟随，绝不错位
+    const beatMap = new Map<string, any>();
+    const shotMap = new Map<string, any>();
+    for (const s of existingShots) {
+      if (s.beatId) beatMap.set(s.beatId, s);
+      if (s.shotId) shotMap.set(s.shotId, s);
+    }
+
+    // 更新台本数据
+    targetClip.shootingScript = {
+      ...shootingScript,
+      clipId,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // 如果传入了 actionBeats，无损同步更新 shots 清单
+    if (Array.isArray(shootingScript.actionBeats) && shootingScript.actionBeats.length > 0) {
+      targetClip.shots = shootingScript.actionBeats.map((beat: any, idx: number) => {
+        const shotId = `${clipId}-${String(beat.shotNumber || idx + 1).padStart(2, '0')}`;
+        // 优先基于稳定唯一的 beatId 找回历史资产，避免顺延插入导致的资产错位
+        const old: any = (beat.beatId && beatMap.get(beat.beatId)) || (!beat.beatId ? shotMap.get(shotId) : undefined) || {};
+        return {
+          ...old,
+          beatId: beat.beatId,
+          shotId,
+          clipId,
+          shotIndex: idx,
+          durationSec: beat.estimatedSeconds || 4,
+          shotType: beat.cinematicIntent || 'MEDIUM_SHOT',
+          cameraMovement: 'locked-off',
+          generationMode: 'first_frame',
+          characters: beat.characterIds || [],
+          items: beat.itemIds || [],
+          sceneSubject: beat.actionDescription,
+          sliceSummary: beat.beatTitle,
+          dialogue: beat.dialogue || '',
+          audioPrompt: beat.audioAmbience || '',
+          weatherDirective: shootingScript.environmentLock?.weatherDirective,
+          firstFramePrompt: old.firstFramePrompt || '',
+          videoPrompt: old.videoPrompt || '',
+          keyframeUrl: old.keyframeUrl || old.firstFrameImageUrl,
+          firstFrameImageUrl: old.firstFrameImageUrl,
+          lastFrameImageUrl: old.lastFrameImageUrl,
+          videoUrl: old.videoUrl,
+          firstFrameUpscale: old.firstFrameUpscale,
+          lastFrameUpscale: old.lastFrameUpscale,
+        };
+      });
+    }
+
+    persistClips(projectId, filmSpec.clips);
+    recordStoryboardUpdated(projectId, [clipId]);
+
+    res.json({ success: true, shootingScript: targetClip.shootingScript, shots: targetClip.shots });
+  } catch (err: any) {
+    sendError(res, 500, `更新摄制台本失败: ${err.message}`);
   }
 };

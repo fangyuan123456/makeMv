@@ -5,7 +5,7 @@
 
 export * from './asset-manifest-tool/index.js';
 export * from './entity-spec-tool/index.js';
-export * from './storyboard-breakdown-tool/index.js';
+export * from './shooting-script-tool/index.js';
 export * from './shot-prompt-tool/index.js';
 export * from './shot-keyframe-tool/index.js';
 export * from './shot-video-tool/index.js';

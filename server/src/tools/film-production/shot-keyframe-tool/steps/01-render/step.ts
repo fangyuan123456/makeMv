@@ -89,10 +89,23 @@ function resolveShotReferenceEntries(
     }
   }
 
-  // 3. 出场角色三视图（优先作为主角视觉锚点基准 <image1>，每次从 lookdev_entities 实时同步最新激活/超分版本）
-  if (entities?.characters?.length && Array.isArray(targetShot.characters) && targetShot.characters.length > 0) {
+  // 3. 出场角色三视图（优先作为主角视觉锚点基准 <image1>，支持显式 @角色 智能注入与扫描）
+  const activeCharKeys = new Set<string>([
+    ...(Array.isArray(targetShot.characters) ? targetShot.characters : []),
+    ...(Array.isArray(targetShot.characterIds) ? targetShot.characterIds : []),
+  ]);
+  const shotText = `${targetShot.title || ''} ${targetShot.sceneSubject || ''} ${targetShot.firstFramePrompt || ''} ${targetShot.poseDirective?.label || ''} ${targetShot.poseDirective?.instruction || ''}`;
+  if (Array.isArray(entities?.characters) && entities.characters.length > 0) {
+    for (const ch of entities.characters) {
+      if (ch.name && (shotText.includes(`@${ch.name}`) || shotText.includes(ch.name))) {
+        activeCharKeys.add(ch.characterId || ch.name);
+      }
+    }
+  }
+
+  if (entities?.characters?.length && activeCharKeys.size > 0) {
     const freshCharUrls: string[] = [];
-    for (const cid of targetShot.characters) {
+    for (const cid of activeCharKeys) {
       const matchedChar = entities.characters.find(
         (c: any) => c.characterId === cid || c.name === cid
       );
@@ -116,16 +129,22 @@ function resolveShotReferenceEntries(
     }
   }
 
-  // 4. 场景母本图（作为材质肌理与光影色调参考，排在角色之后避免空间构图绑架机位）
+  // 4. 场景母本图（优先匹配 @场景名称，作为材质肌理与光影色调参考）
   let matchedLoc: any;
   if (entities?.locations?.length) {
-    matchedLoc =
-      entities.locations.find(
-        (l: any) =>
-          l.sceneIds?.includes(targetClip.clipId) ||
-          l.locationId === targetClip.clipId ||
-          l.locationId.includes(targetClip.clipId)
-      ) || entities.locations[0];
+    // 优先检测提示词中显式 @ 的场景
+    matchedLoc = entities.locations.find(
+      (l: any) => l.name && (shotText.includes(`@${l.name}`) || shotText.includes(l.name))
+    );
+    if (!matchedLoc) {
+      matchedLoc =
+        entities.locations.find(
+          (l: any) =>
+            l.sceneIds?.includes(targetClip.clipId) ||
+            l.locationId === targetClip.clipId ||
+            l.locationId.includes(targetClip.clipId)
+        ) || entities.locations[0];
+    }
     const locImg = cleanUrl(matchedLoc?.imageUrl || matchedLoc?.referenceImageUrl);
     if (locImg) {
       targetShot.backgroundImageUrl = locImg;
@@ -139,16 +158,15 @@ function resolveShotReferenceEntries(
     });
   }
 
-  // 4. 关键剧情道具特写图（支持 targetShot.items、targetShot.itemIds 以及台本语义自愈扫描）
+  // 5. 关键剧情道具特写图（支持 targetShot.items、targetShot.itemIds 以及显式 @道具 智能扫描）
   const declaredItemIds = new Set<string>([
     ...(Array.isArray(targetShot.items) ? targetShot.items : []),
     ...(Array.isArray(targetShot.itemIds) ? targetShot.itemIds : []),
   ]);
-  const shotText = `${targetShot.title || ''} ${targetShot.sceneSubject || ''} ${targetShot.firstFramePrompt || ''} ${targetShot.poseDirective?.label || ''} ${targetShot.poseDirective?.instruction || ''}`;
   if (Array.isArray(entities?.items) && entities.items.length > 0) {
     for (const it of entities.items) {
-      if (it.name && shotText.includes(it.name)) {
-        declaredItemIds.add(it.itemId);
+      if (it.name && (shotText.includes(`@${it.name}`) || shotText.includes(it.name))) {
+        declaredItemIds.add(it.itemId || it.name);
       }
     }
     for (const iid of declaredItemIds) {

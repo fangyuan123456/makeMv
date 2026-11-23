@@ -228,7 +228,7 @@ export class DirectorIntentResolver {
         const hydrated = DirectorIntentResolver.hydrateParams(operationTool, operation.params, ctx);
 
         // 2. 状态与依赖拓扑记录
-        if (operationTool === 'film.storyboard_breakdown') {
+        if (operationTool === 'film.shooting_script') {
           plannedReplan = true;
         } else if (operationTool === 'film.shot_keyframe') {
           if (hydrated.shotId) {

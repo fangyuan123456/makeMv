@@ -84,7 +84,7 @@ export function formatStoryScenesToMarkdown(
     const clip = clips[idx];
     const section = storySections[clip.id] || { title: clip.title, narrativeText: '' };
     const title = section.title || clip.title || `第 ${idx + 1} 幕`;
-    const roleLabel = idx === clips.length - 1 ? '主线终局' : '主干片段';
+    const roleLabel = '剧情片段';
 
     indexRows.push(`- \`${clip.id}\`（${roleLabel}）：${title}`);
     sections.push(`## ${clip.id}｜${title}\n\n${section.narrativeText || '（无剧本正文）'}`);

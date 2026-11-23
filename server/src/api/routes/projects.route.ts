@@ -22,6 +22,7 @@ import {
   updateShotPrompt,
   updateShotContinuity,
   refineShotImage,
+  updateShootingScript,
 } from '../services/shot-assets.service.js';
 import { sendError } from '../helpers.js';
 
@@ -142,3 +143,4 @@ projectsRouter.post('/:id/shots/select-version', selectShotVersion);
 projectsRouter.post('/:id/shots/update-prompt', updateShotPrompt);
 projectsRouter.post('/:id/shots/update-continuity', updateShotContinuity);
 projectsRouter.post('/:id/shots/refine', refineShotImage);
+projectsRouter.post('/:id/shooting-script/update', updateShootingScript);

@@ -9,7 +9,7 @@ import {
   type KeyframeReferenceEntry,
 } from '../src/tools/film-production/shot-keyframe-tool/steps/01-render/prompt.js';
 import { shotKeyframeTool } from '../src/tools/film-production/shot-keyframe-tool/index.js';
-import { storyboardBreakdownTool } from '../src/tools/film-production/storyboard-breakdown-tool/index.js';
+import { shootingScriptTool } from '../src/tools/film-production/shooting-script-tool/index.js';
 
 test('🎬 验证分镜总导演通用意图决策与画面微调闭环 (Universal Shot Intent Decision)', async (t) => {
   const store = ProjectStore.getInstance();
@@ -55,10 +55,10 @@ test('🎬 验证分镜总导演通用意图决策与画面微调闭环 (Univers
 
   await t.test('2. 系统提示词规则矩阵：明确影视三级解耦决策漏斗与单一目标派发', () => {
     const sysPrompt = (agent as any).assembleSystemPrompt();
-    assert.ok(sysPrompt.includes('事实审校与意图分流决策漏斗'), '系统提示词中必须包含决策漏斗');
-    assert.ok(sysPrompt.includes('诉求 4：纯出图/重绘/局部姿态修复'), '必须包含局部姿态出图微调诉求');
+    assert.ok(sysPrompt.includes('诉求精准定位'), '系统提示词中必须包含精准定位');
+    assert.ok(sysPrompt.includes('单镜出图/重绘'), '必须包含单镜出图重绘诉求');
     assert.ok(sysPrompt.includes(shotKeyframeTool.toolName), '系统提示词必须包含 shotKeyframeTool');
-    assert.ok(sysPrompt.includes(storyboardBreakdownTool.toolName), '系统提示词必须包含 storyboardBreakdownTool');
+    assert.ok(sysPrompt.includes(shootingScriptTool.toolName), '系统提示词必须包含 shootingScriptTool');
   });
 
   await t.test('3. 单步画面微调意图解析器：当传入 instruction 时自动标准化 force: true 与 clipId', () => {

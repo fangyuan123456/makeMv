@@ -317,8 +317,8 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
         break;
       }
 
-      case 'film.storyboard_breakdown': {
-        const { clipId, clipTitle, shots = [] } = output;
+      case 'film.shooting_script': {
+        const { clipId, clipTitle, environmentLock, actionBeats } = output;
         if (clipId) {
           const filmSpec = store.getArtifact<any>(projectId, 'film_spec') || { clips: [] };
           filmSpec.clips = Array.isArray(filmSpec.clips) ? filmSpec.clips : [];
@@ -328,30 +328,74 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
             filmSpec.clips.push(targetClip);
           }
           if (clipTitle) targetClip.title = clipTitle;
+          const shootingScriptData = {
+            clipId,
+            clipTitle,
+            environmentLock,
+            actionBeats,
+            generatedAt: new Date().toISOString(),
+          };
+          targetClip.shootingScript = shootingScriptData;
 
+          // 一步到位：将工业级台本节拍投影为原子镜头清单，无损保留已有已出图/视频产物
           const existingShots = Array.isArray(targetClip.shots) ? targetClip.shots : [];
           const existingMap = new Map(existingShots.map((s: any) => [s.shotId, s]));
 
-          // 无损合并：更新台本骨架，保留已有生图词、运镜词、图片与视频资源
-          targetClip.shots = shots.map((newShot: any) => {
-            const old: any = existingMap.get(newShot.shotId) || {};
-            return {
-              ...old,
-              ...newShot,
-              firstFramePrompt: old.firstFramePrompt || '',
-              videoPrompt: old.videoPrompt || '',
-              keyframeUrl: old.keyframeUrl || old.firstFrameImageUrl,
-              firstFrameImageUrl: old.firstFrameImageUrl,
-              lastFrameImageUrl: old.lastFrameImageUrl,
-              videoUrl: old.videoUrl,
-              firstFrameUpscale: old.firstFrameUpscale,
-              lastFrameUpscale: old.lastFrameUpscale,
-            };
-          });
+          if (Array.isArray(actionBeats) && actionBeats.length > 0) {
+            targetClip.shots = actionBeats.map((beat: any, idx: number) => {
+              const shotId = `${clipId}-${String(beat.shotNumber || idx + 1).padStart(2, '0')}`;
+              const old: any = existingMap.get(shotId) || {};
+              return {
+                ...old,
+                shotId,
+                clipId,
+                shotIndex: idx,
+                durationSec: beat.estimatedSeconds || 4,
+                shotType: beat.cinematicIntent || 'MEDIUM_SHOT',
+                cameraMovement: 'locked-off',
+                generationMode: 'first_frame',
+                characters: beat.characterIds || [],
+                items: beat.itemIds || [],
+                sceneSubject: beat.actionDescription,
+                sliceSummary: beat.beatTitle,
+                dialogue: beat.dialogue || '',
+                audioPrompt: beat.audioAmbience || '',
+                weatherDirective: environmentLock?.weatherDirective,
+                firstFramePrompt: old.firstFramePrompt || '',
+                videoPrompt: old.videoPrompt || '',
+                keyframeUrl: old.keyframeUrl || old.firstFrameImageUrl,
+                firstFrameImageUrl: old.firstFrameImageUrl,
+                lastFrameImageUrl: old.lastFrameImageUrl,
+                videoUrl: old.videoUrl,
+                firstFrameUpscale: old.firstFrameUpscale,
+                lastFrameUpscale: old.lastFrameUpscale,
+              };
+            });
+          }
 
           store.setArtifact(projectId, 'film_spec', filmSpec);
-          store.setArtifact(projectId, 'storyboards', filmSpec.clips);
-          atomicWriteJsonSync(path.join(projectDir, 'storyboards.json'), filmSpec.clips);
+          atomicWriteJsonSync(path.join(projectDir, 'film_spec.json'), filmSpec);
+
+          // 核心：同步更新 storyboards 对应的 clip，确保前端通过 storyboards 或 storyboards.json 也能直接读取
+          let storyboards = store.getArtifact<any[]>(projectId, 'storyboards');
+          if (!Array.isArray(storyboards)) {
+            const storyboardsPath = path.join(projectDir, 'storyboards.json');
+            storyboards = safeReadJsonSync<any[]>(storyboardsPath) || [];
+          }
+          if (Array.isArray(storyboards)) {
+            const sbClipIndex = storyboards.findIndex((c: any) => c.clipId === clipId);
+            if (sbClipIndex >= 0) {
+              storyboards[sbClipIndex] = {
+                ...storyboards[sbClipIndex],
+                shootingScript: shootingScriptData,
+                shots: targetClip.shots,
+              };
+            } else {
+              storyboards.push(targetClip);
+            }
+            store.setArtifact(projectId, 'storyboards', storyboards);
+            atomicWriteJsonSync(path.join(projectDir, 'storyboards.json'), storyboards);
+          }
           recordStoryboardUpdated(projectId, [clipId]);
         }
         break;

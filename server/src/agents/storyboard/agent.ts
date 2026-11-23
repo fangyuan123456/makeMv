@@ -61,6 +61,9 @@ export class StoryboardAgent extends AgentRunner<StoryboardActionIntent> {
       clipTitle,
       narrativeText,
       targetDurationSec,
+      hasShootingScript,
+      shootingScriptSummary,
+      phaseEvaluation,
       shots,
       unupscaledFirstShots,
       unupscaledLastShots,
@@ -76,18 +79,26 @@ export class StoryboardAgent extends AgentRunner<StoryboardActionIntent> {
 【全剧故事主线与核心基调】：
 ${storyOverview}
 
+【当前分幕制作流水线状态机 (Storyboard SOP Pipeline)】：
+- 当前所处阶段：${phaseEvaluation.description}
+- 当前首要任务：${phaseEvaluation.currentMission}
+- 视听演绎剧本状态：${hasShootingScript ? '已就绪 🟢 (具备时空环境锁与对白表演流)' : '待生成 🟡 (文学故事剧本尚未升级为视听演绎剧本)'}
+
 ${previousClipSummary ? `【前序分幕因果承接】：\n${previousClipSummary}\n` : ''}
 【当前分幕专属性质与剧本文本】：
 - 分幕标识：${this.clipId}（${clipTitle}）
 - 本幕时长：${targetDurationSec} 秒 | 镜头总数：${shots.length} 镜
-- 本幕剧本正文：
+- 本幕文学剧本正文：
 \`\`\`text
 ${narrativeText}
 \`\`\`
 ${nextClipSummary ? `【后续分幕戏剧走向】：\n${nextClipSummary}\n` : ''}
 
-【本幕当前已排布的镜头清单 (${shots.length} 镜)】：
-${shotsSummary || '  (当前尚未排布镜头)'}
+【本幕视听演绎剧本案头 (Shooting Script)】：
+${shootingScriptSummary}
+
+【本幕当前已细化的分镜镜头清单 (${shots.length} 镜)】：
+${shotsSummary || '  (当前尚未细化排布分镜镜头)'}
 
 ${taskHealth?.promptSummary || ''}
 
@@ -97,6 +108,31 @@ ${taskHealth?.promptSummary || ''}
 
 ### 视口交互与单镜聚焦原则
 - 若当前视口已聚焦具体镜头（如「镜头 01 · 首帧」），且创作者未明确说明“全幕/全部/多镜”，默认仅针对当前聚焦的 1 镜发起提案，严禁擅自扩成全幕批量生成。`;
+  }
+
+  /**
+   * 工序完成后的复盘与顺位推演引导 (Pipeline Post-Task SOP Hook)
+   */
+  public override getPostTaskPrompt(task: any, title: string): string {
+    const toolName = task.toolName;
+
+    if (toolName === 'film.shooting_script') {
+      return `【工序完成事实】：
+工序【${title || '视听摄制台本与分镜切片'}】已顺利执行完毕并物理落盘。
+本幕场景时空环境锁已成功建立，分镜头单与画布镜头序列（shots）已一步到位生成并具备纯物理动作、精准角色对白与现场拟音！
+
+【本工序导演标准执行顺序（SOP）】：
+1. **工业级视听分镜摄制台本** (film.shooting_script) ◀◀ (刚才已落盘，时空环境锁与全量镜头清单已一步到位)
+2. **单镜视听一体化推演** (film.shot_prompt) —— 推演具体镜头的首帧起幅生图词与同相动态运镜词
+3. **首帧关键帧渲染** (film.shot_keyframe) ➔ **高清超分** (film.image_upscale)
+4. **镜头动态视频渲染** (film.shot_video)
+
+【工序接力与推演要求】：
+1. **[成果复盘]**：汇报摄制台本中提炼出的时空环境锁与镜头切分事实（镜头总数、关键对白落地）；
+2. **[接力推演]**：对照上述 SOP 顺位，紧邻推进下一步【单镜视听一体化推演 (film.shot_prompt)】（默认聚焦首个未推演镜头如 c1-01），调用 propose 提出推演方案，并在发言中声明“方案卡片已生成，请审阅授权”。`;
+    }
+
+    return super.getPostTaskPrompt(task, title);
   }
 
   private findFocusedShot(focus: AgentFocusContext): any | undefined {

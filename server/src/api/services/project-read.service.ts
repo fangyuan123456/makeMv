@@ -70,11 +70,22 @@ export const getProjectSnapshot = (req: Request, res: Response) => {
     }
 
     // 5. 分镜列表 (优先 storyboards 字段，或从 film_spec.clips 中自动提取)
+    let filmSpec = store.getArtifact<any>(projectId, 'film_spec') || safeReadJsonSync(path.join(projectDir, 'film_spec.json'));
     let storyboards = store.getArtifact<any[]>(projectId, 'storyboards');
     if (!storyboards) {
-      const filmSpec = store.getArtifact<any>(projectId, 'film_spec');
       if (filmSpec && Array.isArray(filmSpec.clips)) {
         storyboards = filmSpec.clips;
+      }
+    }
+    // 确保 storyboards 中的 clip 如果自身缺少 shootingScript，能够从 filmSpec.clips 中补齐
+    if (Array.isArray(storyboards) && filmSpec && Array.isArray(filmSpec.clips)) {
+      for (const clip of storyboards) {
+        if (!clip.shootingScript) {
+          const fc = filmSpec.clips.find((c: any) => c.clipId === clip.clipId);
+          if (fc?.shootingScript) {
+            clip.shootingScript = fc.shootingScript;
+          }
+        }
       }
     }
 
@@ -102,6 +113,7 @@ export const getProjectSnapshot = (req: Request, res: Response) => {
         story: story || screenplay,
         storySections,
         lookdev_entities: entities,
+        film_spec: filmSpec,
         storyboards: storyboardsWithVersions,
         hasStandaloneGame,
         staleMap,

@@ -272,6 +272,7 @@ export const VisualStage: React.FC<VisualStageProps> = ({
               onClose={() => setInspectingNode(null)}
               onEnterCanvas={handleEnterSubCanvas}
               onEnlargeMedia={setEnlargedMedia}
+              onRefreshProject={onRefreshProject}
             />
           )}
         </>

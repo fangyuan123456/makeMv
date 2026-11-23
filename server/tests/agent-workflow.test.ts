@@ -340,13 +340,13 @@ test('storyboard agent injects current clipId for single-step storyboard plannin
   try {
     const intent = (session as any).resolveDirectorIntent({
       action: 'propose',
-      targetTool: 'film.storyboard_breakdown',
-      title: '优化第二幕分镜',
+      targetTool: 'film.shooting_script',
+      title: '优化第二幕台本与分镜',
       description: '增加第二幕特写镜头',
       params: { instruction: '增加特写镜头' },
     });
     assert.equal(intent.action, 'propose');
-    assert.equal(intent.tool, 'film.storyboard_breakdown');
+    assert.equal(intent.tool, 'film.shooting_script');
     assert.equal(intent.params.clipId, 'c2');
     assert.equal(intent.params.projectId, projectId);
   } finally {

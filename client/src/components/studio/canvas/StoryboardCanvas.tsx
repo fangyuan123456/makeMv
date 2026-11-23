@@ -21,6 +21,7 @@ import { ShotCanvasCard } from './ShotCanvasCard.js';
 import { LookdevRootCanvasCard } from './LookdevRootCanvasCard.js';
 import { ShotFocusDrawer } from './ShotFocusDrawer.js';
 import { ShotProcessCanvas } from './ShotProcessCanvas.js';
+import { ShotScriptCard } from './ShotScriptCard.js';
 import { SubCanvasSwitcher, type SubCanvasOption } from './SubCanvasSwitcher.js';
 import type { MediaLightboxItem } from '../stages/visual/MediaLightboxModal.js';
 import { useReportFocus } from '../../../hooks/StudioFocusContext.js';
@@ -106,6 +107,71 @@ function findProjectShot(projectData: ProjectData | null | undefined, shotId?: s
   return undefined;
 }
 
+/** 从项目快照中反查镜头对应的导演摄制台本动作节拍 (Shooting Script Action Beat) */
+function findActionBeat(
+  projectData: ProjectData | null | undefined,
+  clipId?: string,
+  shotId?: string,
+  shotTitle?: string
+): any | undefined {
+  if (!projectData) return undefined;
+  const sources = [
+    projectData.storyboards,
+    projectData.artifacts?.storyboards,
+    (projectData.artifacts as any)?.film_spec?.clips,
+  ];
+
+  for (const clips of sources) {
+    if (!Array.isArray(clips)) continue;
+    for (const clip of clips) {
+      if (!clip) continue;
+      // 当指定了 clipId 时，严格隔离在当前分幕内，杜绝跨幕数据污染
+      if (clipId && !matchesClipId(clip, clipId)) continue;
+
+      const script = clip.shootingScript;
+      if (!script || !Array.isArray(script.actionBeats) || script.actionBeats.length === 0) continue;
+
+      const beats: any[] = script.actionBeats;
+
+      // 1. 精确匹配 beatId 或 shotId
+      if (shotId) {
+        const found = beats.find(
+          (b) =>
+            b.beatId === shotId ||
+            b.shotId === shotId ||
+            (b.beatId && shotId && b.beatId.replace(/[-_]/g, '').toLowerCase() === shotId.replace(/[-_]/g, '').toLowerCase())
+        );
+        if (found) return found;
+      }
+
+      // 2. 从 shotTitle 或 shotId 提取镜头序号匹配当前幕内节拍
+      const numMatch = (shotTitle || shotId || '').match(/(?:镜头|\bshot[_-]?|[sS]\d+[_-])\s*(\d+)/i);
+      if (numMatch) {
+        const idx = parseInt(numMatch[1], 10);
+        const found = beats.find((b) => {
+          if (b.shotNumber === idx) return true;
+          const bMatch = b.beatTitle?.match(/(?:镜头|\bbeat[_-]?|[sS]\d+[_-])\s*(\d+)/i);
+          return bMatch && parseInt(bMatch[1], 10) === idx;
+        });
+        if (found) return found;
+
+        if (beats[idx - 1]) {
+          return beats[idx - 1];
+        }
+      }
+
+      // 3. 在当前幕下根据 shots 数组索引对齐
+      if (Array.isArray(clip.shots) && shotId) {
+        const shotIdx = clip.shots.findIndex((s: any) => (s?.shotId || s?.id) === shotId);
+        if (shotIdx >= 0 && beats[shotIdx]) {
+          return beats[shotIdx];
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
 export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
   projectId,
   projectData,
@@ -154,26 +220,26 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
   // 当前幕（或全剧）是否正在执行分镜规划/台本重排
   const activePlanningTask = tasks.find((t) => {
     if (t.status !== 'running' && t.status !== 'pending') return false;
-    if (t.toolName !== 'film.storyboard_breakdown') return false;
+    if (t.toolName !== 'film.shooting_script') return false;
     if (!clipId) return true;
     const targetClipId = t.input?.clipId;
     return !targetClipId || targetClipId === clipId;
   });
   const isPlanningStoryboard = Boolean(activePlanningTask);
 
-  // 首次进入尚未拆解分镜的单幕画布时，自动触发本幕分镜台本推演（与定妆画布自动提取逻辑保持一致）
+  // 首次进入尚未拆解分镜的单幕画布时，自动触发本幕工业级分镜摄制单规划
   useEffect(() => {
     if (!projectId || !clipId || !projectData) return;
     const key = `${projectId}:${clipId}`;
     if (resolvedClipShots.length > 0 || isPlanningStoryboard || autoPlanKeyRef.current === key) return;
     autoPlanKeyRef.current = key;
-    console.log(`[StoryboardCanvas] 首次进入分幕 [${clipId}]，自动推演本幕分镜台本...`);
-    onRunTool('film.storyboard_breakdown', {
+    console.log(`[StoryboardCanvas] 首次进入分幕 [${clipId}]，自动规划本幕工业级分镜摄制台本...`);
+    onRunTool('film.shooting_script', {
       clipId,
       __idempotencyKey: `storyboard:auto-plan:${projectId}:${clipId}`,
     })
       .then(() => onRefreshProject?.())
-      .catch((err) => console.warn(`[StoryboardCanvas] 自动推演分幕 [${clipId}] 分镜失败:`, err));
+      .catch((err) => console.warn(`[StoryboardCanvas] 自动规划分幕 [${clipId}] 分镜失败:`, err));
   }, [projectId, clipId, projectData, resolvedClipShots.length, isPlanningStoryboard, onRunTool, onRefreshProject]);
 
   const scopeCanvasToClip = useCallback((data: StoryboardCanvasData): StoryboardCanvasData => {
@@ -183,23 +249,39 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
     const shots = resolvedClipShots;
     const existingClipNode = Object.values(data.nodes).find((node) => node.clipId === clipId);
     const nodes: Record<string, CanvasShotNode> = {};
+    const scriptBeats: any[] = clip?.shootingScript?.actionBeats || [];
 
     shots.forEach((shot: any, index: number) => {
       const shotId = shot.shotId || shot.id || `shot_${clipId}_${index + 1}`;
       const nodeId = `node_${shotId}`;
       const previousShot = index > 0 ? shots[index - 1] : null;
       const previousReady = Boolean(previousShot?.videoUrl || previousShot?.firstFrameImageUrl || previousShot?.keyframeUrl || previousShot?.imageUrl);
+
+      // 精确匹配当前分幕下的摄制台本节拍 (Action Beat)
+      const matchedBeat = scriptBeats.find((b: any) =>
+        b.beatId === shotId ||
+        b.shotNumber === (index + 1) ||
+        (b.beatId && shotId && b.beatId.replace(/[-_]/g, '').toLowerCase() === shotId.replace(/[-_]/g, '').toLowerCase())
+      ) || scriptBeats[index];
+
       nodes[nodeId] = {
         id: nodeId,
         type: 'shot_node',
         shotId,
         clipId,
-        title: shot.title || shot.name || `镜头 ${String(index + 1).padStart(2, '0')}`,
+        title: shot.title || shot.name || matchedBeat?.beatTitle || `镜头 ${String(index + 1).padStart(2, '0')}`,
+        // 摄制台本视听要素真实直通绑定 (零硬编码)
+        actionDescription: matchedBeat?.actionDescription || shot.actionDescription || shot.sceneSubject,
+        cinematicIntent: matchedBeat?.cinematicIntent || shot.cinematicIntent || shot.cameraDirective?.instruction,
+        dialogue: matchedBeat?.dialogue !== undefined ? matchedBeat.dialogue : shot.dialogue,
+        audioAmbience: matchedBeat?.audioAmbience || shot.audioAmbience || shot.audioPrompt,
+        shotType: matchedBeat?.shotType || shot.shotType || shot.cameraDirective?.label,
+        cameraMovement: matchedBeat?.cameraMovement || shot.cameraMovement,
         // 台本描述的是镜头如何演绎，首帧提示词留给下一级关键帧处理。
-        prompt: shot.videoPrompt || shot.description || shot.promptZh || shot.visualPromptZh || '',
-        durationSec: shot.durationSec || shot.duration || 4,
-        position: { x: 80 + (index % 3) * 420, y: 120 + Math.floor(index / 3) * 340 },
-        size: { w: 260, h: 210 },
+        prompt: matchedBeat?.actionDescription || shot.videoPrompt || shot.description || shot.promptZh || shot.visualPromptZh || '',
+        durationSec: shot.durationSec || matchedBeat?.estimatedSeconds || shot.duration || 4,
+        position: { x: 80 + (index % 3) * 420, y: 120 + Math.floor(index / 3) * 350 },
+        size: { w: 260, h: 280 },
         videoUrl: shot.videoUrl || clip?.videoUrl || undefined,
         keyframeUrl: shot.firstFrameImageUrl || shot.keyframeUrl || shot.imageUrl || undefined,
         lastFrameUrl: shot.lastFrameImageUrl || shot.lastFrameUrl || undefined,
@@ -212,6 +294,8 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
         lastFramePrompt: shot.lastFramePrompt || '',
         videoPrompt: shot.videoPrompt || shot.description || shot.promptZh || '',
         sceneSubject: shot.sceneSubject,
+        sliceSummary: shot.sliceSummary,
+        weatherDirective: shot.weatherDirective,
         cameraDirective: shot.cameraDirective,
         colorDirective: shot.colorDirective,
         poseDirective: shot.poseDirective,
@@ -641,6 +725,7 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
       const sid = node.shotId;
       // 项目快照里的镜头资产（含版本库）是权威数据源，优先于画布节点的静态副本
       const projectShot = findProjectShot(projectData, sid);
+      const actionBeat = findActionBeat(projectData, node.clipId || clipId, sid || node.id, node.title);
       const latestFirstFrameTask = sid
         ? tasks.find(
             (t) =>
@@ -728,6 +813,8 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
               lastFramePrompt: projectShot.lastFramePrompt || node.lastFramePrompt,
               videoPrompt: projectShot.videoPrompt || node.videoPrompt,
               sceneSubject: projectShot.sceneSubject || node.sceneSubject,
+              sliceSummary: projectShot.sliceSummary || node.sliceSummary,
+              weatherDirective: projectShot.weatherDirective || node.weatherDirective,
               cameraDirective: projectShot.cameraDirective || node.cameraDirective,
               colorDirective: projectShot.colorDirective || node.colorDirective,
               poseDirective: projectShot.poseDirective || node.poseDirective,
@@ -738,6 +825,32 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
             }
           : {}),
         continuityMode: projectShot?.continuityMode || node.continuityMode || 'auto',
+        // 摄制台本视听要素注入
+        prompt: actionBeat?.actionDescription || projectShot?.sceneSubject || node.prompt,
+        actionDescription:
+          actionBeat?.actionDescription ||
+          projectShot?.actionDescription ||
+          projectShot?.sceneSubject ||
+          node.actionDescription,
+        cinematicIntent:
+          actionBeat?.cinematicIntent ||
+          projectShot?.cinematicIntent ||
+          (projectShot?.cameraMovement ? `${projectShot?.shotType || ''} · ${projectShot?.cameraMovement}`.trim() : undefined) ||
+          node.cinematicIntent,
+        dialogue:
+          actionBeat?.dialogue !== undefined
+            ? actionBeat.dialogue
+            : projectShot?.dialogue !== undefined
+            ? projectShot.dialogue
+            : node.dialogue,
+        audioAmbience:
+          actionBeat?.audioAmbience ||
+          projectShot?.audioAmbience ||
+          projectShot?.audioPrompt ||
+          projectShot?.ambience ||
+          node.audioAmbience,
+        shotType: actionBeat?.shotType || projectShot?.shotType || node.shotType,
+        cameraMovement: actionBeat?.cameraMovement || projectShot?.cameraMovement || node.cameraMovement,
         firstFrameVersions: firstVersions,
         lastFrameVersions: lastVersions,
         keyframeUrl: withCacheVersion(rawKf, Math.max(firstVer || 0, projectVersionStamp(firstVersions))),
@@ -803,6 +916,7 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
           setSelectedNodeId(targetNode.id);
         }}
         projectId={projectId}
+        projectData={projectData}
         tasks={tasks}
         onClose={() => {
           setProcessCanvasNode(null);
@@ -1081,16 +1195,61 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
                 </button>
               )}
             </div>
-            <div className="flex items-center gap-3 text-xs text-slate-500">
-              <span>{selectedCanvasNode.durationSec || 4}s</span>
-              <span>{selectedCanvasNode.videoUrl ? '视频已生成' : selectedCanvasNode.keyframeUrl ? '首帧已生成' : '待处理'}</span>
+            {/* 视听资产状态条 */}
+            <div className="flex items-center justify-between text-xs px-1">
+              <span
+                className={`inline-flex items-center gap-1.5 font-medium ${
+                  selectedCanvasNode.videoUrl
+                    ? 'text-emerald-600'
+                    : selectedCanvasNode.keyframeUrl
+                    ? 'text-indigo-600'
+                    : 'text-slate-400'
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    selectedCanvasNode.videoUrl
+                      ? 'bg-emerald-500 ring-2 ring-emerald-200'
+                      : selectedCanvasNode.keyframeUrl
+                      ? 'bg-indigo-500 ring-2 ring-indigo-200'
+                      : 'bg-slate-300'
+                  }`}
+                />
+                {selectedCanvasNode.videoUrl
+                  ? '动态视频已生成'
+                  : selectedCanvasNode.keyframeUrl
+                  ? '首帧关键帧已就绪'
+                  : '视觉资产待生成'}
+              </span>
+              <span className="text-[11px] text-slate-400 font-mono">
+                {selectedCanvasNode.continuityMode === 'linked'
+                  ? '强制接戏尾帧'
+                  : selectedCanvasNode.continuityMode === 'detached'
+                  ? '独立自由机位'
+                  : '智能时空连续性'}
+              </span>
             </div>
-            <div>
-              <div className="mb-1 text-[11px] font-semibold text-slate-700">镜头台本</div>
-              <p className="text-xs leading-6 text-slate-600 whitespace-pre-wrap">
-                {selectedCanvasNode.prompt || '暂无镜头演绎台本'}
-              </p>
-            </div>
+
+            {/* 工业级视听摄制台本卡片 (结构化四维要素，支持直接打字修改并与全剧摄制单 SSOT 联动) */}
+            <ShotScriptCard
+              node={selectedCanvasNode}
+              projectId={projectId}
+              clipId={clipId}
+              projectData={projectData}
+              onRefreshProject={onRefreshProject}
+              onNodeUpdate={(updatedNode) => {
+                setCanvasData((prev) => {
+                  if (!prev) return prev;
+                  return {
+                    ...prev,
+                    nodes: {
+                      ...prev.nodes,
+                      [updatedNode.id]: updatedNode,
+                    },
+                  };
+                });
+              }}
+            />
             <button
               type="button"
               onClick={() => setProcessCanvasNode(selectedCanvasNode)}
