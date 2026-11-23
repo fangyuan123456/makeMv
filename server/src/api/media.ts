@@ -26,6 +26,15 @@ export function mediaMiddleware(req: Request, res: Response, next: NextFunction)
   }
 
   const contentType = MediaResolver.getMimeType(resolved.diskPath);
-  res.setHeader('Content-Type', contentType);
-  fs.createReadStream(resolved.diskPath).pipe(res);
+  res.sendFile(resolved.diskPath, {
+    acceptRanges: true,
+    headers: {
+      'Content-Type': contentType,
+      'Accept-Ranges': 'bytes',
+    },
+  }, (err) => {
+    if (err && !res.headersSent) {
+      sendError(res, 500, '读取媒体文件失败');
+    }
+  });
 }

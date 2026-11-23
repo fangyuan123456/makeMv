@@ -81,7 +81,7 @@
       "fps": 24.0,
       "bit_depth": "auto",
       "color_space": "sRGB",
-      "codec": "none"
+      "codec": "auto"
     }
   },
   "13": {
@@ -93,8 +93,8 @@
       ],
       "filename_prefix": "storyboard_first_last/shot",
       "format": "auto",
-      "format.codec": "auto",
-      "codec": "auto"
+      "format.codec": "h264",
+      "codec": "h264"
     }
   },
   "14": {
@@ -119,7 +119,7 @@
       "prompt": "同一人物、服装、道具和场景。从首帧的姿态自然过渡到尾帧的姿态，动作连贯，保持握持关系和身体结构。镜头稳定。请将此处改成当前分镜的具体动作、先后顺序和机位。\noverall_soundscape: 环境风声与自然动作声，无对白。\nnon_diegetic_music: None.\n无字幕、水印或画面文字。",
       "width": 1280,
       "height": 704,
-      "length": 124
+      "length": 96
     }
   },
   "17": {
@@ -149,8 +149,8 @@
         0
       ],
       "selection": "sol-attn",
-      "selection.tau": 1.5,
-      "start_percent": 0.2,
+      "selection.tau": 1.2,
+      "start_percent": 0.75,
       "end_percent": 1.0,
       "dense_blocks": "",
       "min_tokens": 12288,

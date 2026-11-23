@@ -15,7 +15,7 @@
  * 5. 点击节点直接触发滑出右侧侧边栏工作台 (Sidebar Drawer)，主画布常驻无跨页跳转。
  */
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { UniversalPrdSpec, ProjectData, TaskRecord } from '../../../../types/index.js';
 
 export interface VisualPipelineTopologyProps {
@@ -24,7 +24,18 @@ export interface VisualPipelineTopologyProps {
   selectedNodeId?: string | null;
   onSelectNode?: (node: TopoNode) => void;
   onEnterSubCanvas?: (kind: 'lookdev' | 'clip', clipId?: string, clipTitle?: string) => void;
-  onEnlargeClip?: (media: { title: string; imageUrl?: string; videoUrl?: string }) => void;
+  onEnlargeClip?: (media: {
+    title: string;
+    imageUrl?: string;
+    videoUrl?: string;
+    gallery?: Array<{
+      title: string;
+      imageUrl?: string;
+      videoUrl?: string;
+      badge?: string;
+      subtitle?: string;
+    }>;
+  }) => void;
 }
 
 export interface TopoNode {
@@ -38,7 +49,11 @@ export interface TopoNode {
   isUnlocked: boolean;
   keyframeUrl?: string;
   videoUrl?: string;
+  videoUrls?: string[];
+  totalShots?: number;
+  completedVideos?: number;
   durationSec?: number;
+  staleReason?: string;
   x: number;
   y: number;
   w: number;
@@ -55,6 +70,61 @@ interface TopoEdge {
   lx: number;
   ly: number;
 }
+
+interface SequentialClipVideoPlayerProps {
+  videoUrls: string[];
+  width: number;
+  height: number;
+}
+
+const SequentialClipVideoPlayer: React.FC<SequentialClipVideoPlayerProps> = ({
+  videoUrls,
+  width,
+  height,
+}) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  const safeIndex = currentIndex < videoUrls.length ? currentIndex : 0;
+  const currentSrc = videoUrls[safeIndex];
+
+  const handleEnded = () => {
+    setCurrentIndex((prev) => (prev + 1) % videoUrls.length);
+  };
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [safeIndex, currentSrc]);
+
+  return (
+    <foreignObject x="0" y="0" width={width} height={height}>
+      <div className="relative w-full h-full bg-black overflow-hidden select-none">
+        <video
+          ref={videoRef}
+          key={currentSrc}
+          src={currentSrc}
+          autoPlay
+          muted
+          playsInline
+          onEnded={handleEnded}
+          className="w-full h-full object-cover"
+        />
+        {/* 多分镜顺序联合播放指示角标 */}
+        {videoUrls.length > 1 && (
+          <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-xs text-[9px] font-mono text-white flex items-center gap-1 shadow-2xs border border-white/20 z-20 pointer-events-none">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span>
+              分镜 {safeIndex + 1}/{videoUrls.length}
+            </span>
+          </div>
+        )}
+      </div>
+    </foreignObject>
+  );
+};
 
 export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
   projectData,
@@ -82,6 +152,25 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
   // 获取分镜规划数据 (兼容 storyboards 与 film_spec.clips)
   const storyboards = projectData?.storyboards || projectData?.artifacts?.storyboards || [];
   const filmSpec = projectData?.artifacts?.film_spec;
+  const staleMap = projectData?.staleMap || projectData?.artifacts?.staleMap;
+
+  const getClipStaleReason = (clipId: string): string | undefined => {
+    if (!staleMap) return undefined;
+    if (staleMap.clips?.[clipId]?.reason) return staleMap.clips[clipId].reason;
+    const clipData =
+      storyboards.find((s: any) => s.clipId === clipId || s.sourceNodeId === clipId) ||
+      filmSpec?.clips?.find((c: any) => c.clipId === clipId || c.sourceNodeId === clipId);
+    const shots: any[] = Array.isArray(clipData?.shots) ? clipData.shots : [];
+    const staleKfCount = shots.filter((s) => Boolean(staleMap.shotKeyframes?.[s.shotId || s.id])).length;
+    const staleVidCount = shots.filter((s) => Boolean(staleMap.shotVideos?.[s.shotId || s.id])).length;
+    if (staleKfCount > 0 || staleVidCount > 0) {
+      const parts: string[] = [];
+      if (staleKfCount > 0) parts.push(`${staleKfCount} 个关键帧`);
+      if (staleVidCount > 0) parts.push(`${staleVidCount} 个视频`);
+      return `上游资产已变更，本幕有 ${parts.join('、')} 建议同步更新`;
+    }
+    return undefined;
+  };
 
   // 计算定妆完成状态 (涵盖角色、场景与核心道具)
   const completedCharCount = characters.filter((c: any) => Boolean(c.imageUrl)).length;
@@ -103,7 +192,7 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
       const targetClipId = t.input?.clipId || t.input?.id;
       if (!targetClipId) return false;
       if (
-        t.toolName === 'film.storyboard_planning' ||
+        t.toolName === 'film.storyboard_breakdown' ||
         t.toolName === 'film.shot_keyframe' ||
         t.toolName === 'film.shot_video'
       ) {
@@ -113,97 +202,82 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
     });
   };
 
-  // 辅助反查某个 clip 是否已有分镜规划产物
-  const isClipStoryboardPlanned = (clipId: string): boolean => {
-    const inStoryboards = storyboards.some((s: any) => {
-      if (s.clipId === clipId || s.id === clipId || s.sourceNodeId === clipId) return true;
-      if (Array.isArray(s.shots) && s.shots.length > 0) {
-        return s.clipId === clipId || s.sourceNodeId === clipId;
-      }
-      return false;
-    });
-    if (inStoryboards) return true;
+  // 辅助反查某个 clip 的分镜与电影规范实体
+  const findClipData = (clipId: string): any => {
+    const inStoryboards = storyboards.find(
+      (s: any) =>
+        s.clipId === clipId ||
+        s.id === clipId ||
+        s.sourceNodeId === clipId ||
+        s.clipId === `c${clipId.replace(/\D/g, '')}`
+    );
+    if (inStoryboards) return inStoryboards;
 
     if (filmSpec?.clips && Array.isArray(filmSpec.clips)) {
-      return filmSpec.clips.some((c: any) => {
-        const matched =
+      return filmSpec.clips.find(
+        (c: any) =>
           c.clipId === clipId ||
           c.sourceNodeId === clipId ||
-          c.clipId === `c${clipId.replace(/\D/g, '')}` ||
-          c.sourceNodeId === `c${clipId.replace(/\D/g, '')}`;
-        return matched && Array.isArray(c.shots) && c.shots.length > 0;
-      });
+          c.clipId === `c${clipId.replace(/\D/g, '')}`
+      );
     }
+    return undefined;
+  };
 
-    return false;
+  // 辅助反查某个 clip 是否已有分镜规划产物
+  const isClipStoryboardPlanned = (clipId: string): boolean => {
+    const clipData = findClipData(clipId);
+    return Array.isArray(clipData?.shots) && clipData.shots.length > 0;
+  };
+
+  // 辅助计算某个 clip 的视频成片进展：总镜头数、已生成视频数、是否全部镜头均有视频
+  const getClipVideoProgress = (clipId: string) => {
+    const clipData = findClipData(clipId);
+    const shots: any[] = Array.isArray(clipData?.shots) ? clipData.shots : [];
+    const totalShots = shots.length;
+    const completedVideos = shots.filter((s) => {
+      const v = typeof s.videoUrl === 'string' ? s.videoUrl.split('?')[0].trim() : '';
+      return Boolean(v);
+    }).length;
+    // 【核心铁律】：完成判断是每个分镜都有视频
+    const isAllVideosCompleted = totalShots > 0 && completedVideos >= totalShots;
+    return { totalShots, completedVideos, isAllVideosCompleted, shots };
+  };
+
+  // 辅助反查某个 clip 的所有分镜视频 URL 列表（按镜头因果顺序，剔除空项）
+  const getClipVideoList = (clipId: string): string[] => {
+    const clipData = findClipData(clipId);
+    const shots: any[] = Array.isArray(clipData?.shots) ? clipData.shots : [];
+    const shotVideos = shots
+      .map((s) => (typeof s.videoUrl === 'string' ? s.videoUrl.split('?')[0].trim() : ''))
+      .filter(Boolean);
+
+    if (shotVideos.length > 0) return shotVideos;
+    if (clipData?.videoUrl && typeof clipData.videoUrl === 'string') {
+      const fullUrl = clipData.videoUrl.split('?')[0].trim();
+      if (fullUrl) return [fullUrl];
+    }
+    return [];
   };
 
   // 辅助反查某个 clip 的关键帧预览图
   const getClipKeyframeUrl = (clipId: string): string | undefined => {
-    const inStoryboards = storyboards.find(
-      (s: any) =>
-        s.clipId === clipId ||
-        s.id === clipId ||
-        s.sourceNodeId === clipId ||
-        s.clipId === `c${clipId.replace(/\D/g, '')}`
-    );
-    if (inStoryboards) {
-      if (inStoryboards.firstFrameImageUrl) return inStoryboards.firstFrameImageUrl;
-      if (inStoryboards.keyframeUrl) return inStoryboards.keyframeUrl;
-      if (Array.isArray(inStoryboards.shots) && inStoryboards.shots.length > 0) {
-        const s0 = inStoryboards.shots[0];
-        if (s0.firstFrameImageUrl || s0.keyframeUrl) return s0.firstFrameImageUrl || s0.keyframeUrl;
+    const clipData = findClipData(clipId);
+    if (clipData?.firstFrameImageUrl) return clipData.firstFrameImageUrl;
+    if (clipData?.keyframeUrl) return clipData.keyframeUrl;
+    if (Array.isArray(clipData?.shots) && clipData.shots.length > 0) {
+      for (const s of clipData.shots) {
+        const url = s.firstFrameImageUrl || s.keyframeUrl;
+        if (url) return url;
       }
     }
-
-    if (filmSpec?.clips && Array.isArray(filmSpec.clips)) {
-      const inFilmSpec = filmSpec.clips.find(
-        (c: any) =>
-          c.clipId === clipId ||
-          c.sourceNodeId === clipId ||
-          c.clipId === `c${clipId.replace(/\D/g, '')}`
-      );
-      if (inFilmSpec?.shots && inFilmSpec.shots.length > 0) {
-        const s0 = inFilmSpec.shots[0];
-        if (s0.firstFrameImageUrl || s0.keyframeUrl) return s0.firstFrameImageUrl || s0.keyframeUrl;
-      }
-    }
-
     return undefined;
   };
 
-  // 辅助反查某个 clip 的合成视频 URL
+  // 辅助反查某个 clip 的合成/首选视频 URL
   const getClipVideoUrl = (clipId: string): string | undefined => {
-    const inStoryboards = storyboards.find(
-      (s: any) =>
-        s.clipId === clipId ||
-        s.id === clipId ||
-        s.sourceNodeId === clipId ||
-        s.clipId === `c${clipId.replace(/\D/g, '')}`
-    );
-    if (inStoryboards) {
-      if (inStoryboards.videoUrl) return inStoryboards.videoUrl;
-      if (Array.isArray(inStoryboards.shots) && inStoryboards.shots.length > 0) {
-        const s0 = inStoryboards.shots[0];
-        if (s0.videoUrl) return s0.videoUrl;
-      }
-    }
-
-    if (filmSpec?.clips && Array.isArray(filmSpec.clips)) {
-      const inFilmSpec = filmSpec.clips.find(
-        (c: any) =>
-          c.clipId === clipId ||
-          c.sourceNodeId === clipId ||
-          c.clipId === `c${clipId.replace(/\D/g, '')}`
-      );
-      if (inFilmSpec?.videoUrl) return inFilmSpec.videoUrl;
-      if (inFilmSpec?.shots && inFilmSpec.shots.length > 0) {
-        const s0 = inFilmSpec.shots[0];
-        if (s0.videoUrl) return s0.videoUrl;
-      }
-    }
-
-    return undefined;
+    const list = getClipVideoList(clipId);
+    return list.length > 0 ? list[0] : undefined;
   };
 
   // 1. 构建因果决策树节点与穿透分叉连线数据
@@ -220,7 +294,7 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
     const CLIP_W = 264;
     const CLIP_H = 152;
     const LOOKDEV_W = 264;
-    const LOOKDEV_H = 156;
+    const LOOKDEV_H = 126;
     const ROW_GAP = 120;
     const BRANCH_SPREAD_X = 560;
     const CENTER_X = 600;
@@ -300,37 +374,58 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
 
       const isGeneratingThis = isClipGenerating(clipId);
       const hasStoryboard = isClipStoryboardPlanned(clipId);
+      const { totalShots, completedVideos, isAllVideosCompleted } = getClipVideoProgress(clipId);
 
+      // 本幕状态判定
+      if (isGeneratingThis) {
+        status = 'in_progress';
+        badge = '⏳ 推演中';
+        badgeColor = 'bg-indigo-50 text-indigo-700 border-indigo-200';
+      } else if (!hasStoryboard) {
+        status = 'pending';
+        badge = '🎬 待规划分镜';
+        badgeColor = 'bg-slate-100 text-slate-600 border-slate-200';
+      } else if (isAllVideosCompleted) {
+        // 【核心铁律】：只有每个分镜镜头都有已生成的有效视频，才算 completed！
+        status = 'completed';
+        badge = `✅ 全片就绪 (${totalShots}/${totalShots})`;
+        badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      } else if (completedVideos > 0) {
+        status = 'in_progress';
+        badge = `🎬 视频成片中 (${completedVideos}/${totalShots})`;
+        badgeColor = 'bg-amber-50 text-amber-700 border-amber-200';
+      } else {
+        // 规划了分镜，但尚未生成任何分镜视频
+        status = 'pending';
+        badge = `🎬 分镜就绪 (0/${totalShots} 视频)`;
+        badgeColor = 'bg-indigo-50 text-indigo-700 border-indigo-200';
+      }
+
+      // 下游解锁因果门禁判定
       if (isRoot) {
+        // 根节点（第 1 幕）：视觉定妆就绪即可解锁创作
         isUnlocked = hasLookdevReady;
         if (!isUnlocked) {
           status = 'locked';
           badge = '🔒 待定妆就绪';
-        } else if (isGeneratingThis) {
-          status = 'in_progress';
-          badge = '⏳ 推演中';
-        } else {
-          status = hasStoryboard ? 'completed' : 'pending';
-          badge = hasStoryboard ? '✅ 分镜就绪' : '🎬 待规划';
-          badgeColor = hasStoryboard ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200';
+          badgeColor = 'bg-slate-100 text-slate-400 border-slate-200';
         }
       } else {
-        const parentReady = parentClipId ? isClipStoryboardPlanned(parentClipId) : false;
-        isUnlocked = hasLookdevReady && (parentReady || hasStoryboard);
+        // 【核心铁律】：下游分支节点，只有前驱父节点已【全部完成视频】（每个分镜都有视频），才允许解锁！
+        const parentProgress = parentClipId ? getClipVideoProgress(parentClipId) : null;
+        const parentAllDone = parentProgress ? parentProgress.isAllVideosCompleted : false;
+
+        isUnlocked = hasLookdevReady && (parentAllDone || isAllVideosCompleted);
         if (!isUnlocked) {
           status = 'locked';
-          badge = '🔒 需前驱分镜';
-        } else if (isGeneratingThis) {
-          status = 'in_progress';
-          badge = '⏳ 推演中';
-        } else {
-          status = hasStoryboard ? 'completed' : 'pending';
-          badge = hasStoryboard ? '✅ 分镜就绪' : '🎬 待规划';
-          badgeColor = hasStoryboard ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200';
+          badge = parentProgress && !parentProgress.isAllVideosCompleted
+            ? '🔒 需前驱各镜成片'
+            : '🔒 需前驱就绪';
+          badgeColor = 'bg-slate-100 text-slate-400 border-slate-200';
         }
       }
 
-      return { isUnlocked, status, badge, badgeColor };
+      return { isUnlocked, status, badge, badgeColor, totalShots, completedVideos };
     };
 
     const actClips = rawClips.filter((c) => !siblingBranchSet.has(c.id));
@@ -360,9 +455,14 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
             const bX = CENTER_X + (bIdx - (count - 1) / 2) * BRANCH_SPREAD_X - CLIP_W / 2;
             const bY = currentY;
 
-            const { isUnlocked, status, badge, badgeColor } = evaluateClipStatus(branchClip.id, false, previousActId!);
+            const { isUnlocked, status, badge, badgeColor, totalShots, completedVideos } = evaluateClipStatus(
+              branchClip.id,
+              false,
+              previousActId!
+            );
             const keyframeUrl = getClipKeyframeUrl(branchClip.id);
             const videoUrl = getClipVideoUrl(branchClip.id);
+            const videoUrls = getClipVideoList(branchClip.id);
 
             const bNode: TopoNode = {
               id: `node_${branchClip.id}`,
@@ -375,7 +475,11 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
               isUnlocked,
               keyframeUrl,
               videoUrl,
+              videoUrls,
+              totalShots,
+              completedVideos,
               durationSec: 15,
+              staleReason: getClipStaleReason(branchClip.id),
               x: bX,
               y: bY,
               w: CLIP_W,
@@ -415,13 +519,14 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
       const actY = currentY;
 
       let parentForThisAct = previousActId || undefined;
-      const { isUnlocked, status, badge, badgeColor } = evaluateClipStatus(
+      const { isUnlocked, status, badge, badgeColor, totalShots, completedVideos } = evaluateClipStatus(
         act.id,
         isFirst,
         previousBranches.length > 0 ? previousBranches[0] : parentForThisAct
       );
       const keyframeUrl = getClipKeyframeUrl(act.id);
       const videoUrl = getClipVideoUrl(act.id);
+      const videoUrls = getClipVideoList(act.id);
 
       const actNode: TopoNode = {
         id: `node_${act.id}`,
@@ -434,7 +539,11 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
         isUnlocked,
         keyframeUrl,
         videoUrl,
+        videoUrls,
+        totalShots,
+        completedVideos,
         durationSec: 20,
+        staleReason: getClipStaleReason(act.id),
         x: actX,
         y: actY,
         w: CLIP_W,
@@ -548,6 +657,7 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
             keyframeUrl,
             videoUrl,
             durationSec: 15,
+            staleReason: getClipStaleReason(branchClip.id),
             x: bX,
             y: bY,
             w: CLIP_W,
@@ -650,7 +760,7 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
         minY,
       },
     };
-  }, [prd, entities, storyboards, filmSpec, completedCharCount, totalCharCount, hasLookdevReady, isLookdevAllDone, tasks, completedItemCount, totalItemCount]);
+  }, [prd, entities, storyboards, filmSpec, staleMap, completedCharCount, totalCharCount, hasLookdevReady, isLookdevAllDone, tasks, completedItemCount, totalItemCount]);
 
   // 画布平移处理
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -1266,18 +1376,13 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
                    ───────────────────────────────────────────────────────────── */}
                 {!isLockedThis && !isGeneratingThis && hasKeyframe && (
                   <g clipPath="url(#clip_full_player_card)">
-                    {/* 1. 视听内容呈现区：Hover 且有视频则播放视频，否则纯净呈现首帧大图 */}
-                    {isHovered && node.videoUrl ? (
-                      <foreignObject x="0" y="0" width={node.w} height={node.h}>
-                        <video
-                          src={node.videoUrl}
-                          autoPlay
-                          loop
-                          muted
-                          playsInline
-                          className="w-full h-full object-cover"
-                        />
-                      </foreignObject>
+                    {/* 1. 视听内容呈现区：Hover 且有视频则播放多分镜顺序联合序列，否则纯净呈现首帧大图 */}
+                    {isHovered && node.videoUrls && node.videoUrls.length > 0 ? (
+                      <SequentialClipVideoPlayer
+                        videoUrls={node.videoUrls}
+                        width={node.w}
+                        height={node.h}
+                      />
                     ) : (
                       <image
                         href={node.keyframeUrl}
@@ -1385,10 +1490,19 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
                           transform={`translate(${node.w - 28}, ${node.h - 22})`}
                           onClick={(e) => {
                             e.stopPropagation();
+                            const clipData = node.clipId ? findClipData(node.clipId) : undefined;
+                            const shots: any[] = Array.isArray(clipData?.shots) ? clipData.shots : [];
+                            const gallery = shots.map((s, idx) => ({
+                              title: `${node.title} · 分镜 ${idx + 1}`,
+                              imageUrl: s.firstFrameImageUrl || s.keyframeUrl,
+                              videoUrl: typeof s.videoUrl === 'string' && s.videoUrl.trim() ? s.videoUrl.trim() : undefined,
+                              subtitle: s.sceneSubject || s.title || `第 ${idx + 1} 镜头视听切片`,
+                            }));
                             onEnlargeClip?.({
                               title: node.title,
                               imageUrl: node.keyframeUrl,
                               videoUrl: node.videoUrl,
+                              gallery: gallery.length > 0 ? gallery : undefined,
                             });
                           }}
                           className="cursor-pointer hover:opacity-100 opacity-80"
@@ -1404,6 +1518,24 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
                         </g>
                       </g>
                     )}
+                  </g>
+                )}
+
+                {!isLockedThis && node.staleReason && (
+                  <g transform={`translate(${node.w - 78}, 8)`} className="pointer-events-auto">
+                    <title>{node.staleReason}</title>
+                    <rect width="70" height="18" rx="6" fill="rgba(245, 158, 11, 0.92)" />
+                    <text
+                      x="35"
+                      y="12.5"
+                      textAnchor="middle"
+                      fill="#ffffff"
+                      fontSize="9.5"
+                      fontWeight="700"
+                      fontFamily="sans-serif"
+                    >
+                      ⚠ 待同步
+                    </text>
                   </g>
                 )}
               </g>

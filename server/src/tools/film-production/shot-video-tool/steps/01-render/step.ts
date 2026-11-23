@@ -5,11 +5,14 @@
 
 import { createStep } from '@mastra/core/workflows';
 import path from 'node:path';
-import fs from 'node:fs';
 import { ProjectStore } from '../../../../../project-store/ProjectStore.js';
 import { atomicWriteJsonSync } from '../../../../../utils/atomicFile.js';
-import { MediaResolver } from '../../../../../media/MediaResolver.js';
-import { videoGenerateTool } from '../../../../video-generate/video-generate.tool.js';
+import {
+  appendVideoVersion,
+  buildShotMediaFileName,
+  readVideoVersions,
+} from '../../../../../project-store/shot-frame-versions.js';
+import { videoGenerateTool } from '../../../../media/video-generate.tool.js';
 import { isAbortError } from '../../../../../workflow-engine/run-context.js';
 import type { FilmAdapterArtifact } from '../../../../../project-store/contracts/film-production/film-spec.js';
 import {
@@ -18,8 +21,7 @@ import {
   type ShotVideoStepInput,
   type ShotVideoStepOutput,
 } from './schema.js';
-import { buildShotCinematographyPrompt } from './prompt.js';
-import { withVisualContinuity } from '../../../visual-continuity.js';
+import { formatVideoMotionPrompt } from './prompt.js';
 
 export const shotVideoStep = createStep({
   id: 'render-shot-video',
@@ -58,28 +60,57 @@ export const shotVideoStep = createStep({
         return true;
       }
 
-      // 底图确定性源头：优先使用显式参考图，其次使用首帧关键帧
-      const effectiveImage = referenceImageUrl || targetShot.firstFrameImageUrl || targetShot.keyframeUrl;
+      // 底图确定性源头：优先使用显式参考图；若未显式指定，优先选用首帧版本库中最新超分高清图，杜绝低清底图污染
+      let effectiveImage = referenceImageUrl;
+      if (!effectiveImage) {
+        const firstVersions = Array.isArray(targetShot.firstFrameVersions) ? targetShot.firstFrameVersions : [];
+        const latestUpscale = [...firstVersions].reverse().find((v: any) => v.source === 'upscale' && v.imageUrl);
+        effectiveImage = latestUpscale?.imageUrl || targetShot.firstFrameImageUrl || targetShot.keyframeUrl;
+      }
       if (!effectiveImage) {
         console.warn(`[ShotVideoTool] 镜头 [${targetShot.shotId}] 缺少前序关键帧底图，跳过视频渲染`);
         return false;
       }
 
-      const prompt = customPrompt && customPrompt.trim()
-        ? withVisualContinuity(customPrompt.trim())
-        : buildShotCinematographyPrompt(targetShot);
+      const effectiveLastFrame = targetShot.lastFrameImageUrl || targetShot.lastFrameUrl || undefined;
+
+      // 业务层纯提示词：自定义优先，否则沿用镜头台本（保持纯戏剧台本，绝不存硬件外壳）
+      if (customPrompt && customPrompt.trim()) {
+        targetShot.videoPrompt = customPrompt.trim();
+      }
+      const rawMotion =
+        targetShot.videoPrompt ||
+        `${targetShot.cameraMovement || '中速稳健运镜'}, 电影级平滑物理运镜，人物动作流畅写实，自然物理速率`;
+
+      // 底层算力硬件提示词（动态装配，仅内存态传给视频生成工具，绝不写回 targetShot 业务实体）
+      const hardwarePrompt = formatVideoMotionPrompt(rawMotion, Boolean(effectiveLastFrame));
+      const audioPrompt = targetShot.audioPrompt || targetShot.ambience || '电影级写实环境声与质感氛围';
 
       const targetDuration = Math.min(10, Math.max(2, Math.round(targetShot.durationSec || 4)));
+
+      const existingVersions = readVideoVersions(targetShot);
+      const nextSeq = existingVersions.length + 1;
+      const motionTag = targetShot.motionDirective?.presetId || targetShot.motionDirective?.label || 'dolly';
+      const { fileName } = buildShotMediaFileName({
+        shotId: targetShot.shotId,
+        kind: 'video',
+        continuityMode: targetShot.continuityMode || 'auto',
+        visualOrMotionTag: motionTag,
+        versionSeq: nextSeq,
+        ext: '.mp4',
+      });
 
       try {
         const res: any = await (videoGenerateTool.execute as any)({
           context: {
             projectId,
-            prompt,
-            imageUrl: effectiveImage,
+            prompt: hardwarePrompt,
+            audioPrompt,
+            referenceImageUrl: effectiveImage,
+            lastFrameImageUrl: effectiveLastFrame,
             duration: targetDuration,
             subfolder: 'videos',
-            customFilename: targetShot.shotId,
+            customFilename: fileName.replace(/\.[^.]+$/, ''),
           },
         });
 
@@ -89,6 +120,36 @@ export const shotVideoStep = createStep({
         }
 
         targetShot.videoUrl = mediaUrl;
+        appendVideoVersion(targetShot, {
+          videoUrl: mediaUrl,
+          fileName,
+          prompt: targetShot.videoPrompt,
+          continuityMode: targetShot.continuityMode || 'auto',
+          motionDirective: targetShot.motionDirective,
+          dynamicDirective: targetShot.dynamicDirective,
+          focusDirective: targetShot.focusDirective,
+          source: 'generate',
+        });
+
+        // 同步至分镜画布节点
+        const canvas = store.getArtifact<any>(projectId, 'storyboard_canvas');
+        if (canvas?.nodes) {
+          let updatedCanvas = false;
+          for (const node of Object.values<any>(canvas.nodes)) {
+            if (node.shotId !== targetShot.shotId && node.id !== `node_${targetShot.shotId}`) continue;
+            node.videoUrl = mediaUrl;
+            node.videoVersions = targetShot.videoVersions;
+            if (targetShot.motionDirective !== undefined) node.motionDirective = targetShot.motionDirective;
+            if (targetShot.dynamicDirective !== undefined) node.dynamicDirective = targetShot.dynamicDirective;
+            if (targetShot.focusDirective !== undefined) node.focusDirective = targetShot.focusDirective;
+            updatedCanvas = true;
+          }
+          if (updatedCanvas) {
+            store.setArtifact(projectId, 'storyboard_canvas', canvas);
+            atomicWriteJsonSync(path.join(projectDir, 'storyboard_canvas.json'), canvas);
+          }
+        }
+
         return true;
       } catch (err: any) {
         if (isAbortError(err)) throw err;

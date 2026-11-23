@@ -7,7 +7,7 @@ import { LookdevAgent } from '../dist/agents/lookdev/agent.js';
 import { lookdevCapabilities } from '../dist/agents/lookdev/capabilities.js';
 import { ProjectStore } from '../dist/project-store/ProjectStore.js';
 
-test('all-pending Lookdev proposal expands into atomic operations Plan and approval preserves it', () => {
+test('Lookdev operations Plan proposal is properly validated and approved', () => {
   const store = ProjectStore.getInstance();
   const getProject = store.getProject;
   const getArtifact = store.getArtifact;
@@ -33,35 +33,34 @@ test('all-pending Lookdev proposal expands into atomic operations Plan and appro
     agent.markProposalsResolved = () => {};
     let messages = [];
 
-    // 1. coverage=all_pending 默认展开所有待定妆资产为 operations[] Plan
+    // 1. 标准 operations Plan 提案直接校验入参
     const proposal = agent.resolveDirectorIntent({
       action: 'propose',
-      targetTool: 'film.lookdev',
-      title: '剩余资产定妆',
+      title: '全剧视觉资产定妆计划',
       description: '完成剩余视觉资产定妆',
       params: {},
-      coverage: 'all_pending',
-      reply: '准备完成剩余定妆。',
+      operations: [
+        { tool: 'film.lookdev', title: '角色定妆 · 待定妆', params: { targetKind: 'character', targetId: 'pending_char', force: false } },
+        { tool: 'film.lookdev', title: '场景定妆 · 场景 A', params: { targetKind: 'location', targetId: 'loc_a', force: false } },
+      ],
+      reply: '准备完成定妆。',
     });
     assert.equal(Array.isArray(proposal.operations), true);
-    assert.equal(proposal.operations.length, 4);
+    assert.equal(proposal.operations.length, 2);
     assert.deepEqual(
       proposal.operations.map((op) => [op.tool, op.params.targetKind, op.params.targetId, op.params.force]),
       [
         ['film.lookdev', 'character', 'pending_char', false],
         ['film.lookdev', 'location', 'loc_a', false],
-        ['film.lookdev', 'location', 'loc_b', false],
-        ['film.lookdev', 'item', 'prop_a', false],
       ]
     );
 
-    // 2. approve 原样保留整个 Plan 的 operations[] 与 coverage
+    // 2. approve 原样保留整个 Plan 的 operations[]
     messages = [{ proposal, proposalResolved: false }];
     const approved = agent.resolveDirectorIntent({ action: 'approve', reply: '开始执行。' });
     assert.deepEqual(approved.operations, proposal.operations);
-    assert.equal(approved.coverage, 'all_pending');
 
-    // 3. modify 缩小为单个原子实体时，清除 coverage 且仅保留目标原子参数
+    // 3. modify 缩小为单个原子实体时，仅保留目标原子参数
     const narrowed = agent.resolveDirectorIntent({
       action: 'modify',
       targetTool: 'film.lookdev',
@@ -69,27 +68,11 @@ test('all-pending Lookdev proposal expands into atomic operations Plan and appro
       params: { targetKind: 'character', targetId: 'pending_char', force: true },
       reply: '只处理这个角色。',
     });
-    assert.equal(narrowed.coverage, undefined);
     assert.equal(narrowed.tool, 'film.lookdev');
     assert.equal(narrowed.operations, undefined);
     assert.equal(narrowed.params.targetKind, 'character');
     assert.equal(narrowed.params.targetId, 'pending_char');
     assert.equal(narrowed.params.force, true);
-
-    // 4. coverage=all_pending + targetTool=film.image_upscale 仅展开已出图且未超分的实体
-    const upscalePlan = agent.resolveDirectorIntent({
-      action: 'propose',
-      targetTool: 'film.image_upscale',
-      description: '提升已出图资产清晰度',
-      coverage: 'all_pending',
-      params: { multiplier: 2 },
-      reply: '对已出图资产执行超分。',
-    });
-    assert.equal(Array.isArray(upscalePlan.operations), true);
-    assert.deepEqual(
-      upscalePlan.operations.map((op) => [op.tool, op.params.targetKind, op.params.targetId, op.params.multiplier]),
-      [['film.image_upscale', 'character', 'done_char', 2]]
-    );
   } finally {
     store.getProject = getProject;
     store.getArtifact = getArtifact;
@@ -99,7 +82,7 @@ test('all-pending Lookdev proposal expands into atomic operations Plan and appro
 test('asset modification intent accepts deleting an item', async () => {
   const store = ProjectStore.getInstance();
   const getArtifact = store.getArtifact;
-  const { assetExtractionTool } = await import('../dist/tools/film-production/asset-extraction-tool/index.js');
+  const { assetManifestTool } = await import('../dist/tools/film-production/asset-manifest-tool/index.js');
   store.getArtifact = (_projectId, name) =>
     name === 'lookdev_entities'
       ? {
@@ -113,25 +96,25 @@ test('asset modification intent accepts deleting an item', async () => {
     agent.projectId = 'delete-item-test';
     agent.getIntentToolSpecs = () => [
       {
-        toolName: assetExtractionTool.toolName,
+        toolName: assetManifestTool.toolName,
         title: '删除道具',
-        description: assetExtractionTool.description,
-        schema: assetExtractionTool.inputSchema,
+        description: assetManifestTool.description,
+        schema: assetManifestTool.inputSchema,
       },
     ];
     agent.getMessages = () => [];
     agent.markProposalsResolved = () => {};
     const proposal = agent.resolveDirectorIntent({
       action: 'propose',
-      targetTool: 'film.asset_extraction',
+      targetTool: 'film.asset_manifest',
       title: '删除道具',
       description: '删除指定道具资产',
       params: {
         mode: 'modify',
-        modifications: [{ operation: 'delete', entityType: 'item', entityId: 'item_access_card' }],
+        modifications: [{ action: 'delete', entityType: 'item', entityId: 'item_access_card' }],
       },
     });
-    assert.equal(proposal.tool, 'film.asset_extraction');
+    assert.equal(proposal.tool, 'film.asset_manifest');
     assert.equal(proposal.params.mode, 'modify');
     assert.equal(proposal.params.modifications[0].entityType, 'item');
   } finally {
@@ -179,15 +162,15 @@ test('one Plan approval dispatches all operations bound to a single parent messa
         params: {},
         operations: [
           { tool: 'film.lookdev', title: '角色定妆', params: { targetKind: 'character', targetId: 'char_a' } },
-          { tool: 'film.asset_extraction', title: '资产调整', params: { mode: 'modify' } },
-          { tool: 'film.storyboard_planning', title: '分镜规划', params: {} },
+          { tool: 'film.asset_manifest', title: '资产调整', params: { mode: 'modify' } },
+          { tool: 'film.storyboard_breakdown', title: '分镜规划', params: {} },
         ],
       },
     };
     await dispatchApprovedIntent(session, result);
     assert.deepEqual(
       calls.map((call) => call.toolName),
-      ['film.lookdev', 'film.asset_extraction', 'film.storyboard_planning']
+      ['film.lookdev', 'film.asset_manifest', 'film.storyboard_breakdown']
     );
     // 所有步骤均绑定至同一父消息，避免聊天流刷屏
     assert.equal(new Set(calls.map((call) => call.input.__chatContext.messageId)).size, 1);
@@ -208,7 +191,7 @@ test('one Plan approval dispatches all operations bound to a single parent messa
 
 test('atomic Lookdev tool renders each entity kind individually with proper aspect ratios', async () => {
   const { lookdevTool } = await import('../dist/tools/film-production/lookdev-tool/index.js');
-  const { imageGenerateTool } = await import('../dist/tools/image-generate/image-generate.tool.js');
+  const { imageGenerateTool } = await import('../dist/tools/media/image-generate.tool.js');
   const store = ProjectStore.getInstance();
   const originalGetArtifact = store.getArtifact;
   const originalGetProjectDir = store.getProjectDir;
@@ -278,9 +261,8 @@ test('atomic Lookdev tool renders each entity kind individually with proper aspe
     });
     assert.equal(customPromptResult?.success, true, customPromptResult?.error);
     assert.equal(invoked.length, 1);
-    assert.match(invoked[0].prompt, /横向同框三等分全身三视图排版/);
-    assert.match(invoked[0].prompt, /左格正面全身/);
-    assert.match(invoked[0].prompt, /右格背面全身/);
+    assert.match(invoked[0].prompt, /横向同框三等分全身并列展示/);
+    assert.match(invoked[0].prompt, /三视图并列：正面、侧面、背面/);
 
     // 不存在的资产 ID 应立即失败且不调用生图工具
     invoked.length = 0;

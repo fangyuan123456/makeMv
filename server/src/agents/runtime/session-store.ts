@@ -89,6 +89,14 @@ export class AgentSessionStore<TIntent = any> {
       const pending = [...messages].reverse().find((message) => message.proposal && !message.proposalResolved);
       if (pending) pending.proposalResolved = true;
     }
+    // 状态机单一事实来源：发起新提案时，前序所有未决提案自动失效关闭，保证会话中最多只有一个活跃待审卡片
+    if (record.proposal && !record.proposalResolved) {
+      for (const message of messages) {
+        if (message.proposal && !message.proposalResolved) {
+          message.proposalResolved = true;
+        }
+      }
+    }
     const entry: ConversationMessage<TIntent> = {
       id: record.id || `msg_${record.role}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       role: record.role,

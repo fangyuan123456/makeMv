@@ -15,7 +15,7 @@
  *      - 📝 切片 Markdown 全文：原汁原味呈现 story.md 分幕清单全文。
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import type {
   ProjectData,
   TaskRecord,
@@ -27,13 +27,14 @@ import type {
 } from '../../../types/index.js';
 import { PlannerChat } from '../chat/PlannerChat.js';
 import { PlannerTopologyDiagram } from './planner/PlannerTopologyDiagram.js';
+import { useReportFocus } from '../../../hooks/StudioFocusContext.js';
 
 interface PlannerStageProps {
   projectId: string;
   projectData: ProjectData | null;
   onRunTool: (toolName: string, input: Record<string, any>) => Promise<any>;
+  onRefreshProject?: () => void;
   tasks?: TaskRecord[];
-  onSelectStage?: (stage: any) => void;
   isBusy: boolean;
 }
 
@@ -41,8 +42,8 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
   projectId,
   projectData,
   onRunTool,
+  onRefreshProject,
   tasks = [],
-  onSelectStage,
   isBusy,
 }) => {
   // 顶级双页签：PRD / Story
@@ -67,9 +68,8 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
   const [storyMarkdown, setStoryMarkdown] = useState('');
   const [copiedSliced, setCopiedSliced] = useState(false);
 
-  // 1. 水合剧本资产 (优先监听任务产物与全局黑板)
+  // 1. 水合剧本资产 (以全局权威黑板 projectData 为唯一优先 SSOT，仅在尚未返回时用最新任务产物兜底)
   useEffect(() => {
-    // 监听 Tool 1 (screenplay) 任务
     const latestScreenplayTask = tasks.find(
       (t) =>
         (t.toolName === 'planner.screenplay_writer' || t.toolName.includes('screenplay')) &&
@@ -78,10 +78,10 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
     );
     const taskScript = latestScreenplayTask?.output?.scriptMarkdown || latestScreenplayTask?.output?.screenplay;
     const remoteScript =
-      taskScript ||
       projectData?.screenplay ||
       projectData?.artifacts?.screenplay ||
       projectData?.artifacts?.gdd?.spineScript ||
+      taskScript ||
       '';
 
     if (remoteScript && typeof remoteScript === 'string') {
@@ -90,7 +90,6 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
       setScreenplayMarkdown('');
     }
 
-    // 监听 Tool 2 (script_to_prd) 任务
     const latestPrdTask = tasks.find(
       (t) =>
         (t.toolName === 'planner.script_to_prd' || t.toolName.includes('prd')) &&
@@ -99,9 +98,9 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
     );
     const taskStory = latestPrdTask?.output?.storyMarkdown || latestPrdTask?.output?.story;
     const remoteStory =
-      taskStory ||
       projectData?.story ||
       projectData?.artifacts?.story ||
+      taskStory ||
       '';
 
     if (remoteStory && typeof remoteStory === 'string') {
@@ -149,6 +148,36 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
     }
   }, [Boolean(screenplayMarkdown), Boolean(prd && clips.length > 0)]);
 
+  // 上报策划工坊当前页签与 PRD 拓扑选中节点焦点
+  const plannerFocus = useMemo(() => {
+    if (activeMainTab === 'story') {
+      return {
+        location:
+          storyTabType === 'original'
+            ? `策划工坊 · 故事原文 (${originalMode === 'editing' ? '编辑中' : '阅读'})`
+            : '策划工坊 · 故事分幕切片',
+      };
+    }
+    const location = prdSubMode === 'topology' ? '策划工坊 · PRD 故事拓扑图' : '策划工坊 · PRD 策划案文档';
+    if (prdSubMode === 'topology' && selectedNodeId) {
+      const nodeLabel =
+        clips.find((c) => c.id === selectedNodeId)?.title ||
+        interactions.find((i) => i.id === selectedNodeId)?.prompt ||
+        endings.find((e) => e.id === selectedNodeId)?.title ||
+        selectedNodeId;
+      return {
+        location,
+        target: {
+          kind: 'prd_node',
+          id: selectedNodeId,
+          label: `${selectedNodeId} · ${nodeLabel}`,
+        },
+      };
+    }
+    return { location };
+  }, [activeMainTab, storyTabType, originalMode, prdSubMode, selectedNodeId, clips, interactions, endings]);
+  useReportFocus(plannerFocus);
+
   // 故事原文一键解析为 PRD
   const handleManualGeneratePrd = async () => {
     setActiveMainTab('prd');
@@ -175,22 +204,8 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
       <div className="w-full lg:w-5/12 flex flex-col h-full flex-shrink-0">
         <PlannerChat
           projectId={projectId}
-          projectData={projectData}
-          onRunTool={onRunTool}
           tasks={tasks}
-          onAssetProduced={(type) => {
-            if (type === 'prd') {
-              setActiveMainTab('prd');
-              setPrdSubMode('topology');
-            }
-            if (type === 'screenplay') {
-              setActiveMainTab('story');
-              setStoryTabType('original');
-              setOriginalMode('reading');
-            }
-          }}
-          onSelectStage={onSelectStage}
-          isBusy={isBusy}
+          onRefreshProject={onRefreshProject}
         />
       </div>
 
@@ -233,6 +248,14 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
                 {clips.length > 0 && (
                   <span className="font-mono text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-50 text-indigo-600 font-semibold">
                     {clips.length} 幕
+                  </span>
+                )}
+                {projectData?.staleMap?.prd && (
+                  <span
+                    className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 border border-amber-300 font-semibold"
+                    title={projectData.staleMap.prd.reason}
+                  >
+                    ⚠ 待同步
                   </span>
                 )}
               </button>

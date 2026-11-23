@@ -10,6 +10,14 @@
 
 import { z } from 'zod';
 
+export const VisualDirectiveSchema = z.object({
+  label: z.string().describe('视听属性显示名称，如 "极低机位仰拍"、"御剑腾空"、"好莱坞青橙"'),
+  instruction: z.string().describe('对应的生图或运镜微调指令'),
+  presetId: z.string().optional().describe('若匹配到经典标准库，记录其预设 ID'),
+});
+
+export type VisualDirective = z.infer<typeof VisualDirectiveSchema>;
+
 export const CinematicShotOrderSchema = z.object({
   shotId: z.string().describe('镜头唯一标识，如 S1-01'),
   clipId: z.string().describe('所属伪视频/分幕 ID，如 S1'),
@@ -20,6 +28,15 @@ export const CinematicShotOrderSchema = z.object({
   generationMode: z.enum(['first_frame', 'first_last_frame']).describe('关键帧生成模式'),
   characters: z.array(z.string()).default([]).describe('本镜头出场角色 ID'),
   items: z.array(z.string()).default([]).describe('本镜头使用道具 ID'),
+  // 视听工业级开放元数据体系 (SSOT，开放无边界，拒绝客户端静态枚举绑架 AI)
+  cameraDirective: VisualDirectiveSchema.optional().describe('开放机位视角元数据'),
+  colorDirective: VisualDirectiveSchema.optional().describe('开放电影调色元数据'),
+  poseDirective: VisualDirectiveSchema.optional().describe('开放角色姿态元数据'),
+  sceneSubject: z.string().optional().describe('纯净剧情叙事主体描述，剥离机位与全局色调修饰语'),
+  // 视频专属开放元数据体系 (SSOT，运镜方式、动态幅度、焦点跟踪)
+  motionDirective: VisualDirectiveSchema.optional().describe('开放视频运镜元数据 (如：缓缓推近、环绕巡视、手持呼吸)'),
+  dynamicDirective: VisualDirectiveSchema.optional().describe('开放视频动态幅度元数据 (如：电影级平缓 5/10、微幅呼吸感 2/10)'),
+  focusDirective: VisualDirectiveSchema.optional().describe('开放视频焦点跟踪元数据 (如：锁定主体、环视环境、特写聚焦)'),
   backgroundImageUrl: z.string().optional().describe('本镜头使用的场景母本图'),
   characterReferenceImageUrls: z.array(z.string()).default([]).describe('本镜头角色定妆图'),
   firstFramePrompt: z.string().describe('首帧图片生成描述词'),

@@ -1,177 +1,95 @@
-# AI 编程助手 (Antigravity) 核心开发与架构法典
+# makeMv 开发协作约定
 
-> **定位说明**：本文件是用户下发给**你（AI 编程助手 Antigravity）**的最高优先级开发与协作行为约束规范。
-> 当你在此代码库（makeMv - 互动影游与AI导演引擎）中阅读源码、架构设计、重构模块、修复缺陷或新增特性时，必须**无条件且绝对严格遵守**以下所有准则。
+本文件面向修改 makeMv 仓库的 AI 编程助手，不是产品内导演 Agent 的系统提示词。遵循宿主指令和用户当前要求；本文件不声明高于它们的优先级。
 
----
+架构核对日期：2026-11-22。以下以当前工作区实现为依据；修改前仍应核对源码、工具注册和契约，不能为符合旧文档而回退现有实现。
 
-## 0. 资深系统架构师与 AI 导演角色认知与思维法典
+## 1. 开发工作方式
 
-### 0.1 首席系统架构师与总导演担当
-- 你不仅是代码编写者，更是本互动影游与多智能体导演系统的**首席资深系统架构师与视听总导演**；
-- 面对复杂系统缺陷、长程生成卡点或大模型视听生成的非确定性，你永远站在**全链路系统设计与因果网络**的高度审视全局，彻底拒绝浅层应付、局部试错与表面打补丁。
+- 使用中文交流，说明具体问题、修改结果和验证情况，避免夸大保证。
+- 先定位问题及其直接依赖，再做最小完整修改。涉及数据丢失、资产失效或生成偏差时沿生产、存储、消费链路排查，不因“源头治理”扩大为无关重构。
+- 用户明确要求的常规修复、文档同步和可逆改动直接完成。复杂任务先简要说明计划；关键需求不明、破坏性操作或超出授权范围时才请求确认，不按修改文件数量设置审批。
+- 修改前检查工作区已有改动；基于当前内容编辑，保留无关修改及暂存状态。不自动提交、重置或清理用户文件。
+- 使用环境实际提供的工具。允许只读搜索、Git 状态与差异检查、类型检查、测试和构建，不依赖特定 IDE 的工具名称，也不承诺工具一定不触发宿主审批。
+- 提示词正文以中文为主；保留 API 字段、工具标识、代码符号及必要技术术语，不为“纯中文”破坏协议。
 
-### 0.2 全链路深层寻根原则（Root-Cause Analysis）
-- 遇到模型人设立体度塌陷、角色物种幻觉（如将人误画为飞船/机甲）、提示词割裂、版本混乱或视听未收敛时，必须沿着**“上游意图/故事大纲 ➔ 故事圣经/角色资产 ➔ 分镜与关键帧 ➔ 动态视频与混音装配”**全链路溯源；
-- 深入剖析“为什么模型会这样生成”、“为什么上游特征未透传”，直击因果链路底层根因，严禁在表层盲目滥加 `try-catch` 或浅层条件分支掩盖问题。
+## 2. 当前架构与源码入口
 
-### 0.3 极简克制与高内聚（Minimalism & Cohesion）
-- 所有代码修改、后处理器与辅助工具必须最小化且高内聚，严禁向无关模块随意倾倒冗余代码，时刻保持系统核心代码的高信噪比与工业级美感。
+### 2.1 前后端与导演运行时
 
-### 0.4 拒绝过度兼容与百分百源头治理法典（Zero Compatibility & Source-First Principle）
-- **核心认知定位**：当前项目处于核心架构演进与现代多智能体微内核升级阶段，系统架构的纯粹性、高信噪比与扩展性高于一切局部的防御性妥协；
-- **百分百源头收敛（Source-First Convergence）**：
-  - 遇到数据契约不符、格式演进、结构分歧或定义缺失时，**必须 100% 溯源至生成源头（如 Prompt 模板契约、Schema 校验、上游技能调度）彻底重构解决**；
-  - 严禁在下游模块、消费端或运行时编写防御性兼容代码来替上游的缺陷买单。
-- **单一事实来源与零别名冗余（SSOT & Zero Aliasing）**：
-  - 系统全链路中任何数据概念必须有且仅有**唯一合法标准定义**，严禁在对象参数传递或状态流转中并存任何含义重叠的同义字段与历史别名（如拒绝混用 `create/start`、`list/sessions`、`videoRatio/video_ratio`）；
-  - 一旦确立新规范，所有旧别名必须连根拔除，严禁保留任何所谓“向下兼容”的过渡胶水。
-- **严禁多重回退链条（No Fallback Chains）**：
-  - 严禁在消费端编写深层空值合并、多路猜测或降级容错链条；消费端必须直接且唯一地消费契约标准属性；
-- **刚性阻断优于隐式苟且（Fail-Fast Over Silent Degrade）**：
-  - 数据契约不匹配时，应通过刚性校验与门禁直接阻断并快速报错，倒逼流水线上游自愈修正；严禁通过硬编码写死兜底数据（如静态 Demo 剧情、假主干）让系统带着脏数据“假收敛”运转。
-- **架构自检红线（Self-Correction Trigger）**：
-  - 凡是在下游出现“试图兼容多种输入格式”、“提供多套命名支撑同一语义”或“为异常数据兜底默认结构”的代码编写冲动时，必须立即触发架构警惕并强制执行源头回溯，彻底消灭下游胶水代码。
+- 前端使用 React 18、Vite、TypeScript，工作台位于 `client/src/components/studio/`。对话入口包括 `client/src/lib/DirectorConversation.ts` 和 `client/src/hooks/useDirectorChatFlow.ts`；HTTP 封装位于 `client/src/lib/api.ts`。
+- 服务端入口为 `server/src/index.ts`，HTTP 路由和服务位于 `server/src/api/`。
+- `server/src/agents/registry.ts` 的 `AgentFactory` 创建 `PlannerAgent`、`LookdevAgent`、`StoryboardAgent` 或 `GenericAgent`。
+- `server/src/agents/runtime/runner.ts` 的 `AgentRunner` 基于 Mastra Agent 与 AI SDK 管理流式对话、上下文和意图。当前 `server/src/mastra.ts` 只导出空配置的 Mastra 容器，不能将业务调度归因于该文件。
+- 领域目录中的 `prompt.ts`、`context.ts`、`capabilities.ts` 分别提供角色规范、状态上下文和可用工具。公共意图规则在 `runtime/intent-policy.ts`；意图工具、解析和修复在 `intent-tool.ts`、`intent-resolver.ts`、`intent-repair.ts`。
+- `runtime/stream-merger.ts` 合并自然语言流和工具回复；`viewport-observer.ts` 与 `server/src/llm/vision-perception.ts` 处理视口及图片上下文。排查提示词时同时检查动态装配内容。
+- 会话由 `runtime/session-store.ts` 的 `AgentSessionStore` 按项目和会话管理；批准逻辑在 `runtime/approval-service.ts`。不要将所有会话存储职责归给 `ProjectStore`。
+- SDK 消息适配在 `server/src/mastra-compat/streamAgent.ts`。按实际协议处理消息，不对所有内部记录强制套用简单的 user/assistant 交替规则。
 
----
+### 2.2 任务执行与资产存储
 
-## 1. 核心协作与开发工作流规范
+- `server/src/task-engine/task-registry.ts` 注册任务工具；工具的 `toolName` 和 Schema 是身份与参数依据。
+- `task-store.ts` 保存任务状态，`task-dispatcher.ts` 执行调度，`plan-waves.ts` 按工具及目标互斥边界划分波次，`task-failure.ts` 处理失败分类。恢复与重试能力以实现为准，不承诺任意步骤断点续跑。
+- `server/src/tools/base/task-tool.ts` 的 `BaseTaskTool` 统一回调、进度、执行上下文和子工具组合。具体工具可使用 Mastra Workflow/Step，并调用文本模型或媒体服务。
+- `server/src/workflow-engine/` 当前提供运行上下文与并发辅助，不是旧版统一八工序审批状态机。
+- `server/src/project-store/ProjectStore.ts` 管理项目与资产；`task-engine/asset-sync.ts` 同步产物；`project-store/freshness.ts` 管理新鲜度，`shot-frame-versions.ts` 管理镜头帧版本。
+- 资产契约在 `server/src/project-store/contracts/`，任务契约在 `task-engine/types.ts`，工具输入输出契约在对应工具目录。修改字段时同步生产、持久化、消费和相关测试。
+- 复用现有存储入口，避免重复状态源；纯计算函数可显式传参，不要求所有函数直接读写全局单例。
 
-### 1.1 交流语言与提示词规范
-- 你与用户的所有对话、思考解释、方案阐述与成果汇报，**一律必须使用中文**；
-- 系统的生图、分镜、视频生成及微调提示词模板体系，**一律采用标准纯中文体系（`prompt.ts` 内中文提示词架构）**，彻底淘汰遗留的英文模板与硬编码字符串拼凑。
+## 3. 当前制作工序
 
-### 1.2 方案先行与 Plan 前置审批机制（核心协作铁律）
-- **绝大多数任务必须 Plan 先行**：凡涉及功能新增、架构调整、逻辑重构、流程演进或多文件改动等非极度简单的任务，**一律必须先出具清晰详尽的实施方案（Implementation Plan），经用户审批确认后，方可开始落地编码**；
-- **免 Plan 快速通道**：仅对极少数简单、微小的单点调整（如修复单行 typo、修正单处简单类型报错、纯查看答疑等无需架构思考的小修小补），可免除出 Plan 直接落地；
-- **操作方式红线（杜绝触发 IDE 终端权限弹窗）**：
-  1. **纯静默文件操作**：方案制作、代码查看、文件修改与配置调整，**100% 必须使用原生静默文件工具**（`edit_file`、`write_file`、`read_file`），绝对禁止调用容易触发系统安全策略拦截的内联终端脚本（严禁 `powershell -Command` 执行文件写入/移动/删除、严禁 `node -e "..."`）；
-  2. **终端执行极度克制**：除完成编码后执行标准编译检查（`npm run build`）或服务启动外，不执行任何多余命令行，杜绝一切环境安全弹窗打扰用户。
-- **标准闭环工作流**：
-  1. **深度调研与根因分析**：通盘阅读相关代码，定位底层根因，构思最佳落地路径（以真实代码为准，杜绝唯文档论）；
-  2. **出具实施方案（Plan）**：生成包含改动文件清单、核心实现逻辑与验证步骤的实施方案，供用户审批确认；
-  3. **用户审批后落地编码**：收到用户确认许可后，使用原生静默文件工具一气呵成落地代码；
-  4. **全自动严密验证**：主动运行 TypeScript 静态检查与服务测试，确保 0 报错与 100% 编译通过；
-  5. **精炼成果汇报**：出具简洁精准的汇报总结（核心改动点 + 测试结果），闭环等待用户下一条指令。
+下表用于导航；运行时能力以各 Agent 的 `capabilities.ts`、工具 Schema 和 `runtime/pipeline.ts` 为准，不在多处提示词重复维护参数协议。
 
----
+| 领域 | 工序与工具 |
+| --- | --- |
+| 故事策划 | 全景剧本 `planner.screenplay_writer` → PRD 分幕拓扑 `planner.script_to_prd` |
+| 视觉定妆 | 资产清单 `film.asset_manifest` → 单实体规格 `film.entity_spec` → 定妆出图 `film.lookdev`；按需超分 `film.image_upscale` |
+| 分幕分镜 | 台本 `film.storyboard_breakdown` → 视听一体化推演 `film.shot_prompt`（首帧与同相动态运镜） → 关键帧 `film.shot_keyframe` → 按需超分 `film.image_upscale` → 视频 `film.shot_video` |
+| 游戏总装 | 注册表包含 `game.assembly`，不代表每个导演会话都具备该能力 |
 
-## 2. 现代对话中枢与 Mastra 声明式微内核架构哲学（Mastra Core + Director Domain + Dual-Track Engine）
+- 分镜会话围绕指定 `clipId` 工作；单实体或单镜修改需保留目标范围，不擅自重做全剧。
+- 领域任务工具在 `server/src/tools/planner/`、`film-production/`、`game-assembly/`；通用图像、视频与超分工具在 `server/src/tools/media/`，媒体提供方与下载逻辑在 `server/src/media/`。
+- 工具中的模型推演是有效业务步骤。避免无必要的代理递归、重复推理和不可追踪调用，不禁止工具调用模型。
 
-### 2.1 AI 视听总导演与双轨正交解耦设计（Director-Centric & Dual-Track Decoupling）
-- **官方微内核核心驱动**：系统全面基于 **Mastra 官方微内核（`@mastra/core`）** 与 **Vercel AI SDK** 驱动，彻底告别零散拼接模式；
-- **AI 视听总导演唯一认知中枢（`DirectorAgent`）**：面向创作者的自然语言统一门户，负责剧本推演、审美指导与意图发射，采用**单跳直出秒级流式打字（首字 <0.5s）**，彻底消除代理嵌套与“两连跳”延迟反模式；
-- **生成（Generator）与精修（Modifier）完全解耦双轨体系**：
-  - **正向生成轨（`generator/`）**：总导演统筹管辖的 0 到 1 影视工序批量生产流水线（8 大工序顺向推演步骤 `steps/` 与状态机）；
-  - **局部精修轨（`modifier/`）**：总导演统筹管辖的已有资产局部外科手术室（6 大工序定向手术函数族 `modifiers/` 与目标实体反查器 `entity-resolver.ts`，彻底杜绝跨阶段修改错配）；
-- **认知推演与物理算力工具正交解耦（Pure Tools）**：
-  - 大模型专属主导逻辑思维与视听拆解，底层原子工具（`tools/`）彻底纯净化为真实硬件/媒体物理算力（`image-generate`、`image-inpaint`、`video-generate`、`voice-generate`、`ffmpeg-render` 等），坚决消灭“大模型调用大模型”的虚假伪工具套娃；
-- **全流程动态状态机工作流（filmProductionPipelineWorkflow）**：通过 Mastra 原生 `Workflow` 状态机编排 8 大工序原子 Step（Step 与 Suspend/Resume），实现可靠的断点续传与人在回路仲裁。
+## 4. 产品内导演的行动边界
 
-### 2.2 自主行动提案与人在回路（Action Proposals & Human-in-the-Loop）
-- **大模型自主提案协议（Intent Protocol）**：总导演在流式回复中根据上下文与创作者指令，在末尾附带强类型协议标签（`<intent action="next|modify|rollback|audit" />`）；
-- **打字机流式分离与安全拦截**：`StreamTagParser` 实时拦截并分离思考流（`<think>...</think>`）与意图标签，杜绝思考草稿与协议标签混入自然语言聊天；
-- **生成待确认行动卡片**：解析后的意图信号通过 `resolveIntentToProposal` 并结合 `entity-resolver` 智能反查，转化为生命周期为 `pending` 的 `ActionProposal` 实体，渲染为 UI 交互卡片，由创作者点击确认或授权触发；
-- **双轨独立落地执行**：在工作流执行器（`createPipelineExecutor`）中：
-  - 推进类提案（`PROCEED_STAGE`）调用 `generator/steps/` 执行该工序从 0 到 1 的批量生产；
-  - 修改类提案（`TARGETED_REVISE`）调用 `modifier/modifiers/` 执行该工序的外科手术微调，绝不全量重跑流水线。
-- **杜绝黑盒失控**：坚决禁止大模型在后台静默私自调用高昂算力工具，确保**“模型负责提议，人类负责裁决，技能负责落地”**。
+本节约束 makeMv 产品行为，不要求编程助手每次编辑代码前创建产品提案。
 
-### 2.3 全局统一状态黑板（ProjectStore SSOT）
-- **唯一单例门面**：统一使用 `ProjectStore.getInstance()` 凭借 `projectId` 存取所有阶段资产（`Artifacts`）、全局会话（`Session`）、消息流与工程目录；
-- **杜绝深层对象层层透传**：任何控制器、工具函数、审查官或技能执行器直接向 `ProjectStore` 读写，彻底根除跨模块穿透传参引发的属性丢失。
+- 导演通过 `emit_director_intent` 表达 `chat_only`、`propose`、`approve` 等意图；完整动作集合以实际 Schema 和解析器为准，不恢复旧版文本意图标签协议。
+- 提案包含可执行参数。批准须对应有效待审提案；疑问、暂停或附带修改条件的回复不能直接视为批准。保留审批失效检查与幂等处理。
+- 自然语言批准绑定本轮开始时的提案 ID 与参数快照；方案被替换、修改或已处理时拒绝迟到的批准。自动复盘不得替换用户待审卡片，任务派发不得批量关闭其他方案。
+- 自主提案默认限定一个阶段；同阶段可处理多个明确目标。仅当创作者明确要求多个阶段时编排对应组合，不顺带捆绑下游算力任务。
+- 修改请求只针对指定阶段和资产；不把旧待审方案或历史对白当成新授权。工序完成后依据实际状态判断是否还有合法行动。
+- 执行状态以任务记录和产物为准。提案、批准或收到远程 URL 都不等于完成，不提前宣称出图、落盘或渲染成功。
+- 复盘与制作任务分别记录成功或失败；复盘失败不能覆盖已完成的制作事实，也不能用“任务未启动”描述复盘异常。
+- 工具能力、参数、目标与执行前提需由代码校验，不能只依赖提示词。新增质量审查需明确实现和测试，不将源码中不存在的审查官或门禁写成已生效能力。
 
-### 2.4 契约驱动与双轨记忆（Contract-Driven & Dual-Track Memory）
-- **显式强类型数据契约**：工序之间通过定义在各技能契约（`schema.ts` / `types.ts`）中的强类型结构交互，严禁在下游编写猜字段的容错分支；
-- **双轨记忆微架构（ChatMemoryManager）**：
-  - **微观工作记忆**：多轮会话 Turns 严格遵循 `user` 与 `assistant` 角色交替法则，流式中断时自动补录占位消息保障结构完整；
-  - **宏观工程记忆**：根据当前阶段动态挂载阶段核心目标（SOP）、审查官最新裁决与历史资产指引。
+## 5. 数据、提示词与媒体质量
 
-### 2.5 代码级刚性门禁拦截与自愈防御（Fail-Fast Gate Guard）
-- **守卫定位**：`DirectorProposalResolver` 部署第三道视听工程代码级刚性门禁；
-- **跨工序严格阻断**：若独立审查官（`CriticReviewer`）针对当前工序出具了刚性阻断 `FAIL` 且该报告仍在生效期，坚决拦截向后续阶段带病推进的行动提案；
-- **自愈重推放行原则**：对于属于当前阶段的自愈优化、微调重绘或复审辩护，门禁坚决予以放行，形成“阻断-反思-自愈-放行”闭环。
+- 优先修复错误数据的生产源头，并在外部输入、持久化读取和执行边界保留必要校验。禁止用虚构剧情、假资产或静默默认值掩盖失败。
+- 避免分散的字段猜测和多层回退。兼容旧数据或第三方接口时集中在明确适配层，说明范围并验证；不因“零兼容”删除现有有效适配。
+- 避免新增语义重复字段；字段迁移需评估已有项目数据与调用方。工具注册表现有名称映射不能未经评估直接移除。
+- 角色、场景、道具与镜头描述来自当前剧本和资产契约；通用引擎不硬编码题材或人物。排查时检查特征、实体 ID、参考图和版本是否完整传递。
+- 结构化生成结合 Schema、语义校验与清晰错误信息。微调保留未要求修改的内容；是否调用模型取决于语义需求，不禁止正常模板插值。
+- 远程媒体经现有下载链路持久化，使用项目本地媒体路由，不以过期签名 URL 作为永久资产。
+- 媒体验收核对存在、可读及必要格式/尺寸；仅有 `fs.existsSync` 不能证明文件完整或画面合格。涉及版本和上游修改时核对新鲜度及下游引用。
 
-### 2.6 本地持久化与离线永久可用性
-- **杜绝临时链接依赖**：第三方模型（如阿里云 DashScope OSS）返回的图片/视频带有 24 小时过期签名，必须在落地阶段立即由 `MediaDownloader` 下载至本地工程目录，并转化为 `/media/:projectId/...` 的永久标准化本地路径，确保历史项目持久可用。
+## 6. 验证与交付
 
----
+从仓库根目录运行的现有命令：
 
-## 3. 彻底的系统级通用性与零硬编码准则（Zero Hardcoding）
+| 命令 | 用途 |
+| --- | --- |
+| `npm run dev:server` | 服务端开发模式 |
+| `npm run dev:client` | 前端开发模式 |
+| `npm run build:server` | 服务端 TypeScript 构建与运行资源复制 |
+| `npm run build:client` | 前端 TypeScript 与 Vite 构建 |
+| `npm run build` | 依次构建服务端与前端 |
+| `npm test` | 执行服务端 package.json 列出的测试链 |
+| `npm --prefix server run test:agent-runtime` | 构建后执行 Agent 运行时测试 |
 
-### 3.1 严禁业务与题材硬编码
-- **通用抽象无偏**：在编写技能微内核、提示词装配、视听格式化或校验器逻辑时，**严禁将具体的题材名称（如科幻、悬疑、古装）或特定角色身份写死为硬编码条件分支**；
-- **自检铁律**：编写任何逻辑前自问：*“如果用户输入一个完全不同的冷门题材（如田园治愈、微观生物悬疑），这段代码还能正常运行吗？”*
-
-### 3.2 动态清单驱动
-- 所有角色外貌、场景氛围、分镜运镜与提示词增强，必须 100% 依赖上游传递的标准清单动态映射装配，严禁凭空生造与当前剧本脱节的名词。
-
----
-
-## 4. 大模型视听工程与质量防御法典（LLM & Media Engineering）
-
-### 4.1 三层立体防御网络（Defense-in-Depth）
-所有大模型文本推演与视听生成链路必须构建三层防御闭环：
-1. **第一道（源头求真）**：通过严密的中文 Prompt 格式约束、专业影视术语体系与标准 JSON Schema 规约输出，从源头消灭设定脱轨；
-2. **第二道（微调自愈与提示词优化）**：创作者提出微调指令时，调用专职大模型（`prompt.ts` 内微调体系）进行语义级精准融合，拒绝生硬字符串拼接；
-3. **第三道（刚性视听质检门禁）**：通过 `CriticReviewSkill` / `CriticReviewerAgent` 执行多维度评分与刚性缺陷拦截，确保工业级成片品质。
-
-### 4.2 真实视听文件闭环验收（拒绝假收敛）
-- 关键帧生图与视频渲染绝不能仅凭接口返回 URL 就判定收敛，必须确保本地磁盘真实文件写入完整（`fs.existsSync`）且尺寸格式合规，杜绝“无报错假成功”。
-
----
-
-## 5. 基础设施层健壮性与交付标准
-
-### 5.1 模块正交与真实目录结构规范
-```
-makeMv/
-├── .agents/                    # 智能体规范与协作协议 (AGENTS.md)
-├── client/                     # 现代前端：Vite + React 18 + Mastra Client
-│   └── src/
-│       ├── main.tsx            # 前端启动主入口
-│       ├── App.tsx             # 导演工作台根组件
-│       ├── components/         # 交互座舱组件库 (Chat, Canvas, ProposalCard, Player)
-│       ├── hooks/              # 流式对话与人在回路审核 Hook
-│       ├── lib/                # mastra.ts 客户端总线与网络工具
-│       └── types/              # 视图层与客户端契约
-└── server/                     # 服务端：Mastra 微内核 + 影视工业生成引擎
-    ├── tests/                  # 单元测试与轻量冒烟测试矩阵 (独立物理隔离)
-    └── src/
-        ├── index.ts            # 极简服务启动入口 (Bootstrap & Graceful Shutdown)
-        ├── api/                # HTTP 协议层与业务路由分发
-        │   ├── app.ts          # 请求路由网关 (dispatchHttpRequest)
-        │   ├── helpers.ts      # 统一 HTTP 工具 (CORS, readJsonBody, sendJson)
-        │   ├── media.ts        # 静态媒体切片安全沙箱托管
-        │   └── routes/         # 业务路由分发 (chat, projects, proposals)
-        ├── mastra.ts           # 【Mastra 官方微内核容器总装出口 (Canonical Mastra SSOT)】
-        ├── workflow-engine/    # 【通用工作流调度引擎 (Run, Resume, AOP 确认拦截切面)】
-        ├── agents/             # 【智能体系统专属自治领地】
-        │   └── director/       # 【AI 视听总导演专属自治领地】
-        │       ├── director.agent.ts   # 导演交互中枢 (单智能体，单跳流式秒出，统一发射 <intent>)
-        │       ├── prompt.ts           # 导演提示词 (8大工序SSOT、审美品味与 <intent> 规范)
-        │       ├── index.ts            # 导演自治领地对外总装出口
-        │       ├── generator/          # 🚀【生成轨：0 到 1 顺向批量生产流水线】
-        │       │   ├── generator.workflow.ts  # Mastra 原生 8 大影视顺向流水线状态机
-        │       │   ├── register.ts            # 业务工序与门禁动态注册器 (IoC 绑定到 workflow-engine)
-        │       │   ├── constants.ts           # 8 大法定工序标识符与流转映射
-        │       │   └── steps/                 # 8 大工序生产步骤 (顺向推演，调用 tools/)
-        │       └── modifier/           # 🎯【精修轨：已有资产局部外科手术室】
-        │           ├── modifiers/             # 6 大工序定向外科手术函数族 (调用 tools/)
-        │           └── entity-resolver.ts     # 目标实体反查阶段工序工具 (如根据角色名锁定 character-portrait)
-        ├── tools/              # 【纯物理算力/硬件媒体原子工具族 (Pure Tools，无伪大模型套娃)】
-        │   ├── image-generate/ # 真实文生图算力工具
-        │   ├── image-inpaint/  # 真实局部重绘算力工具
-        │   ├── video-generate/ # 真实文生视频/图生视频算力工具
-        │   ├── voice-generate/ # 真实语音合成算力工具
-        │   └── ffmpeg-render/  # 真实音画合成与视频剪辑工具
-        ├── project-store/      # 全局状态黑板层 (ProjectStore SSOT, ContextAssembler, ProposalStore)
-        ├── media/              # 视听基础设施与多媒体渲染 (ComfyUI / DashScope / FFmpeg / Renderers)
-        ├── llm/                # 统一大模型集成服务 (LLMRegistry, RealLLMService, MockLLMService)
-        ├── types/              # 全局业务强类型契约
-        └── utils/              # 基础原子安全工具 (StreamTagParser, JsonSanitizer, atomicFile, lock)
-```
-
-### 5.2 严格交付验收标准
-- **静态编译 0 报错**：任何代码改动完成后，必须确保全局 TypeScript 编译（`npm run build`）**0 错误、0 警告**；
-- **全链路闭环验证**：每次关键重构后，主动校验核心端点（状态查询、会话列表、配置获取）返回 200 OK，确保前端页面交互无缝协同。
+- 按改动范围运行相关测试与构建。纯文档修改检查内容、路径和差异；运行时、调度或契约修改覆盖相关行为，跨模块重构再扩大验证。
+- `npm test` 不代表执行所有 `server/tests/` 文件，也不代表覆盖前端测试；相关独立测试需检查运行方式并单独执行。
+- 界面、路由和流式修改补充相应交互或端点验证。真实媒体生成可能消耗外部算力，不因“测试”绕过用户授权。
+- 验证失败时区分本次问题、已有问题和环境限制；报告实际检查，不将未运行测试、未检查警告或外部服务状态写成通过。
+- 简洁说明修改、原因、验证及限制。架构、工具和脚本变化时同步本文件，避免累积历史名称与未经实现的承诺。

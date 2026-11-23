@@ -13,6 +13,14 @@ interface TaskDrawerProps {
   onCancelTask?: (taskId: string) => Promise<void>;
 }
 
+const FAILURE_TYPE_MAP: Record<string, { label: string; className: string }> = {
+  llm_contract_error: { label: 'LLM契约误差', className: 'bg-purple-50 text-purple-700 border-purple-200' },
+  media_service_error: { label: '媒体服务异常', className: 'bg-orange-50 text-orange-700 border-orange-200' },
+  system_interrupted: { label: '服务重启中断', className: 'bg-amber-50 text-amber-700 border-amber-200' },
+  transient_network_error: { label: '网络抖动', className: 'bg-blue-50 text-blue-700 border-blue-200' },
+  system_fault: { label: '系统异常', className: 'bg-rose-50 text-rose-700 border-rose-200' },
+};
+
 export const TaskDrawer: React.FC<TaskDrawerProps> = ({
   tasks,
   onRefreshTasks,
@@ -29,20 +37,20 @@ export const TaskDrawer: React.FC<TaskDrawerProps> = ({
   return (
     <>
       {/* 悬浮任务触发条 */}
-      <div className="fixed bottom-5 right-5 z-40">
+      <div className="fixed bottom-5 right-5 z-[75]">
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-full shadow-lg border text-xs font-semibold transition-all backdrop-blur-md ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-full shadow-[0_4px_20px_-2px_rgba(15,23,42,0.12)] border text-xs font-bold transition-all backdrop-blur-xl cursor-pointer active:scale-95 ${
             runningCount > 0
               ? 'bg-indigo-600 text-white border-indigo-500 shadow-indigo-600/30 animate-pulse'
               : failedCount > 0
               ? 'bg-white text-rose-600 border-rose-200 shadow-rose-500/10 hover:bg-rose-50/50'
-              : 'bg-white/95 text-slate-700 border-slate-200 shadow-slate-300/40 hover:bg-slate-50'
+              : 'bg-white/95 text-slate-800 border-slate-200/90 hover:bg-slate-50'
           }`}
         >
           <span>⚡ 任务中心</span>
           {runningCount > 0 && (
-            <span className="w-5 h-5 rounded-full bg-white text-indigo-700 text-[10px] font-bold flex items-center justify-center shadow-xs">
+            <span className="w-5 h-5 rounded-full bg-white text-indigo-700 text-[10px] font-black flex items-center justify-center shadow-xs">
               {runningCount}
             </span>
           )}
@@ -55,19 +63,19 @@ export const TaskDrawer: React.FC<TaskDrawerProps> = ({
         </button>
       </div>
 
-      {/* 展开的任务面板 */}
+      {/* 展开的任务面板 (高优先级 z-[80]，自适应视口高度，杜绝局部导航栏或悬浮球遮挡穿透) */}
       {isOpen && (
-        <div className="fixed bottom-18 right-5 w-96 max-h-[500px] bg-white/95 border border-slate-200/90 rounded-2xl shadow-2xl z-40 flex flex-col overflow-hidden backdrop-blur-md">
-          <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50/80">
+        <div className="fixed bottom-18 right-5 w-96 max-h-[min(580px,calc(100vh-6rem))] bg-white/95 border border-slate-200/90 rounded-3xl shadow-[0_20px_60px_-15px_rgba(15,23,42,0.18)] z-[80] flex flex-col overflow-hidden backdrop-blur-xl ring-1 ring-black/5 animate-in fade-in zoom-in-95 duration-150">
+          <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
             <div className="flex items-center space-x-2">
-              <span className="text-sm font-bold text-slate-900 tracking-tight">任务流水记录</span>
-              <span className="text-xs font-mono text-slate-400">({uniqueTasks.length})</span>
+              <span className="text-sm font-black text-slate-900 tracking-tight">任务调度总览</span>
+              <span className="text-xs font-mono font-semibold text-slate-400">({uniqueTasks.length})</span>
             </div>
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-1.5">
               {onRefreshTasks && (
                 <button
                   onClick={onRefreshTasks}
-                  className="text-xs text-slate-600 hover:text-slate-900 p-1 rounded-md bg-white border border-slate-200 shadow-2xs transition"
+                  className="text-xs text-slate-600 hover:text-slate-900 p-1.5 rounded-lg bg-white border border-slate-200 shadow-2xs transition cursor-pointer"
                   title="刷新任务列表"
                 >
                   🔄
@@ -75,7 +83,7 @@ export const TaskDrawer: React.FC<TaskDrawerProps> = ({
               )}
               <button
                 onClick={() => setIsOpen(false)}
-                className="text-slate-400 hover:text-slate-700 text-xs p-1"
+                className="text-slate-400 hover:text-slate-700 text-xs p-1.5 rounded-lg hover:bg-slate-100 transition cursor-pointer"
               >
                 ✕
               </button>
@@ -108,11 +116,16 @@ export const TaskDrawer: React.FC<TaskDrawerProps> = ({
                         {isRunning && onCancelTask && (
                           <button
                             onClick={() => onCancelTask(task.taskId)}
-                            className="px-2 py-0.5 rounded text-[10px] bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-medium transition"
+                            className="px-2 py-0.5 rounded text-[10px] bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-medium transition cursor-pointer"
                             title="中止任务"
                           >
                             取消
                           </button>
+                        )}
+                        {task.failureType && FAILURE_TYPE_MAP[task.failureType] && (
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium border ${FAILURE_TYPE_MAP[task.failureType].className}`}>
+                            {FAILURE_TYPE_MAP[task.failureType].label}
+                          </span>
                         )}
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
@@ -144,6 +157,9 @@ export const TaskDrawer: React.FC<TaskDrawerProps> = ({
 
                     {task.error && (
                       <div className="text-[10px] text-rose-700 bg-rose-50/80 border border-rose-200 p-2 rounded-lg mt-2 break-words">
+                        {task.lastFailure?.attempt && task.lastFailure.attempt > 1 && (
+                          <span className="font-bold mr-1">[已重试 {task.lastFailure.attempt - 1} 次]</span>
+                        )}
                         {task.error}
                       </div>
                     )}

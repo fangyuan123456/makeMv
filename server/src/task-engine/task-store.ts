@@ -10,6 +10,7 @@ import { getProjectDir } from '../project-store/artifact-fs.js';
 import { config } from '../utils/config.js';
 import { atomicWriteJsonSync, safeReadJsonSync } from '../utils/atomicFile.js';
 import type { TaskRecord, TaskEventPayload, TaskEventListener } from './types.js';
+import { recordTaskFailure } from './task-failure.js';
 
 export class TaskStore extends EventEmitter {
   private static instance: TaskStore | null = null;
@@ -77,6 +78,9 @@ export class TaskStore extends EventEmitter {
       progress: task.progress,
       output: task.output,
       error: task.error,
+      failureType: task.failureType,
+      lastFailure: task.lastFailure,
+      retryCount: task.retryCount,
       createdAt: task.createdAt,
       startedAt: task.startedAt,
       completedAt: task.completedAt,
@@ -165,7 +169,7 @@ export class TaskStore extends EventEmitter {
           Date.now() - t.createdAt > 30000
         ) {
           t.status = 'failed';
-          t.error = '执行线程丢失或服务已重启，请重新触发渲染';
+          recordTaskFailure(t, '执行线程丢失或服务已重启，请重新触发渲染', 'system_interrupted');
           t.completedAt = Date.now();
           if (t.startedAt) t.durationMs = t.completedAt - t.startedAt;
           reclaimedTasks.push(t);
@@ -209,7 +213,7 @@ export class TaskStore extends EventEmitter {
       // 进程退出前未完结的任务在首次加载时收敛为失败。
       if (item.status === 'running' || item.status === 'pending') {
         item.status = 'failed';
-        item.error = '服务重启中断，任务已终止，可重新触发渲染';
+        recordTaskFailure(item, '服务重启中断，任务已终止，可重新触发渲染', 'system_interrupted');
         item.recovery = 'restart';
         item.recoveryAttempts = item.recoveryAttempts || 0;
         item.completedAt = item.completedAt || Date.now();

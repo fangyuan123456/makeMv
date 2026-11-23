@@ -17,6 +17,12 @@ import {
   selectEntityVersion,
   refineEntityImage,
 } from '../services/lookdev-assets.service.js';
+import {
+  selectShotVersion,
+  updateShotPrompt,
+  updateShotContinuity,
+  refineShotImage,
+} from '../services/shot-assets.service.js';
 import { sendError } from '../helpers.js';
 
 export const projectsRouter = Router();
@@ -128,3 +134,11 @@ projectsRouter.post('/:id/entities/select-version', selectEntityVersion);
  * Body: { entityType: 'character' | 'location', entityId: string, instruction: string, baseImageUrl?: string }
  */
 projectsRouter.post('/:id/entities/image-refine', refineEntityImage);
+
+/**
+ * 分镜镜头首/末帧资产（版本库 / 提示词 / 定向微调）
+ */
+projectsRouter.post('/:id/shots/select-version', selectShotVersion);
+projectsRouter.post('/:id/shots/update-prompt', updateShotPrompt);
+projectsRouter.post('/:id/shots/update-continuity', updateShotContinuity);
+projectsRouter.post('/:id/shots/refine', refineShotImage);

@@ -1,622 +1,508 @@
-/**
- * client/src/hooks/useDirectorChatFlow.ts
- * 全系统对话机器人统一对话生命周期微内核 Hook (Director Chat Flow SSOT)
- *
- * 核心微内核架构：
- * 1. 状态与流转单一事实来源：所有导演智能体共享相同的对话推演、意图捕获、物理工具派发与任务状态机；
- * 2. 拟合非线性时间平滑模拟算法 (computeSimulatedProgress)，结合 300ms 动态时钟与 SSE 真实落盘事件；
- * 3. 授权批准链路统一：所有机器人均通过自然语言“同意”批准待审提案；
- * 4. 自动阶段收官复盘总结：物理任务落盘后自动触发总监总结并追加至同一任务卡片中。
- */
+import { useState, useEffect, useRef, useMemo, useCallback, type ClipboardEvent } from 'react';
+import type { TaskRecord } from '../types/index.js';
+import type {
+  DirectorConversationClient,
+  ConversationMessage,
+  ChatImageAttachment,
+  BaseActionIntent,
+  AgentFocusContext,
+} from '../lib/DirectorConversation.js';
+import { isConversationTaskRunning } from '../lib/taskUtils.js';
+import { cancelTask, retryTask } from '../lib/api.js';
+import { formatFocusLabel, useActiveFocus } from './StudioFocusContext.js';
 
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import type { TaskRecord, ProjectData } from '../types/index.js';
-import type { ChatSession, ChatMessageItem, BaseActionIntent } from '../lib/ChatSession.js';
-
-/**
- * 经典非线性时间平滑模拟进度算法 (Simulated Progressive Curve)
- */
-export function computeSimulatedProgress(
-  startTimeMs: number,
-  nowMs: number,
-  backendPercent?: number
-): number {
+export function computeSimulatedProgress(startTimeMs: number, nowMs: number, backendPercent?: number): number {
   const elapsedSec = Math.max(0, (nowMs - startTimeMs) / 1000);
   let simulated: number;
-
-  if (elapsedSec <= 2) {
-    simulated = 15 + (elapsedSec / 2) * 17;
-  } else if (elapsedSec <= 10) {
-    simulated = 32 + ((elapsedSec - 2) / 8) * 36;
-  } else if (elapsedSec <= 30) {
-    simulated = 68 + ((elapsedSec - 10) / 20) * 18;
-  } else if (elapsedSec <= 60) {
-    simulated = 86 + ((elapsedSec - 30) / 30) * 8;
-  } else {
-    simulated = 94 + 2 * (1 - Math.exp(-(elapsedSec - 60) / 40));
-  }
-
+  if (elapsedSec <= 2) simulated = 15 + (elapsedSec / 2) * 17;
+  else if (elapsedSec <= 10) simulated = 32 + ((elapsedSec - 2) / 8) * 36;
+  else if (elapsedSec <= 30) simulated = 68 + ((elapsedSec - 10) / 20) * 18;
+  else if (elapsedSec <= 60) simulated = 86 + ((elapsedSec - 30) / 30) * 8;
+  else simulated = 94 + 2 * (1 - Math.exp(-(elapsedSec - 60) / 40));
   const rounded = Math.min(96, Math.round(simulated));
-  if (backendPercent && backendPercent > rounded) {
-    return Math.min(96, backendPercent);
-  }
-  return rounded;
+  return backendPercent && backendPercent > rounded ? Math.min(96, backendPercent) : rounded;
 }
 
 export interface UseDirectorChatFlowOptions<TIntent extends BaseActionIntent = BaseActionIntent> {
   projectId: string;
-  projectData?: ProjectData | null;
-  session: ChatSession<TIntent>;
+  session: DirectorConversationClient<TIntent>;
   tasks?: TaskRecord[];
-  onRunTool: (toolName: string, input: Record<string, any>) => Promise<TaskRecord | any>;
+  /** 对话派发/完成任务后同步刷新外层项目资产与任务总线 */
   onRefreshProject?: () => void;
-  isBusy?: boolean;
+  /** 可选显式覆盖焦点；不传时自动订阅全局 StudioFocusContext 栈顶焦点 */
+  focus?: AgentFocusContext;
   defaultWelcomeMessage: string;
   welcomeMessageId?: string;
-  contextPrefix?: string;
-  resolveHistoricalProposals?: (msg: any, projectData?: ProjectData | null) => boolean;
-  toolMapper?: (tool: string, params: Record<string, any>) => { tool: string; params: Record<string, any>; title?: string };
-  generatePostTaskTriggerPrompt: (toolName: string, actionTitle: string) => string;
-  onAssetProduced?: (type: string) => void;
+  mode?: 'lookdev' | 'storyboard' | 'planner' | string;
+  clipId?: string;
 }
 
 export function useDirectorChatFlow<TIntent extends BaseActionIntent = BaseActionIntent>(
-  options: UseDirectorChatFlowOptions<TIntent>
+  options: UseDirectorChatFlowOptions<TIntent>,
 ) {
-  const {
-    projectId,
-    projectData,
-    session,
-    tasks = [],
-    onRunTool,
-    onRefreshProject,
-    isBusy,
-    defaultWelcomeMessage,
-    welcomeMessageId = 'init_welcome',
-    contextPrefix = '',
-    resolveHistoricalProposals,
-    toolMapper,
-    generatePostTaskTriggerPrompt,
-    onAssetProduced,
-  } = options;
-
-  const [messages, setMessages] = useState<ChatMessageItem<TIntent>[]>([]);
+  const { projectId, session, tasks = [], onRefreshProject, focus: explicitFocus, defaultWelcomeMessage, welcomeMessageId = 'init_welcome' } = options;
+  const onRefreshProjectRef = useRef(onRefreshProject);
+  onRefreshProjectRef.current = onRefreshProject;
+  const contextFocus = useActiveFocus();
+  const activeFocus = explicitFocus ?? contextFocus;
+  const focusLabel = useMemo(() => formatFocusLabel(activeFocus), [activeFocus]);
+  const [messages, setMessages] = useState<ConversationMessage<TIntent>[]>([]);
   const [inputText, setInputText] = useState('');
+  const [pendingImages, setPendingImages] = useState<ChatImageAttachment[]>([]);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
-  const [streamingTargetId, setStreamingTargetId] = useState<string | null>(null);
-  const [streamingAppendContent, setStreamingAppendContent] = useState<string>('');
+  const [summaryStream, setSummaryStream] = useState<{ messageId: string; text: string } | null>(null);
+  const [historyFailed, setHistoryFailed] = useState(false);
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const historyLoadKeyRef = useRef<string | null>(null);
 
-  // 任务生命周期追踪
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
-  const [activeToolName, setActiveToolName] = useState<string>('');
-  const [activeActionTitle, setActiveActionTitle] = useState<string>('');
-  const summarizedTaskIdRef = useRef<string | null>(null);
-  const failedTaskIdRef = useRef<string | null>(null);
+  const reloadHistory = useCallback(async () => {
+    const key = `${session.projectId}:${session.sessionId}`;
+    const welcome: ConversationMessage<TIntent> = {
+      id: welcomeMessageId,
+      role: 'assistant',
+      content: defaultWelcomeMessage,
+      createdAt: new Date().toISOString(),
+    };
+    try {
+      const history = await session.getHistory();
+      if (historyLoadKeyRef.current !== key) return;
+      setHistoryFailed(false);
+      setMessages(history.length ? history : [welcome]);
+    } catch {
+      if (historyLoadKeyRef.current !== key) return;
+      setHistoryFailed(true);
+      setMessages((prev) => prev.length ? prev : [welcome]);
+    }
+  }, [session, welcomeMessageId, defaultWelcomeMessage]);
 
-  // 300ms 心跳时钟
-  const [nowTick, setNowTick] = useState<number>(() => Date.now());
-
-  const hasAnyRunningTask = useMemo(() => {
-    return (
-      tasks.some((t) => t.status === 'running' || t.status === 'pending') ||
-      messages.some((m) => m.taskStatus === 'running' || m.taskStatus === 'pending')
-    );
-  }, [tasks, messages]);
-
-  useEffect(() => {
-    if (!hasAnyRunningTask) return;
-    const timer = setInterval(() => {
-      setNowTick(Date.now());
-    }, 300);
-    return () => clearInterval(timer);
-  }, [hasAnyRunningTask]);
-
-  // 1. 初始化拉取会话历史
   useEffect(() => {
     if (!projectId) return;
-    const historyLoadKey = `${projectId}:${session.sessionId}`;
-    if (historyLoadKeyRef.current === historyLoadKey) return;
-    let isMounted = true;
+    const key = `${projectId}:${session.sessionId}`;
+    if (historyLoadKeyRef.current === key) return;
+    historyLoadKeyRef.current = key;
+    setMessages([]);
+    setSummaryStream(null);
+    setHistoryFailed(false);
+    void reloadHistory();
+  }, [projectId, session, reloadHistory]);
 
-    session
-      .getHistory()
-      .then((history) => {
-        if (!isMounted) return;
-        historyLoadKeyRef.current = historyLoadKey;
-        if (Array.isArray(history) && history.length > 0) {
-          setMessages(
-            history.map((h: any) => {
-              let isResolved = Boolean(h.proposalResolved);
-              if (resolveHistoricalProposals) {
-                if (resolveHistoricalProposals(h, projectData)) {
-                  isResolved = true;
-                }
-              }
+  useEffect(() => {
+    if (!projectId) return;
+    let disposed = false;
+    let hasConnectedOnce = false;
+    let events: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastActivityAt = Date.now();
 
-              // 对齐物理任务真实状态，以权威 tasks 列表与落盘资产为准，杜绝历史静态 running 假性死锁
-              const matchedPhysicalTask = h.taskId ? tasks.find((t) => t.taskId === h.taskId) : undefined;
-              let effectiveStatus = matchedPhysicalTask ? matchedPhysicalTask.status : h.taskStatus;
-              if (h.taskTool?.includes('screenplay') && (projectData?.screenplay || projectData?.artifacts?.screenplay)) {
-                effectiveStatus = 'completed';
-              } else if (h.taskTool?.includes('prd') && (projectData?.prd || projectData?.artifacts?.prd)) {
-                effectiveStatus = 'completed';
-              }
+    const markAlive = () => {
+      lastActivityAt = Date.now();
+    };
 
-              return {
-                id: h.id || `msg_${Math.random().toString(36).slice(2, 6)}`,
-                role: h.role === 'user' ? 'user' : 'assistant',
-                content: h.content,
-                createdAt: h.createdAt || new Date().toISOString(),
-                proposal: h.proposal,
-                proposalState: h.proposal ? (isResolved ? 'completed' : 'pending') : undefined,
-                taskId: h.taskId,
-                taskTool: h.taskTool,
-                taskTitle: h.taskTitle,
-                taskStatus: effectiveStatus,
-                taskProgress:
-                  matchedPhysicalTask?.progress ||
-                  h.taskProgress ||
-                  (effectiveStatus === 'completed' ? { percent: 100, message: '已完成' } : undefined),
-                taskDurationMs: matchedPhysicalTask?.durationMs || h.taskDurationMs,
-                taskOutputSummary: h.taskOutputSummary,
-                taskError: matchedPhysicalTask?.error || h.taskError,
-              };
-            })
-          );
-        } else {
-          setMessages([
-            {
-              id: welcomeMessageId,
-              role: 'assistant',
-              content: defaultWelcomeMessage,
-              createdAt: new Date().toISOString(),
-            },
-          ]);
+    const handleConnected = () => {
+      markAlive();
+      if (hasConnectedOnce) {
+        void reloadHistory();
+        onRefreshProjectRef.current?.();
+      } else {
+        hasConnectedOnce = true;
+      }
+    };
+
+    const onTaskEvent = (raw: MessageEvent) => {
+      markAlive();
+      try {
+        const event = JSON.parse(raw.data);
+        if (event?.projectId !== projectId) return;
+        if (event?.input?.__chatContext?.sessionId !== session.sessionId) return;
+        if (event.status === 'completed' || event.status === 'failed' || event.status === 'cancelled') {
+          onRefreshProjectRef.current?.();
+          void reloadHistory();
         }
+      } catch {
+        // 忽略格式异常事件
+      }
+    };
+
+    const onSummaryEvent = (raw: MessageEvent) => {
+      markAlive();
+      let event: {
+        projectId: string;
+        sessionId: string;
+        messageId: string;
+        type: 'start' | 'snapshot' | 'chunk' | 'done' | 'error';
+        text?: string;
+        offset?: number;
+      };
+      try {
+        event = JSON.parse(raw.data);
+      } catch {
+        return;
+      }
+      if (event.projectId !== projectId || event.sessionId !== session.sessionId) return;
+      if (event.type === 'start') {
+        setSummaryStream({ messageId: event.messageId, text: '' });
+        void reloadHistory();
+      } else if (event.type === 'snapshot') {
+        setSummaryStream({ messageId: event.messageId, text: event.text || '' });
+        void reloadHistory();
+      } else if (event.type === 'chunk') {
+        setSummaryStream((previous) => {
+          const current = previous?.messageId === event.messageId ? previous.text : '';
+          const offset = event.offset ?? current.length;
+          return { messageId: event.messageId, text: current.slice(0, offset) + (event.text || '') };
+        });
+      } else {
+        onRefreshProjectRef.current?.();
+        void reloadHistory().finally(() => {
+          setSummaryStream((previous) => previous?.messageId === event.messageId ? null : previous);
+        });
+      }
+    };
+
+    const closeCurrent = () => {
+      if (!events) return;
+      events.removeEventListener('connected', handleConnected);
+      events.removeEventListener('ping', markAlive);
+      events.removeEventListener('task_event', onTaskEvent);
+      events.removeEventListener('summary_event', onSummaryEvent);
+      events.close();
+      events = null;
+    };
+
+    const scheduleReconnect = (delayMs = 2000) => {
+      if (disposed || reconnectTimer) return;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delayMs);
+    };
+
+    const connect = () => {
+      if (disposed) return;
+      closeCurrent();
+      lastActivityAt = Date.now();
+      const es = new EventSource(`/api/events?projectId=${encodeURIComponent(projectId)}`);
+      events = es;
+      es.addEventListener('connected', handleConnected);
+      es.addEventListener('ping', markAlive);
+      es.addEventListener('task_event', onTaskEvent);
+      es.addEventListener('summary_event', onSummaryEvent);
+      es.onerror = () => {
+        if (disposed) return;
+        if (es.readyState === EventSource.CLOSED) {
+          closeCurrent();
+          scheduleReconnect(2000);
+        }
+      };
+    };
+
+    // 心跳看门狗：后端每 15s 发 ping，超过 35s 无响应说明连接假死，强制重连并补拉历史
+    const watchdogTimer = setInterval(() => {
+      if (disposed) return;
+      if (Date.now() - lastActivityAt > 35000) {
+        closeCurrent();
+        connect();
+        void reloadHistory();
+        onRefreshProjectRef.current?.();
+      }
+    }, 10000);
+
+    connect();
+
+    return () => {
+      disposed = true;
+      clearInterval(watchdogTimer);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      closeCurrent();
+    };
+  }, [projectId, session.sessionId, reloadHistory]);
+
+  const hasPendingSummary = messages.some((message) =>
+    message.metadata?.summaryStatus === 'pending' || message.metadata?.summaryStatus === 'running'
+  );
+  const hasUnsettledTaskMessage = useMemo(
+    () =>
+      messages.some((message) => {
+        if (Array.isArray(message.planSteps) && message.planSteps.length > 0) {
+          return message.planSteps.some((step) => {
+            const live = tasks.find((t) => t.taskId === step.taskId);
+            const st = live?.status || step.status;
+            return st === 'pending' || st === 'running';
+          });
+        }
+        if (!message.taskId) return false;
+        const live = tasks.find((t) => t.taskId === message.taskId);
+        const st = live?.status || message.taskStatus;
+        return st === 'pending' || st === 'running';
+      }),
+    [messages, tasks]
+  );
+
+  const isTaskRunning = useMemo(() => {
+    // 1. 全局 tasks 中本会话/本工序/本分幕/本聚焦实体的活跃物理任务
+    if (
+      isConversationTaskRunning(tasks, session.sessionId, {
+        mode: options.mode,
+        clipId: options.clipId,
+        focusTargetId: activeFocus?.target?.id,
       })
-      .catch((err) => {
-        console.warn(`[useDirectorChatFlow] 获取历史异常:`, err);
-        if (!isMounted) return;
-        historyLoadKeyRef.current = historyLoadKey;
-        setMessages([
+    ) {
+      return true;
+    }
+    // 2. 消息流中未结算的任务卡片（多步 Plan 正在进行中）
+    if (hasUnsettledTaskMessage) return true;
+    // 3. 正在等待或流式推演复盘
+    if (hasPendingSummary) return true;
+    return false;
+  }, [
+    tasks,
+    session.sessionId,
+    options.mode,
+    options.clipId,
+    activeFocus?.target?.id,
+    hasUnsettledTaskMessage,
+    hasPendingSummary,
+  ]);
+
+  // 当全局 tasks 中本会话任务从运行态切换至全部终态时，立即刷新对话历史同步最新卡片与复盘
+  const prevTaskRunningRef = useRef(isTaskRunning);
+  useEffect(() => {
+    if (prevTaskRunningRef.current && !isTaskRunning) {
+      void reloadHistory();
+    }
+    prevTaskRunningRef.current = isTaskRunning;
+  }, [isTaskRunning, reloadHistory]);
+
+  useEffect(() => {
+    if (!summaryStream) return;
+    const message = messages.find((item) => item.id === summaryStream.messageId);
+    // 只有当消息已处于终态，且已成功持有落盘的 postSummarySpeech（或非 completed 终态）时，才平滑解散流式打字状态
+    if (
+      message &&
+      ['completed', 'failed', 'skipped'].includes(message.metadata?.summaryStatus) &&
+      (message.postSummarySpeech || message.metadata?.summaryStatus !== 'completed')
+    ) {
+      setSummaryStream(null);
+    }
+  }, [messages, summaryStream]);
+
+  useEffect(() => {
+    if (!isTaskRunning) return;
+    const timer = setInterval(() => setNowTick(Date.now()), 300);
+    return () => clearInterval(timer);
+  }, [isTaskRunning]);
+
+  useEffect(() => {
+    if ((!hasPendingSummary && !hasUnsettledTaskMessage) || isStreaming) return;
+    const timer = setInterval(() => {
+      void reloadHistory();
+      onRefreshProjectRef.current?.();
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [hasPendingSummary, hasUnsettledTaskMessage, isStreaming, reloadHistory]);
+
+  useEffect(() => {
+    if (!historyFailed || isStreaming) return;
+    const timer = setInterval(() => void reloadHistory(), 2000);
+    return () => clearInterval(timer);
+  }, [historyFailed, isStreaming, reloadHistory]);
+
+  const pendingProposalMsg = useMemo(() => [...messages].reverse().find((message) =>
+    message.proposal && !message.proposalResolved && message.proposalState === 'pending'
+  ), [messages]);
+
+  const computeDisplayPercent = useCallback((message: ConversationMessage<TIntent>) => {
+    if (Array.isArray(message.planSteps) && message.planSteps.length > 0) {
+      const total = message.planSteps.length;
+      let progressSum = 0;
+      for (const step of message.planSteps) {
+        const live = tasks.find((item) => item.taskId === step.taskId);
+        const st = live?.status || step.status;
+        if (st === 'completed' || st === 'failed' || st === 'cancelled') {
+          progressSum += 100;
+        } else if (st === 'running') {
+          const startTime = live?.startedAt || live?.createdAt || new Date(message.createdAt).getTime();
+          progressSum += computeSimulatedProgress(
+            startTime,
+            nowTick,
+            live?.progress?.percent ?? step.progress?.percent
+          );
+        }
+      }
+      return Math.min(100, Math.round(progressSum / total));
+    }
+
+    if (!message.taskId) return 0;
+    const task = tasks.find((item) => item.taskId === message.taskId);
+    const status = task?.status || message.taskStatus;
+    if (status === 'completed') return 100;
+    if (status !== 'pending' && status !== 'running') return 0;
+    const startTime = task?.startedAt || task?.createdAt || new Date(message.createdAt).getTime();
+    return computeSimulatedProgress(startTime, nowTick, task?.progress?.percent ?? message.taskProgress?.percent);
+  }, [tasks, nowTick]);
+
+  const handleRetryTask = useCallback(async (taskId: string) => {
+    if (!taskId) return;
+    try {
+      await retryTask(taskId);
+      onRefreshProjectRef.current?.();
+      await reloadHistory();
+    } catch (err) {
+      console.error('[DirectorChat] 单步重试任务失败:', err);
+    }
+  }, [reloadHistory]);
+
+  const handleCancelPlan = useCallback(async (taskIds: string[]) => {
+    if (!taskIds.length) return;
+    try {
+      await Promise.allSettled(taskIds.map((id) => cancelTask(id)));
+      onRefreshProjectRef.current?.();
+      await reloadHistory();
+    } catch (err) {
+      console.error('[DirectorChat] 取消计划失败:', err);
+    }
+  }, [reloadHistory]);
+
+  const handleAddImages = useCallback(async (files: FileList | File[]) => {
+    const fileArr = Array.from(files || []).filter((f) => f && f.type.startsWith('image/'));
+    if (!fileArr.length || !projectId) return;
+
+    const remainingSlots = Math.max(0, 4 - pendingImages.length);
+    if (remainingSlots <= 0) {
+      alert('单条消息最多附带 4 张图片');
+      return;
+    }
+
+    setIsUploadingImage(true);
+    try {
+      const uploaded: ChatImageAttachment[] = [];
+      for (const file of fileArr.slice(0, remainingSlots)) {
+        const att = await session.uploadChatImage(file);
+        uploaded.push(att);
+      }
+      if (uploaded.length > 0) {
+        setPendingImages((prev) => [...prev, ...uploaded].slice(0, 4));
+      }
+    } catch (err) {
+      console.error('[DirectorChat] 上传聊天图片失败:', err);
+      alert(`上传图片失败: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsUploadingImage(false);
+    }
+  }, [pendingImages.length, projectId, session]);
+
+  const handleRemovePendingImage = useCallback((url: string) => {
+    setPendingImages((prev) => prev.filter((item) => item.url !== url));
+  }, []);
+
+  const handlePasteImages = useCallback((e: ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items?.length) return;
+    const imageFiles: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+      void handleAddImages(imageFiles);
+    }
+  }, [handleAddImages]);
+
+  const handleSendMessage = useCallback(async (textToSend?: string) => {
+    const text = (textToSend !== undefined ? textToSend : inputText).trim();
+    const attachmentsToSend = textToSend !== undefined ? [] : pendingImages;
+    if ((!text && attachmentsToSend.length === 0) || isStreaming || isUploadingImage || isTaskRunning || !projectId) return;
+
+    const displayText = text || '请查看我发送的图片';
+    if (textToSend === undefined) {
+      setInputText('');
+      setPendingImages([]);
+    }
+    setMessages((prev) => [...prev, {
+      id: `msg_user_${Date.now()}`,
+      role: 'user',
+      content: displayText,
+      ...(attachmentsToSend.length ? { attachments: attachmentsToSend } : {}),
+      createdAt: new Date().toISOString(),
+    }]);
+    setIsStreaming(true);
+    setStreamingContent('');
+
+    await session.streamMessage({
+      message: text,
+      attachments: attachmentsToSend.length ? attachmentsToSend : undefined,
+      focus: activeFocus,
+      onTextChunk: (chunk) => setStreamingContent((prev) => prev + chunk),
+      onDone: async () => {
+        onRefreshProjectRef.current?.();
+        await reloadHistory();
+        setIsStreaming(false);
+        setStreamingContent('');
+      },
+      onError: (err) => {
+        setIsStreaming(false);
+        setStreamingContent('');
+        void reloadHistory();
+        console.error('[DirectorChat] 会话请求失败:', err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        setMessages((prev) => [
+          ...prev,
           {
-            id: welcomeMessageId,
+            id: `err_${Date.now()}`,
             role: 'assistant',
-            content: defaultWelcomeMessage,
+            content: `⚠ 服务响应异常：${errMsg}。请重试或检查后台服务。`,
             createdAt: new Date().toISOString(),
           },
         ]);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [projectId, session]);
-
-  // 2. 任务状态计算：物理 tasks 数组为 SSOT 单一事实来源
-  const activeTask = tasks.find((t) => t.taskId === activeTaskId);
-  const isTaskRunning = Boolean(
-    tasks.some((t) => t.status === 'running' || t.status === 'pending')
-  );
-  const isTaskCompleted = Boolean(activeTask && activeTask.status === 'completed');
-  const isTaskFailed = Boolean(activeTask && activeTask.status === 'failed');
-
-  // 计算指定任务卡片的实时进度百分比
-  const computeDisplayPercent = useCallback(
-    (msg: ChatMessageItem<TIntent>) => {
-      if (!msg.taskId) return 0;
-      const t = tasks.find((item) => item.taskId === msg.taskId);
-      const isDone = (t?.status || msg.taskStatus) === 'completed' || msg.taskProgress?.percent === 100;
-      if (isDone) return 100;
-      const isRunning = (t?.status || msg.taskStatus) === 'running' || (t?.status || msg.taskStatus) === 'pending';
-      if (!isRunning) return 0;
-
-      const startTime =
-        t?.startedAt ||
-        t?.createdAt ||
-        (msg.createdAt ? new Date(msg.createdAt).getTime() : 0) ||
-        nowTick;
-      const rawBackendPercent = t?.progress?.percent ?? msg.taskProgress?.percent;
-      return computeSimulatedProgress(startTime, nowTick, rawBackendPercent);
-    },
-    [tasks, nowTick]
-  );
-
-  // 3. 触发收官复盘总结
-  const triggerPostTaskSummary = useCallback(
-    async (toolName: string, actionTitle: string, targetMsgId?: string) => {
-      if (targetMsgId) {
-        setStreamingTargetId(targetMsgId);
-        setStreamingAppendContent('');
-      } else {
-        setIsStreaming(true);
-        setStreamingContent('');
-      }
-
-      const triggerPrompt = generatePostTaskTriggerPrompt(toolName, actionTitle);
-      const summaryHistory = messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
-      let currentAccumulated = '';
-
-      await session.streamChat({
-        message: triggerPrompt,
-        history: summaryHistory,
-        isSystemTrigger: true,
-        targetMessageId: targetMsgId,
-        onTextChunk: (chunk) => {
-          currentAccumulated += chunk;
-          if (targetMsgId) {
-            setStreamingAppendContent(currentAccumulated);
-          } else {
-            setStreamingContent(currentAccumulated);
-          }
-        },
-        onDone: ({ cleanText, intent }) => {
-          setStreamingTargetId(null);
-          setStreamingAppendContent('');
-          setIsStreaming(false);
-          setStreamingContent('');
-
-          const finalSummaryText = cleanText || currentAccumulated;
-          const effectiveProposal = intent?.action === 'next_stage' ? undefined : (intent || undefined);
-
-          if (targetMsgId) {
-            setMessages((prev) =>
-              prev.map((m) => {
-                if (
-                  m.id === targetMsgId ||
-                  (m.taskId && `msg_task_${m.taskId}` === targetMsgId) ||
-                  (activeTaskId && m.taskId === activeTaskId)
-                ) {
-                  const combined = m.content
-                    ? `${m.content}\n\n---\n\n${finalSummaryText}`
-                    : finalSummaryText;
-                  return {
-                    ...m,
-                    content: combined,
-                    taskStatus: 'completed',
-                    taskProgress: { percent: 100, message: '推演完成' },
-                    proposal: effectiveProposal,
-                    proposalState: effectiveProposal ? 'pending' : undefined,
-                  };
-                }
-                return m;
-              })
-            );
-          } else {
-            const astMsg: ChatMessageItem<TIntent> = {
-              id: `ast_summary_${Date.now()}`,
-              role: 'assistant',
-              content: finalSummaryText,
-              createdAt: new Date().toISOString(),
-              proposal: effectiveProposal,
-              proposalState: effectiveProposal ? 'pending' : undefined,
-            };
-            setMessages((prev) => [...prev, astMsg]);
-          }
-        },
-        onError: (err) => {
-          setStreamingTargetId(null);
-          setStreamingAppendContent('');
-          setIsStreaming(false);
-          setStreamingContent('');
-          console.error('[useDirectorChatFlow] 总结推演出错:', err);
-        },
-      });
-    },
-    [session, messages, activeTaskId, generatePostTaskTriggerPrompt]
-  );
-
-  // 4. 后台任务物理完成监听
-  useEffect(() => {
-    if (activeTaskId && isTaskCompleted && summarizedTaskIdRef.current !== activeTaskId) {
-      summarizedTaskIdRef.current = activeTaskId;
-      const completedTask = tasks.find((t) => t.taskId === activeTaskId);
-      const durationMs = completedTask?.durationMs;
-      const matchedMsg = messages.find((m) => m.taskId === activeTaskId);
-      const targetMsgId = matchedMsg?.id || `msg_task_${activeTaskId}`;
-
-      if (activeToolName.includes('screenplay')) {
-        onAssetProduced?.('screenplay');
-      } else if (activeToolName.includes('prd')) {
-        onAssetProduced?.('prd');
-      }
-
-      onRefreshProject?.();
-
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.taskId === activeTaskId
-            ? {
-                ...m,
-                taskStatus: 'completed',
-                taskDurationMs: durationMs,
-                taskProgress: { percent: 100, message: '推演完成' },
-              }
-            : m
-        )
-      );
-
-      triggerPostTaskSummary(activeToolName, activeActionTitle, targetMsgId);
-    }
-  }, [
-    activeTaskId,
-    isTaskCompleted,
-    activeToolName,
-    activeActionTitle,
-    tasks,
-    messages,
-    onRefreshProject,
-    onAssetProduced,
-    session,
-    triggerPostTaskSummary,
-  ]);
-
-  // 页面刷新或离开期间任务可能已经完成：恢复会话后，为缺失收官复盘的历史任务补发一次总结。
-  useEffect(() => {
-    if (isStreaming || !messages.length || !tasks.length) return;
-
-    const recoverableMessage = messages.find((message) => {
-      if (!message.taskId || message.content.includes('\n\n---\n\n')) return false;
-      if (summarizedTaskIdRef.current === message.taskId) return false;
-      const task = tasks.find((item) => item.taskId === message.taskId);
-      return task?.status === 'completed';
+      },
     });
+  }, [inputText, pendingImages, isStreaming, isUploadingImage, isTaskRunning, projectId, session, activeFocus, reloadHistory]);
 
-    if (!recoverableMessage?.taskId) return;
-
-    const task = tasks.find((item) => item.taskId === recoverableMessage.taskId);
-    summarizedTaskIdRef.current = recoverableMessage.taskId;
-    session
-      .updateMessage(recoverableMessage.id, {
-        taskStatus: 'completed',
-        taskDurationMs: task?.durationMs,
-        taskProgress: { percent: 100, message: '推演完成' },
-      })
-      .catch((err) => {
-        console.warn('[useDirectorChatFlow] 补写历史任务完成状态异常:', err);
-      });
-    triggerPostTaskSummary(
-      task?.toolName || recoverableMessage.taskTool || '',
-      recoverableMessage.taskTitle || '制片工序任务',
-      recoverableMessage.id
-    );
-  }, [messages, tasks, isStreaming, session, triggerPostTaskSummary]);
-
-  // 5. 后台任务失败监听
-  useEffect(() => {
-    if (activeTaskId && isTaskFailed && failedTaskIdRef.current !== activeTaskId) {
-      failedTaskIdRef.current = activeTaskId;
-      const failedTask = tasks.find((t) => t.taskId === activeTaskId);
-      const targetMsgId = `msg_task_${activeTaskId}`;
-      const errorMsg = failedTask?.error || '制片引擎算力或网络异常中断';
-
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.taskId === activeTaskId
-            ? {
-                ...m,
-                taskStatus: 'failed',
-                taskError: errorMsg,
-                taskProgress: { percent: 0, message: '执行失败' },
-              }
-            : m
-        )
-      );
-
-      session
-        .updateMessage(targetMsgId, {
-          taskStatus: 'failed',
-          taskError: errorMsg,
-          taskProgress: { percent: 0, message: '执行失败' },
-        })
-        .catch((err) => {
-          console.warn('[useDirectorChatFlow] 同步任务失败状态异常:', err);
-        });
+  const handleApproveProposal = useCallback(async (proposalId: string) => {
+    if (isStreaming || isApproving || isTaskRunning || !projectId) return;
+    setIsApproving(true);
+    try {
+      await session.approveProposal(proposalId);
+    } catch (err) {
+      console.error('[DirectorChat] 批准提案失败:', err);
+      alert(`批准执行失败: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      onRefreshProjectRef.current?.();
+      await reloadHistory();
+      setIsApproving(false);
     }
-  }, [activeTaskId, isTaskFailed, tasks, session]);
-
-  // 查找最新处于 pending 状态的待审提案
-  const pendingProposalMsg = useMemo(() => {
-    return [...messages].reverse().find(
-      (m) => m.proposal && m.proposalState === 'pending' && m.proposal.action !== 'next_stage'
-    );
-  }, [messages]);
-
-  const pendingProposal = pendingProposalMsg?.proposal;
-
-  // 6. 发送消息总线
-  const handleSendMessage = useCallback(
-    async (textToSend?: string) => {
-      const text = (textToSend || inputText).trim();
-      if (!text || isStreaming || isBusy || isTaskRunning || !projectId) return;
-
-      setInputText('');
-
-      const fullPrompt = contextPrefix ? `${contextPrefix}${text}` : text;
-      const userMsg: ChatMessageItem<TIntent> = {
-        id: `msg_user_${Date.now()}`,
-        role: 'user',
-        content: text,
-        createdAt: new Date().toISOString(),
-      };
-
-      const nextMessages = [...messages, userMsg];
-      setMessages(nextMessages);
-      setIsStreaming(true);
-      setStreamingContent('');
-
-      let accumulated = '';
-
-      await session.streamChat({
-        message: fullPrompt,
-        history: nextMessages
-          .filter((m) => m.role === 'user' || m.role === 'assistant')
-          .slice(-10)
-          .map((m) => ({ role: m.role, content: m.content })),
-        onTextChunk: (chunk) => {
-          accumulated += chunk;
-          setStreamingContent(accumulated);
-        },
-        onDone: async ({ cleanText, intent, messageId }) => {
-          setIsStreaming(false);
-          setStreamingContent('');
-
-          const finalReplyText = cleanText || accumulated;
-
-          // 核心判断：大模型意图授权或创作者在有待审提案下批准执行
-          const isApproval =
-            intent &&
-            (intent.action === 'approve' ||
-              (pendingProposal && intent.tool === pendingProposal.tool && intent.action === 'run_tool'));
-
-          if (isApproval) {
-            let targetTool = intent.tool || pendingProposal?.tool;
-            if (targetTool) {
-              let targetTitle = intent.title || pendingProposal?.title || '制片工序任务';
-              let targetParams: Record<string, any> = {
-                ...(pendingProposal?.params || {}),
-                ...(intent.params || {}),
-                projectId,
-                __chatContext: { sessionId: session.sessionId, messageId: messageId || `msg_asst_${Date.now()}` },
-              };
-
-              if (toolMapper) {
-                const mapped = toolMapper(targetTool, targetParams);
-                targetTool = mapped.tool;
-                targetParams = mapped.params;
-                if (mapped.title) targetTitle = mapped.title;
-              }
-
-              setActiveToolName(targetTool);
-              setActiveActionTitle(targetTitle);
-
-              try {
-                session.markProposalsResolved().catch(() => {});
-                const task = await onRunTool(targetTool, targetParams);
-                const taskId = task?.taskId || task?.id;
-
-                if (taskId) {
-                  const taskStatus = task?.status === 'completed' ? 'completed' : task?.status === 'failed' ? 'failed' : 'running';
-                  const taskProgress =
-                    taskStatus === 'completed'
-                      ? { percent: 100, message: '推演完成' }
-                      : taskStatus === 'failed'
-                      ? { percent: 0, message: '执行失败' }
-                      : { percent: 15, message: '任务已启动，正在调度物理引擎落盘...' };
-                  setActiveTaskId(taskId);
-                  const activeMsgId = messageId || `msg_asst_${Date.now()}`;
-
-                  const taskMsg: ChatMessageItem<TIntent> = {
-                    id: activeMsgId,
-                    role: 'assistant',
-                    content: finalReplyText,
-                    taskId,
-                    taskTool: targetTool,
-                    taskTitle: targetTitle,
-                    taskStatus,
-                    taskProgress,
-                    createdAt: new Date().toISOString(),
-                  };
-
-                  setMessages((prev) => {
-                    const resolved = prev.map((m) =>
-                      m.proposal && m.proposalState === 'pending'
-                        ? { ...m, proposalState: 'completed' as const }
-                        : m
-                    );
-                    return [...resolved, taskMsg];
-                  });
-
-                  if (messageId) {
-                    try {
-                      await session.updateMessage(messageId, {
-                        taskId,
-                        taskTool: targetTool,
-                        taskTitle: targetTitle,
-                        taskStatus,
-                        taskProgress,
-                      });
-                    } catch (err) {
-                      console.warn('[useDirectorChatFlow] 原地更新任务消息失败:', err);
-                    }
-                  }
-                  return;
-                }
-              } catch (err: any) {
-                console.error('[useDirectorChatFlow] 启动任务失败:', err);
-              }
-            }
-          }
-
-          // 普通提案或纯自然语言对白
-          const isNextStage = intent?.action === 'next_stage';
-          const effectiveProposal = isNextStage ? undefined : (intent || undefined);
-
-          const astMsg: ChatMessageItem<TIntent> = {
-            id: messageId || `msg_asst_${Date.now()}`,
-            role: 'assistant',
-            content: finalReplyText,
-            createdAt: new Date().toISOString(),
-            proposal: effectiveProposal,
-            proposalState: effectiveProposal ? 'pending' : undefined,
-          };
-
-          setMessages((prev) => [...prev, astMsg]);
-        },
-        onError: (err) => {
-          setIsStreaming(false);
-          setStreamingContent('');
-          const errorMsg: ChatMessageItem<TIntent> = {
-            id: `msg_err_${Date.now()}`,
-            role: 'assistant',
-            content: `⚠️ 对话推演异常: ${err.message || '未知错误'}`,
-            createdAt: new Date().toISOString(),
-          };
-          setMessages((prev) => [...prev, errorMsg]);
-        },
-      });
-    },
-    [
-      inputText,
-      isStreaming,
-      isBusy,
-      isTaskRunning,
-      projectId,
-      contextPrefix,
-      messages,
-      session,
-      pendingProposal,
-      toolMapper,
-      onRunTool,
-    ]
-  );
+  }, [isStreaming, isApproving, isTaskRunning, projectId, session, reloadHistory]);
 
   return {
     messages,
-    setMessages,
     inputText,
     setInputText,
+    pendingImages,
+    isUploadingImage,
     isStreaming,
+    isApproving,
     streamingContent,
-    streamingTargetId,
-    streamingAppendContent,
+    streamingTargetId: summaryStream?.messageId || null,
+    streamingAppendContent: summaryStream?.text || '',
     nowTick,
-    activeTaskId,
-    activeToolName,
-    activeActionTitle,
     isTaskRunning,
-    isTaskCompleted,
-    isTaskFailed,
-    pendingProposal,
     pendingProposalMsg,
+    activeFocus,
+    focusLabel,
     computeDisplayPercent,
+    handleAddImages,
+    handleRemovePendingImage,
+    handlePasteImages,
     handleSendMessage,
-    triggerPostTaskSummary,
+    handleApproveProposal,
+    handleRetryTask,
+    handleCancelPlan,
   };
 }

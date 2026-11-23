@@ -138,88 +138,7 @@ export async function fetchTools(): Promise<ToolMetadata[]> {
   return data.data;
 }
 
-export interface StreamPlannerChatOptions {
-  projectId: string;
-  message: string;
-  history?: Array<{ role: 'user' | 'assistant'; content: string }>;
-  isSystemTrigger?: boolean;
-  onTextChunk?: (chunk: string) => void;
-  onDone?: (payload: { cleanText: string; intent?: any }) => void;
-  onError?: (err: Error) => void;
-}
-
-/**
- * 启动工序 1 专职故事总监流式推演对话
- */
-export async function streamPlannerChat(options: StreamPlannerChatOptions): Promise<void> {
-  const { projectId, message, history, isSystemTrigger, onTextChunk, onDone, onError } = options;
-
-  try {
-    const res = await fetch(`${API_BASE}/chat/planner`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId, message, history, isSystemTrigger }),
-    });
-
-    if (!res.ok) {
-      throw new Error(`故事总监请求失败: ${res.statusText}`);
-    }
-
-    if (!res.body) {
-      throw new Error('未接收到服务端流式数据体');
-    }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith('data: ')) continue;
-        const jsonStr = trimmed.slice(6);
-        try {
-          const event = JSON.parse(jsonStr);
-          if (event.type === 'text' && typeof event.chunk === 'string') {
-            onTextChunk?.(event.chunk);
-          } else if (event.type === 'done') {
-            onDone?.({
-              cleanText: event.cleanText,
-              intent: event.intent,
-            });
-          } else if (event.type === 'error') {
-            onError?.(new Error(event.error || '故事总监对话推演出错'));
-          }
-        } catch {
-          // 忽略格式解析残片
-        }
-      }
-    }
-  } catch (err: any) {
-    onError?.(err instanceof Error ? err : new Error(String(err)));
-  }
-}
-
-/**
- * 获取工序 1 故事总监历史会话 (已代理至 ChatSession 通用会话通道)
- */
-export async function fetchPlannerChatHistory(projectId: string): Promise<any[]> {
-  const res = await fetch(`${API_BASE}/chat/sessions/planner?projectId=${encodeURIComponent(projectId)}`);
-  const data = await res.json();
-  if (!res.ok || !data.success) {
-    return [];
-  }
-  return data.data || [];
-}
-
-export * from './ChatSession.js';
+export * from './DirectorConversation.js';
 
 /**
  * 获取视听分镜无限画布拓扑数据
@@ -315,7 +234,13 @@ export async function updateEntity(
   projectId: string,
   entityType: 'character' | 'location' | 'item',
   entityId: string,
-  updates: { promptZh?: string; referenceImageUrl?: string }
+  updates: {
+    promptZh?: string;
+    referenceImageUrl?: string;
+    appearanceSummary?: string;
+    atmosphere?: string;
+    spatialLayout?: string;
+  }
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/entities/update`, {
     method: 'POST',
@@ -386,6 +311,92 @@ export async function imageRefineEntity(
   const data = await res.json();
   if (!res.ok || !data.success) {
     throw new Error(data.error || '基于当前图定向精修失败');
+  }
+  return data;
+}
+
+/** 切换镜头首/末帧或视频的历史版本（与定妆版本库同款玩法） */
+export async function selectShotVersion(
+  projectId: string,
+  shotId: string,
+  frame: 'first' | 'last' | 'video',
+  versionId: string
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/shots/select-version`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shotId, frame, versionId }),
+    }
+  );
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || '切换镜头版本失败');
+  }
+}
+
+/** 保存镜头首/末帧/视频的提示词 */
+export async function updateShotPrompt(
+  projectId: string,
+  shotId: string,
+  frame: 'first' | 'last' | 'video',
+  prompt: string,
+  directives?: Record<string, any>
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/shots/update-prompt`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shotId, frame, prompt, ...(directives || {}) }),
+    }
+  );
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || '保存镜头提示词失败');
+  }
+}
+
+/** 切换前序镜头视听连续性模式：auto（智能决策）| linked（强制连贯）| detached（独立机位） */
+export async function updateShotContinuity(
+  projectId: string,
+  shotId: string,
+  continuityMode: 'auto' | 'linked' | 'detached'
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/shots/update-continuity`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shotId, continuityMode }),
+    }
+  );
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || '更新镜头连续性模式失败');
+  }
+}
+
+/** 基于当前帧图片做 AI 定向微调，产出的一帧自动追加为新版本 */
+export async function refineShotImage(
+  projectId: string,
+  shotId: string,
+  frame: 'first' | 'last',
+  instruction: string,
+  baseImageUrl?: string
+): Promise<{ success: boolean; directedPrompt: string; baseImageUrl: string; task?: TaskRecord }> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/shots/refine`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shotId, frame, instruction, baseImageUrl }),
+    }
+  );
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || '镜头定向微调失败');
   }
   return data;
 }

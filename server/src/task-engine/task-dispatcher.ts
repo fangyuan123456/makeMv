@@ -9,7 +9,11 @@ import './asset-sync.js';
 import { ProjectStore } from '../project-store/ProjectStore.js';
 import { ConcurrencyPool, KeyedLockManager } from '../workflow-engine/concurrency.js';
 import { config } from '../utils/config.js';
-import type { TaskRecord } from './types.js';
+import type { TaskRecord, TaskFailureRecord } from './types.js';
+import {
+  recordTaskFailure,
+  buildLLMReflectionPrompt,
+} from './task-failure.js';
 
 export interface DispatchTaskParams {
   projectId: string;
@@ -18,6 +22,10 @@ export interface DispatchTaskParams {
   idempotencyKey?: string;
   recoveryAttempts?: number;
   replacesTaskId?: string;
+  lastFailure?: TaskFailureRecord;
+  retryCount?: number;
+  maxRetries?: number;
+  autoRetry?: boolean;
   /** 前置依赖任务 ID（用于多步 Plan Wave 编排：必须等全部前置任务终态后再进入执行） */
   dependsOnTaskIds?: string[];
 }
@@ -208,6 +216,13 @@ export class TaskDispatcher {
     const retryKey = task.idempotencyKey
       ? `${task.idempotencyKey}:retry:${Date.now()}`
       : undefined;
+
+    // 智能提取反思自愈上下文（让大模型下次执行时自动改进）
+    const reflectionPrompt = buildLLMReflectionPrompt(task);
+    if (reflectionPrompt) {
+      input._reflectionContext = reflectionPrompt;
+    }
+
     return this.dispatch({
       projectId: task.projectId,
       toolName: task.toolName,
@@ -215,6 +230,9 @@ export class TaskDispatcher {
       idempotencyKey: retryKey,
       recoveryAttempts: task.recoveryAttempts,
       replacesTaskId: task.taskId,
+      lastFailure: task.lastFailure,
+      retryCount: (task.retryCount || 0) + 1,
+      maxRetries: task.maxRetries ?? 2,
     });
   }
 
@@ -268,6 +286,9 @@ export class TaskDispatcher {
       ...(idempotencyKey ? { idempotencyKey } : {}),
       ...(params.replacesTaskId ? { replacesTaskId: params.replacesTaskId } : {}),
       ...(params.recoveryAttempts ? { recoveryAttempts: params.recoveryAttempts } : {}),
+      ...(params.lastFailure ? { lastFailure: params.lastFailure } : {}),
+      retryCount: params.retryCount ?? 0,
+      maxRetries: params.maxRetries ?? 2,
       status: 'pending',
       input: idempotencyKey ? { ...input, __idempotencyKey: idempotencyKey } : input,
       createdAt: now,
@@ -394,7 +415,10 @@ export class TaskDispatcher {
                 this.finishTask(currentTask, 'completed', '推演完成');
               } else {
                 currentTask.error = result.error || '任务执行返回失败';
-                this.finishTask(currentTask, 'failed', '执行失败');
+                if ((result as any)?.failureType) {
+                  currentTask.failureType = (result as any).failureType;
+                }
+                this.finishTask(currentTask, 'failed', currentTask.error || '执行失败');
               }
             },
           },
@@ -430,7 +454,10 @@ export class TaskDispatcher {
         return;
       }
       currentTask.error = err?.message || String(err);
-      this.finishTask(currentTask, 'failed', '执行失败');
+      if (err?.failureType) {
+        currentTask.failureType = err.failureType;
+      }
+      this.finishTask(currentTask, 'failed', currentTask.error || '执行失败');
     }
   }
 
@@ -446,7 +473,27 @@ export class TaskDispatcher {
       percent: status === 'completed' ? 100 : 0,
       message,
     };
+
+    if (status === 'failed') {
+      const errText = task.error || message;
+      // 百分百源头治理：底座不猜测，直接记录源头赋予的 failureType
+      recordTaskFailure(task, errText, task.failureType);
+    }
+
     taskStore.saveTask(task);
+
+    // 通用底座自动重试策略 (Auto-Retry on Failure)
+    if (status === 'failed' && (task.retryCount || 0) < (task.maxRetries ?? 2)) {
+      setTimeout(() => {
+        const latest = taskStore.getLatestTask(task.taskId);
+        if (latest && latest.taskId === task.taskId && latest.status === 'failed') {
+          console.log(`[TaskDispatcher] 自动重试触发: ${task.toolName} (第 ${(task.retryCount || 0) + 1} 次重试)`);
+          void this.retry(task.taskId).catch((err) => {
+            console.error(`[TaskDispatcher] 自动重试任务 ${task.taskId} 派发异常:`, err);
+          });
+        }
+      }, 1000);
+    }
   }
 }
 

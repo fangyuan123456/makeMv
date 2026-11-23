@@ -1,4 +1,5 @@
 import { ProjectStore } from '../../project-store/ProjectStore.js';
+import { computeProjectStaleMap } from '../../project-store/freshness.js';
 
 export type PlannerPhase = 'STEP_1_PENDING' | 'STEP_2_PENDING' | 'STAGE_1_COMPLETED';
 
@@ -69,9 +70,10 @@ export function evaluatePlannerPhase(projectId: string): {
   const prd = store.getArtifact<any>(projectId, 'prd');
   const hasScreenplay = Boolean(screenplay && screenplay.trim().length > 100);
   const hasPrd = Boolean(prd && (prd.clips?.length > 0 || prd.scenes?.length > 0));
+  const staleMap = computeProjectStaleMap(projectId);
 
   let phase: PlannerPhase = 'STEP_1_PENDING';
-  if (hasScreenplay && !hasPrd) phase = 'STEP_2_PENDING';
+  if (hasScreenplay && (!hasPrd || Boolean(staleMap.prd))) phase = 'STEP_2_PENDING';
   else if (hasScreenplay && hasPrd) phase = 'STAGE_1_COMPLETED';
 
   return {

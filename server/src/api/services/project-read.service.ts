@@ -6,9 +6,28 @@ import { safeReadJsonSync } from '../../utils/atomicFile.js';
 import { hydrateEntitiesWithDiskAssets } from '../../project-store/entity-preservation.js';
 import { computeProjectStaleMap } from '../../project-store/freshness.js';
 import { parseStorySections } from '../../project-store/story-sections.js';
+import { readFrameVersions } from '../../project-store/shot-frame-versions.js';
 import { sendError } from '../helpers.js';
 
 const store = ProjectStore.getInstance();
+
+/** 读出时补齐镜头首/末帧版本库，兼容「已有图但还没有版本记录」的旧项目 */
+function withFrameVersions(shot: any): any {
+  return {
+    ...shot,
+    firstFrameVersions: readFrameVersions(shot, 'first'),
+    lastFrameVersions: readFrameVersions(shot, 'last'),
+  };
+}
+
+function normalizeStoryboards(clips: any): any {
+  if (!Array.isArray(clips)) return clips;
+  return clips.map((clip: any) =>
+    Array.isArray(clip?.shots)
+      ? { ...clip, shots: clip.shots.map(withFrameVersions) }
+      : withFrameVersions(clip)
+  );
+}
 
 export const getProjectSnapshot = (req: Request, res: Response) => {
   try {
@@ -63,6 +82,8 @@ export const getProjectSnapshot = (req: Request, res: Response) => {
     const hasStandaloneGame = fs.existsSync(path.join(projectDir, 'game-assembly', 'index.html'));
     const staleMap = computeProjectStaleMap(projectId);
 
+    const storyboardsWithVersions = normalizeStoryboards(storyboards);
+
     res.json({
       ...proj,
       prd,
@@ -71,7 +92,7 @@ export const getProjectSnapshot = (req: Request, res: Response) => {
       story: story || screenplay,
       storySections,
       entities,
-      storyboards,
+      storyboards: storyboardsWithVersions,
       staleMap,
       artifacts: {
         ...proj.artifacts,
@@ -81,7 +102,7 @@ export const getProjectSnapshot = (req: Request, res: Response) => {
         story: story || screenplay,
         storySections,
         lookdev_entities: entities,
-        storyboards,
+        storyboards: storyboardsWithVersions,
         hasStandaloneGame,
         staleMap,
       },

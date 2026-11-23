@@ -21,7 +21,38 @@ export function atomicWriteStringSync(targetPath: string, content: string): void
   const tmpPath = `${targetPath}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
   try {
     fs.writeFileSync(tmpPath, content, 'utf-8');
-    fs.renameSync(tmpPath, targetPath);
+
+    // Windows 平台下目标文件可能被防病毒扫描或瞬间读取句柄占用，加入重试与 copy 兜底机制
+    let replaced = false;
+    let lastError: any = null;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        fs.renameSync(tmpPath, targetPath);
+        replaced = true;
+        break;
+      } catch (err: any) {
+        lastError = err;
+        if (err?.code === 'EPERM' || err?.code === 'EBUSY') {
+          // 尝试降级使用 copyFileSync + unlinkSync
+          try {
+            fs.copyFileSync(tmpPath, targetPath);
+            fs.unlinkSync(tmpPath);
+            replaced = true;
+            break;
+          } catch {}
+          // 短暂同步微休眠退避 (20ms ~ 50ms)
+          const waitEnd = Date.now() + 25 * (attempt + 1);
+          while (Date.now() < waitEnd) {}
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    if (!replaced && lastError) {
+      throw lastError;
+    }
   } catch (err) {
     if (fs.existsSync(tmpPath)) {
       try {

@@ -260,6 +260,18 @@ export class MockLanguageModel implements LanguageModelV1 {
             promptEn: 'macro prop look-dev close-up of a single tarnished brass bullet engraved with secret code, neutral light gray seamless studio background, centered, no hands, no text',
           },
         ],
+        locations: [
+          {
+            locationId: 'loc_interrogation_room',
+            name: '地下安保审讯室',
+            atmosphere: '冷轧钢板与防爆水泥空间，冷白荧光顶灯直射铁桌，压抑窒息',
+            appearanceSummary: '阴冷地下审讯室，铁桌居中，墙壁布满斑驳锈痕与监控探头',
+            spatialLayout:
+              '空间以中央冷轧暗金属审讯长桌与固定铁椅为核心地标；正对长桌的是厚重液压防爆气密金属门；面向长桌时左侧墙壁嵌入高处狭窄防爆观察窗透入暗蓝警戒光，右侧嵌入整面单向透视玻璃；正上方单盏冷白荧光工业吊灯垂直射向中央铁桌。',
+            promptZh: '电影级场景概念设计，地下安保审讯室空间纵深与冷硬光影，南侧厚重液压防爆金属门，东侧高处狭窄防爆窗透入微弱暗蓝警戒光，正上方单盏冷白荧光吊灯直射中央冷轧铁桌，西侧嵌入单向透视镜，四周陷入深浓阴影，画面无人物，写实电影级质感',
+            sceneIds: ['c1'],
+          },
+        ],
       };
     }
 

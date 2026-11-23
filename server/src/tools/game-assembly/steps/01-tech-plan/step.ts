@@ -199,7 +199,7 @@ export const techPlanStep = createStep({
     const { projectId } = input;
 
     const store = ProjectStore.getInstance();
-    const effectivePrd: UniversalPrdSpec = input.prd || store.getArtifact(projectId, 'universal_prd');
+    const effectivePrd: UniversalPrdSpec = input.prd || store.getArtifact(projectId, 'prd');
     if (!effectivePrd) {
       throw new Error(`[TechPlanStep] 项目 [${projectId}] 缺少前序 PRD 策划案，无法规划技术架构`);
     }

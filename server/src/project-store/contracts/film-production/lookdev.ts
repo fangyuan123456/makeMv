@@ -28,49 +28,60 @@ export const LookdevVersionSchema = z.object({
 
 export type LookdevVersion = z.infer<typeof LookdevVersionSchema>;
 
+export const SpatialLayoutSchema = z.string().describe(
+  '场景客观三维相对拓扑蓝图（以核心地标为原点，连贯交代正面通路、左右翼立面及顶空光影的相对空间关系，纯文本自然语言，专供下游分镜拍摄视锥调度）'
+);
+
+export type SpatialLayout = z.infer<typeof SpatialLayoutSchema>;
+
+export const CharacterSpecSchema = z.object({
+  characterId: z.string().describe('角色唯一标识符，格式如 char_xxx'),
+  name: z.string().describe('角色姓名'),
+  identity: z.string().describe('身份定位与背景'),
+  appearanceSummary: z.string().describe('角色基础外貌特征概况（年龄、体态、面部特征、服饰）'),
+  promptZh: z.string().describe('角色本体纯净物理特征（严格80~120汉字，一段纯中文连贯自然语言）：生理年龄、五官骨相、发型发色、标志服装款式与剪裁面料、常驻随身配饰。严禁包含任何姿态动作（如立姿、站姿、双手下垂）、严禁包含任何构图背景与排版外壳、严禁输出任何结构小标题或标号。'),
+  poseConstraint: PoseConstraintSchema.optional(),
+  referenceImageUrl: z.string().optional(),
+  imageUrl: z.string().optional(),
+  versions: z.array(LookdevVersionSchema).optional().default([]),
+  selectedVersionId: z.string().optional(),
+});
+export type CharacterSpec = z.infer<typeof CharacterSpecSchema>;
+
+export const ItemSpecSchema = z.object({
+  itemId: z.string().describe('道具唯一标识符，格式如 item_xxx'),
+  name: z.string().describe('道具名称'),
+  description: z.string().describe('道具剧情功能与作用'),
+  appearanceSummary: z.string().describe('道具外观描述与材质质感'),
+  promptZh: z.string().describe('道具纯净实物外观特征（严格60~100汉字，一段纯中文连贯自然语言）：实物几何构型与比例、专属物理材质工艺（如手工构皮纸/素银锻打/竹木织物）、使用痕迹与包浆质感。严禁包含单体棚拍、居中陈列、微距静物、干净中性影调、无手部无背景等下游渲染外壳，严禁输出任何结构小标题或标号。'),
+  referenceImageUrl: z.string().optional(),
+  imageUrl: z.string().optional(),
+  versions: z.array(LookdevVersionSchema).optional().default([]),
+  selectedVersionId: z.string().optional(),
+});
+export type ItemSpec = z.infer<typeof ItemSpecSchema>;
+
+export const LocationSpecSchema = z.object({
+  locationId: z.string().describe('场景空间唯一标识符，格式如 loc_xxx'),
+  name: z.string().describe('场景空间名称'),
+  atmosphere: z.string().describe('空间情绪与氛围影调'),
+  appearanceSummary: z.string().describe('场景空间物理外观概况'),
+  spatialLayout: SpatialLayoutSchema.optional(),
+  promptZh: z.string().describe('场景空间纯净视觉质感（严格100~130汉字，一段纯中文连贯自然语言）：建筑风貌形制、核心视觉地标置景、真实PBR物理材质（老木开裂/夯土斑驳/石板漫水光）、主导冷暖光影色彩与阴翳层次。严禁包含任何“面向某物时左侧/右侧/后方/原点”等空间几何结构坐标（此类信息归属 spatialLayout）、严禁包含相机焦段等下游渲染外壳、严禁输出结构小标题或标号。'),
+  subScenes: z.array(z.string()).optional().default([]).describe('该母场景涵盖的剧本场次子机位/偏房角落列表（如：["灵堂主堂", "东偏房/侧间"]）'),
+  sceneIds: z.array(z.string()).default([]),
+  referenceImageUrl: z.string().optional(),
+  imageUrl: z.string().optional(),
+  versions: z.array(LookdevVersionSchema).optional().default([]),
+  selectedVersionId: z.string().optional(),
+});
+export type LocationSpec = z.infer<typeof LocationSpecSchema>;
+
 export const GlobalEntitiesSchema = z.object({
-  artStyle: z.string(),
-  characters: z.array(
-    z.object({
-      characterId: z.string(),
-      name: z.string(),
-      identity: z.string(),
-      appearanceSummary: z.string(),
-      promptZh: z.string(),
-      poseConstraint: PoseConstraintSchema.optional(),
-      referenceImageUrl: z.string().optional(),
-      imageUrl: z.string().optional(),
-      versions: z.array(LookdevVersionSchema).optional().default([]),
-      selectedVersionId: z.string().optional(),
-    })
-  ),
-  items: z.array(
-    z.object({
-      itemId: z.string(),
-      name: z.string(),
-      description: z.string(),
-      appearanceSummary: z.string(),
-      promptZh: z.string(),
-      referenceImageUrl: z.string().optional(),
-      imageUrl: z.string().optional(),
-      versions: z.array(LookdevVersionSchema).optional().default([]),
-      selectedVersionId: z.string().optional(),
-    })
-  ),
-  locations: z.array(
-    z.object({
-      locationId: z.string(),
-      name: z.string(),
-      atmosphere: z.string(),
-      appearanceSummary: z.string(),
-      promptZh: z.string(),
-      sceneIds: z.array(z.string()).default([]),
-      referenceImageUrl: z.string().optional(),
-      imageUrl: z.string().optional(),
-      versions: z.array(LookdevVersionSchema).optional().default([]),
-      selectedVersionId: z.string().optional(),
-    })
-  ).default([]),
+  artStyle: z.string().describe('全剧统一电影级视觉美学基调（如电影写实摄影、自然真实光照、胶片质感与色彩倾向）'),
+  characters: z.array(CharacterSpecSchema),
+  items: z.array(ItemSpecSchema),
+  locations: z.array(LocationSpecSchema).default([]),
 });
 
 export const ExtractedEntitiesSchema = GlobalEntitiesSchema.extend({

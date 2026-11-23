@@ -14,12 +14,7 @@ export function buildPremiseSystemPrompt(): string {
 2. 角色与冲突精准锚定：角色的身份、外貌符号与戏剧动机必须完全服务于创作者设定的核心情境与冲突。
 3. 严格遵循分幕规划：按创作者指定的期望幕数输出结构化大纲，每一幕均需包含清晰的核心冲突与互动悬念。
 
-输出必须严格满足：
-1. title: 极具院线质感的中文短剧标题
-2. genre: 确立的故事题材 (须与创作者偏好完全一致)
-3. logline: 一句话故事核心钩子 (Logline)
-4. characters: 核心登场角色列表 (包含 name, role, motivation, appearance)
-5. actOutlines: 包含每一幕核心冲突与关键悬念的大纲概要`;
+严格按照 PremiseOutputSchema 契约输出结构化大纲与角色人设。`;
 }
 
 export function buildPremisePrompt(input: ScreenplayInput): string {

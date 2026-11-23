@@ -152,6 +152,27 @@ export class ComfyUITopologyInjector {
   }
 
   /**
+   * 拓扑注入采样器去噪强度 (Denoise)
+   */
+  public static injectSamplerDenoise(workflow: Record<string, any>, denoise?: number): boolean {
+    if (typeof denoise !== 'number' || isNaN(denoise) || denoise <= 0 || denoise > 1.0) {
+      return false;
+    }
+    let injected = false;
+    for (const node of Object.values(workflow)) {
+      if (
+        (node?.class_type === 'KSampler' || node?.class_type === 'KSamplerAdvanced') &&
+        node.inputs &&
+        'denoise' in node.inputs
+      ) {
+        node.inputs.denoise = Number(denoise.toFixed(2));
+        injected = true;
+      }
+    }
+    return injected;
+  }
+
+  /**
    * 拓扑注入画面尺寸 (Width / Height)
    */
   public static injectImageSize(workflow: Record<string, any>, sizeStr?: string): boolean {
@@ -305,6 +326,7 @@ export interface ComfyUIExecuteOptions {
   negativePrompt?: string;
   seed?: number;
   size?: string;
+  denoise?: number;
   referenceImages?: string[];
   abortSignal?: AbortSignal;
 }
@@ -381,9 +403,10 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
     const templateRaw = fs.readFileSync(templatePath, 'utf-8');
     const workflow = ensureApiPromptFormat(JSON.parse(templateRaw));
 
-    // 当使用参考图模式生图且指定了画幅尺寸时，通用挂载 EmptyLatentImage，
-    // 确保采样器在干净的潜空间上由参考图 Visual Tokens 引导生成，彻底解绑原图骨骼姿态的几何死锁
-    if (refs.length > 0 && options?.size) {
+    const isEditMode = typeof options?.denoise === 'number' && options.denoise < 1.0;
+    // 仅在全新采样模式 (denoise >= 1.0) 且有参考图和尺寸时，才挂载 EmptyLatentImage 打碎骨骼姿态；
+    // 在自适应微调修改模式 (denoise < 1.0) 下，严格保留原图潜空间几何骨骼，仅注入 denoise 降噪强度！
+    if (refs.length > 0 && options?.size && !isEditMode) {
       ComfyUITopologyInjector.ensureEmptyLatent(workflow, options.size);
     }
 
@@ -392,6 +415,7 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
       negativePrompt: options?.negativePrompt,
       seed: options?.seed,
       size: options?.size,
+      denoise: options?.denoise,
       referenceImages: refs.length > 0 ? refs : undefined,
       abortSignal: options?.abortSignal,
       requestId: options?.requestId || this.buildRequestId('image', prompt, options),
@@ -435,7 +459,7 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
   }
 
   /**
-   * 通用图生视频
+   * 通用图生视频 (遵循行业标准首帧锚定与自适应首尾帧插值，贯通画幅与时序 SSOT)
    */
   public async generateVideo(prompt: string, options?: VideoGenerationOptions): Promise<string> {
     const templatePath = this.resolveTemplatePath('comfyui_h3_first_last_8step.json');
@@ -446,18 +470,49 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
     const templateRaw = fs.readFileSync(templatePath, 'utf-8');
     const workflow = ensureApiPromptFormat(JSON.parse(templateRaw));
 
-    let refImageUrl = options?.referenceImageUrl;
+    const refImageUrl = options?.referenceImageUrl;
     if (!refImageUrl) {
-      console.log(`[ComfyUIMediaProvider] 未传入首帧图，正在自动生成首帧基准画面...`);
-      refImageUrl = await this.generateImage(`互动影游电影分镜基准帧，${prompt}，高保真特写，${config.frame.aspect}`, {
-        size: config.frame.imageSize,
-        abortSignal: options?.abortSignal,
-      });
+      throw new Error('[ComfyUIMediaProvider] 图生视频缺少首帧关键帧参考图 (referenceImageUrl)，禁止无底图脱节生成');
     }
 
+    const lastImageUrl = options?.lastFrameImageUrl;
+    const referenceImages = lastImageUrl ? [refImageUrl, lastImageUrl] : [refImageUrl];
+
+    // 1. 全剧画幅 SSOT 动态注入（DiT 空间下采样与 BlockSparseAttention 算子硬性要求画幅为 32 整数倍，如 1280x704）
+    const baseWidth = config.frame.width || 1280;
+    const baseHeight = config.frame.height || 720;
+    const targetWidth = Math.max(32, Math.floor(baseWidth / 32) * 32);
+    const targetHeight = Math.max(32, Math.floor(baseHeight / 32) * 32);
+
+    // 2. 镜头目标时长与帧数动态对齐 (时间潜空间对齐为 4 帧整数倍，彻底杜绝慢动作与潜空间维度失配)
+    const durationSec = typeof options?.duration === 'number' && options.duration > 0
+      ? options.duration
+      : 4;
+    const fps = 24;
+    const rawFrames = Math.round(durationSec * fps);
+    const targetLength = Math.min(124, Math.max(48, Math.round(rawFrames / 4) * 4));
+
+    // 3. 动态配置工作流节点
+    for (const node of Object.values(workflow)) {
+      if (node?.class_type === 'MiniMaxH3ImageToVideo' && node?.inputs) {
+        node.inputs.width = targetWidth;
+        node.inputs.height = targetHeight;
+        node.inputs.length = targetLength;
+        // 若无尾帧（单首帧模式），断开 last_frame 约束，让镜头自然运镜展开
+        if (!lastImageUrl && 'last_frame' in node.inputs) {
+          delete node.inputs.last_frame;
+        }
+      }
+      if (node?.class_type === 'CreateVideo' && node?.inputs) {
+        node.inputs.fps = fps;
+      }
+    }
+
+    console.log(`[ComfyUIMediaProvider] 图生视频拓扑注入完成: 画幅=${targetWidth}x${targetHeight}, 时长=${durationSec}s, 帧数=${targetLength}@${fps}fps, 尾帧=${Boolean(lastImageUrl)}`);
+
     return this.executeWorkflow(workflow, 'video', {
-      prompt: prompt || '电影镜头缓慢推进，人物微表情生动，高质量运镜',
-      referenceImages: [refImageUrl],
+      prompt: prompt || '电影镜头自然推进，人物动作连贯，写实物理速率，高质量运镜',
+      referenceImages,
       abortSignal: options?.abortSignal,
       requestId: options?.requestId || this.buildRequestId('video', prompt, options),
     });
@@ -540,6 +595,11 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
             `[ComfyUIMediaProvider] 当前工作流不含 width/height 节点，size=${options.size} 未生效（该参数已被忽略）`
           );
         }
+      }
+
+      // 5. 注入采样器去噪强度 (自适应 Denoise，用于稳定微调修改)
+      if (options?.denoise !== undefined) {
+        ComfyUITopologyInjector.injectSamplerDenoise(apiPrompt, options.denoise);
       }
 
       return this.executeAndPoll(apiPrompt, mediaType, effectiveSignal, requestId);
@@ -657,7 +717,9 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
       if (taskRecord) {
         if (taskRecord.status && taskRecord.status.status_str === 'error') {
           const messages = JSON.stringify(taskRecord.status.messages || {});
-          throw new Error(`[ComfyUIMediaProvider] ComfyUI 渲染报错: ${messages}`);
+          const mediaErr = new Error(`[ComfyUIMediaProvider] ComfyUI 渲染报错: ${messages}`);
+          (mediaErr as any).failureType = 'media_service_error';
+          throw mediaErr;
         }
 
         const outputs = taskRecord.outputs;
@@ -692,6 +754,8 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
       }
     }
 
-    throw new Error(`[ComfyUIMediaProvider] 等待 ComfyUI 渲染超时 (${timeoutMs / 1000}s)`);
+    const timeoutErr = new Error(`[ComfyUIMediaProvider] 等待 ComfyUI 渲染超时 (${timeoutMs / 1000}s)`);
+    (timeoutErr as any).failureType = 'media_service_error';
+    throw timeoutErr;
   }
 }

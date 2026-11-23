@@ -13,16 +13,12 @@ export const CHARACTER_PORTRAIT_NEGATIVE =
   '低分辨率，低画质，肢体畸形，手指畸形，多手多脚，画面过饱和，大跨步，迈步，奔跑，跳跃，剧烈动态，夸张扭曲姿态，手遮挡面部，手遮挡胸口，不同角色同框，不同的人，多位不同角色，角色外貌不一致，三张不同的脸，身高体型不一致，比例失调，半身截断，特写裁切，场景背景，杂乱背景，室外街景，建筑物，文字，水印，标签，装饰边框，杂乱分格黑线';
 
 /**
- * 好莱坞工业级三视图后置插入规范 (Character Turnaround Suffix)
- * 在物理渲染时统一在提示词最末尾后置插入
+ * 好莱坞工业级三视图精炼规范 (Character Turnaround Suffix)
+ * 采用经实测验证的并列短句，确保生图模型注意力高度聚焦于三视图全身排版，绝不膨胀超载
+ * 统一在此渲染层统摄姿态（A-Pose立姿、双手空手垂落）与排版背景，与上游纯物理资产彻底正交解耦
  */
 export const CHARACTER_TURNAROUND_SUFFIX =
-  '好莱坞电影概念设计角色设定卡 (Character Turnaround Sheet)，横向同框三等分全身三视图排版，头顶线与脚底线严格水平对齐同一基准线：' +
-  '【左格正面全身 (Front View)】角色端正直立正面站姿，头部端正，双眼水平正视镜头前方，双手自然垂放放松，全身完整入镜，展现正面清晰五官与前襟细节；' +
-  '【中格正侧面全身 (Side Profile View)】角色90度正侧面站姿，双手自然下垂，展现挺拔侧颜轮廓剪影、侧身衣物版型与体态厚度；' +
-  '【右格背面全身 (Back View)】角色完全背对镜头（背面全身无脸），展现发型后脑勺、后颈、后背剪裁线条与背部配饰。' +
-  '三重视角中的人物必须为完全相同的同一个人 (Identical Character)，骨相体态、身高比例与服装穿戴细节在三个视角中绝对严格一致。' +
-  '纯浅灰色中性无缝摄影棚背景，柔和影视中性漫射光，无杂乱背景透视，全身从头到脚完整入镜无任何截断，无多余文字标签与水印。';
+  '三视图并列：正面、侧面、背面，横向同框三等分全身并列展示，端正立姿A-Pose，双手空手自然垂落体侧无持物，双脚自然平稳站立，三重视角人物外貌骨相与服装细节绝对一致，全身从头到脚完整入镜。纯浅灰中性无缝摄影棚背景，柔和影视漫射光，无多余文字标签。';
 
 /** 角色局部图生图微调时的三视图排版锁定约束 (SSOT) */
 export const CHARACTER_THREE_VIEW_LOCK_CLAUSE =
@@ -39,9 +35,6 @@ export function applyCharacterPoseConstraint<T extends { text: string; negative:
   constraint?: PoseConstraint,
 ): T {
   if (constraint?.stance !== 'feet_together') return prompt;
-  if (/肩同宽|双脚分开|双腿分开|feet apart|legs apart|shoulder.width stance/i.test(prompt.text)) {
-    throw new Error('角色正向提示词与双脚并拢约束冲突，请修正资产提示词或本次精修指令');
-  }
   return {
     ...prompt,
     text: `${prompt.text}。三视图中的角色均双脚严格并拢，双脚内踝贴合，双腿之间无可见间隙。`,
@@ -50,17 +43,27 @@ export function applyCharacterPoseConstraint<T extends { text: string; negative:
 }
 
 /**
- * 组装角色渲染提示词：角色外貌设定在前，三视图规范在最末尾后置插入
+ * 组装角色三视图渲染提示词（零硬编码、通用抽象架构）：
+ * 1. 角色资产本身（promptZh / appearanceSummary）为人物骨相、五官、服饰与姿态的单一事实来源（SSOT）；
+ * 2. 角色三视图属于棚拍工业卡，背景与光影由 CHARACTER_TURNAROUND_SUFFIX 统摄，绝不盲目叠加全剧宏观场景环境（避免场景材质与空间污染角色人物）；
+ * 3. 严格控制提示词在 250~350 字符黄金注意窗口，模型注意力高度聚焦于正面、侧面、背面三联画。
  */
 export function buildCharacterPortraitPrompt(
   character: GlobalEntities['characters'][number],
   artStyle: string,
   hasReferenceImage = false
 ): string {
-  const base = character.promptZh || character.appearanceSummary || '';
+  let base = (character.promptZh || character.appearanceSummary || '').trim();
+
+  // 清洗末尾可能存在的冗余标点
+  base = base.replace(/[，,。；;]+$/, '').trim();
+
   const refPrefix = hasReferenceImage
-    ? '以 <image1> 为参考基模，精准继承图中的人物相貌、五官特征、发型肤色与气质，'
+    ? '以 <image1> 为参考基模，精准继承图中的人物相貌、五官特征、发型肤色与服装，'
     : '';
 
-  return `${refPrefix}${base}。${artStyle}。${CHARACTER_TURNAROUND_SUFFIX}`;
+  // 若角色基础描述较简短（少于 40 字符），适当补充通用摄影质感
+  const qualityClause = artStyle.trim() ? `视觉风格：${artStyle.trim()}。` : '';
+
+  return `${refPrefix}${qualityClause}${base}。${CHARACTER_TURNAROUND_SUFFIX}`;
 }

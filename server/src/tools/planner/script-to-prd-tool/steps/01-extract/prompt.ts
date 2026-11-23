@@ -36,16 +36,5 @@ ${optionalTitle ? `【指定剧作标题】：${optionalTitle}\n` : ''}
 ${scriptMarkdown}
 \`\`\`
 
-请输出结构化 JSON，必须包含：
-1. title: 剧作中文标题
-2. clips: 提取的主线与分支切片清单，每个切片包含：
-   - id: 规范切片标识符 (如 "c1", "c2", "c1_branch_a")
-   - title: 切片中文标题
-   - narrativeText: 该切片对应的完整剧情剧本文本
-   - choices: 玩家在该切片面临的交互选项清单 (包含 id, text, targetNodeId 或 targetEndingId)
-3. endings: 提取的所有终局清单，每个终局包含：
-   - id: 结局标识符 (如 "e_he_1", "e_be_1")
-   - title: 结局中文标题
-   - endingType: "HE" | "BE" | "NE"
-   - summary: 结局收敛总结与主题`;
+请严格按照 ExtractedScriptStructureSchema 契约解析并输出结构化切片与结局数据。`;
 }

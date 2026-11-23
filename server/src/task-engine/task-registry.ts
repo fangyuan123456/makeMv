@@ -6,13 +6,15 @@
 import type { BaseTaskTool } from '../tools/base/task-tool.js';
 import { screenplayTool, scriptToPrdTool } from '../tools/planner/index.js';
 import {
-  assetExtractionTool,
-  storyboardPlanningTool,
+  assetManifestTool,
+  entitySpecTool,
+  storyboardBreakdownTool,
+  shotPromptTool,
   lookdevTool,
   shotKeyframeTool,
   shotVideoTool,
-  imageUpscaleTool,
 } from '../tools/film-production/index.js';
+import { imageUpscaleTool } from '../tools/media/index.js';
 import { gameAssemblyTool } from '../tools/game-assembly/index.js';
 
 export interface ToolMetadata {
@@ -41,8 +43,10 @@ export class TaskToolRegistry {
       screenplayTool,
       scriptToPrdTool,
       // 2. 影视视听制作类
-      assetExtractionTool,
-      storyboardPlanningTool,
+      assetManifestTool,
+      entitySpecTool,
+      storyboardBreakdownTool,
+      shotPromptTool,
       lookdevTool,
       shotKeyframeTool,
       shotVideoTool,

@@ -11,16 +11,27 @@
  * 6. 【极简右侧抽屉】右侧侧边栏专注纯粹的立绘大图查看、版本切换与提示词精修，无多余冗余卡片。
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import type { ProjectData, LookdevVersion, TaskRecord } from '../../../../types/index.js';
 import {
   uploadReferenceImage,
   updateEntity,
   selectEntityVersion,
   imageRefineEntity,
+  retryTask,
 } from '../../../../lib/api.js';
-import { isEntityTaskRunning } from '../../../../lib/taskUtils.js';
+import { isEntityTaskRunning, getEntityTaskStatus } from '../../../../lib/taskUtils.js';
 import { DirectorFloatingBubble } from '../../chat/DirectorFloatingBubble.js';
+import { useReportFocus } from '../../../../hooks/StudioFocusContext.js';
+import type { MediaLightboxItem } from './MediaLightboxModal.js';
+import { SubCanvasSwitcher, type SubCanvasOption } from '../../canvas/SubCanvasSwitcher.js';
+import {
+  CharacterCard,
+  LocationCard,
+  ItemCard,
+  LookdevVersionModal,
+  type VersionModalEntity,
+} from './components/index.js';
 
 export interface LookdevCanvasProps {
   projectId: string;
@@ -29,12 +40,21 @@ export interface LookdevCanvasProps {
   onRunTool: (toolName: string, input: Record<string, any>) => Promise<any>;
   onRefreshProject?: () => void;
   onBackToTopology: () => void;
-  onEnlargeMedia?: (media: { title: string; imageUrl?: string; videoUrl?: string }) => void;
+  onEnlargeMedia?: (media: {
+    title: string;
+    imageUrl?: string;
+    videoUrl?: string;
+    badge?: string;
+    subtitle?: string;
+    gallery?: MediaLightboxItem[];
+  }) => void;
+  subCanvasOptions?: SubCanvasOption[];
+  onSwitchSubCanvas?: (option: SubCanvasOption) => void;
   isBusy: boolean;
 }
 
 interface ActiveEntityModal {
-  type: 'character' | 'location';
+  type: 'character' | 'location' | 'item';
   id: string;
   name: string;
   identity?: string;
@@ -54,11 +74,14 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
   onRefreshProject,
   onBackToTopology,
   onEnlargeMedia,
+  subCanvasOptions,
+  onSwitchSubCanvas,
   isBusy,
 }) => {
   const [activeTab, setActiveTab] = useState<'characters' | 'locations' | 'items'>('characters');
-  const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
   const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({});
+  const [spatialDrafts, setSpatialDrafts] = useState<Record<string, string>>({});
+  const [isSavingSpatial, setIsSavingSpatial] = useState(false);
   const [uploadingEntityId, setUploadingEntityId] = useState<string | null>(null);
   const [versionModalEntity, setVersionModalEntity] = useState<ActiveEntityModal | null>(null);
   // 当前在定妆界面中点击选中的定妆卡 ID (用于滑出右侧侧边栏)
@@ -71,81 +94,310 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
   const [refineInputs, setRefineInputs] = useState<Record<string, string>>({});
   // 正在提交定向精修请求的实体集合 (网络提交期微态保护)
   const [isSubmittingRefine, setIsSubmittingRefine] = useState<Set<string>>(new Set());
+  // 正在提交 SeedVR2 高清超分请求的实体集合 & 默认超分倍率 (2× / 4×)
+  const [submittingUpscale, setSubmittingUpscale] = useState<Set<string>>(new Set());
+  const [upscaleMultiplier, setUpscaleMultiplier] = useState<2 | 4>(2);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const autoExtractionProjectRef = useRef<string | null>(null);
+  const autoSpecEntitiesRef = useRef<Set<string>>(new Set());
   const pendingUploadTargetRef = useRef<{ type: 'character' | 'location' | 'item'; id: string } | null>(null);
 
   const entities = projectData?.entities || projectData?.artifacts?.lookdev_entities;
   const characters = entities?.characters || [];
   const locations = entities?.locations || [];
   const items = entities?.items || [];
+  const runLookdev = (input: {
+    targetKind: 'character' | 'location' | 'item';
+    targetId: string;
+    force?: boolean;
+    instruction?: string;
+    referenceImageUrls?: string[];
+  }) => onRunTool('film.lookdev', { projectId, ...input });
 
-  // 判断是否正在提取资产
+  // 判断是否正在提取资产清单 (整屏 Loading 判定 SSOT)
   const isExtracting = tasks.some(
     (t) =>
       (t.status === 'running' || t.status === 'pending') &&
-      t.toolName === 'film.asset_extraction'
+      t.toolName === 'film.asset_manifest'
   );
 
-  // 首次进入若无角色，自动触发提取
+  // 首次进入若无角色且未提取，自动触发清单提取
   useEffect(() => {
-    if (characters.length === 0 && !isExtracting) {
-      console.log('[LookdevCanvas] 首次进入定妆画布，自动提取全剧角色与场景外观...');
-      onRunTool('film.asset_extraction', {})
+    if (characters.length === 0 && !isExtracting && autoExtractionProjectRef.current !== projectId) {
+      autoExtractionProjectRef.current = projectId;
+      console.log('[LookdevCanvas] 首次进入定妆画布，自动提取全剧角色与场景清单...');
+      onRunTool('film.asset_manifest', {
+        __idempotencyKey: `lookdev:auto-extraction:${projectId}`,
+      })
         .then(() => onRefreshProject?.())
         .catch((err) => console.warn('[LookdevCanvas] 自动提取视觉资产失败:', err));
     }
-  }, [characters.length, isExtracting]);
+  }, [projectId, characters.length, isExtracting]);
 
-  // 判断指定角色是否正在定妆中 (SSOT: 严格基于全局 tasks 与定向精修提交状态判定)
+  // 判断指定实体是否正在推演特征规格 (film.entity_spec)
+  const isEntitySpecExtracting = (kind: 'character' | 'location' | 'item', entity: any): boolean => {
+    if (!entity) return false;
+    const id = entity.characterId || entity.locationId || entity.itemId || entity.id;
+    if (!id) return false;
+    return isEntityTaskRunning(tasks, 'film.entity_spec', {
+      targetId: id,
+      characterId: id,
+      locationId: id,
+      itemId: id,
+      id,
+      name: entity.name,
+    });
+  };
+
+  // 清单提取完成后，自动为尚未具备完整提示词与视觉规格的实体并发下发特征推演任务
+  useEffect(() => {
+    if (isExtracting || !projectId) return;
+
+    const allEntitiesToSpec: Array<{ kind: 'character' | 'location' | 'item'; id: string; name: string }> = [];
+
+    characters.forEach((char: any) => {
+      const id = char.characterId || char.id;
+      if (id && (!char.promptZh || !char.promptZh.trim()) && !isEntitySpecExtracting('character', char) && !autoSpecEntitiesRef.current.has(id)) {
+        allEntitiesToSpec.push({ kind: 'character', id, name: char.name });
+      }
+    });
+
+    locations.forEach((loc: any) => {
+      const id = loc.locationId || loc.id;
+      if (id && (!loc.promptZh || !loc.promptZh.trim()) && !isEntitySpecExtracting('location', loc) && !autoSpecEntitiesRef.current.has(id)) {
+        allEntitiesToSpec.push({ kind: 'location', id, name: loc.name });
+      }
+    });
+
+    items.forEach((item: any) => {
+      const id = item.itemId || item.id;
+      if (id && (!item.promptZh || !item.promptZh.trim()) && !isEntitySpecExtracting('item', item) && !autoSpecEntitiesRef.current.has(id)) {
+        allEntitiesToSpec.push({ kind: 'item', id, name: item.name });
+      }
+    });
+
+    if (allEntitiesToSpec.length === 0) return;
+
+    allEntitiesToSpec.forEach((item) => {
+      autoSpecEntitiesRef.current.add(item.id);
+      console.log(`[LookdevCanvas] 自动触发实体 [${item.name}] (${item.kind}) 特征规格推演...`);
+      onRunTool('film.entity_spec', {
+        projectId,
+        targetKind: item.kind,
+        targetId: item.id,
+        name: item.name,
+        __idempotencyKey: `lookdev:auto-spec:${projectId}:${item.kind}:${item.id}`,
+      })
+        .then(() => onRefreshProject?.())
+        .catch((err) => console.warn(`[LookdevCanvas] 自动提取实体 [${item.name}] 特征规格失败:`, err));
+    });
+  }, [projectId, isExtracting, characters, locations, items]);
+
+  // 判断指定实体是否正在执行 SeedVR2 高清超分
+  const isEntityUpscaling = (kind: 'character' | 'location' | 'item', entityId?: string): boolean => {
+    if (!entityId) return false;
+    if (submittingUpscale.has(entityId)) return true;
+    return tasks.some(
+      (t) =>
+        (t.status === 'running' || t.status === 'pending') &&
+        t.toolName === 'film.image_upscale' &&
+        t.input?.targetKind === kind &&
+        t.input?.targetId === entityId
+    );
+  };
+
+  // 判断指定角色是否正在定妆/超分中 (SSOT: 严格基于全局 tasks 与本地提交态判定)
   const isCharacterGenerating = (char: any): boolean => {
     const charId = char.characterId || char.id;
     if (!charId) return false;
     if (isSubmittingRefine.has(charId)) return true;
-    return isEntityTaskRunning(tasks, 'film.character_portrait', {
+    if (isEntityUpscaling('character', charId)) return true;
+    if (isEntityTaskRunning(tasks, 'film.lookdev', {
       characterId: charId,
       id: charId,
-    });
+    })) return true;
+    return false;
   };
 
-  // 判断指定场景是否正在渲染中 (SSOT: 严格基于全局 tasks 与定向精修提交状态判定)
+  // 判断指定场景是否正在渲染/超分中 (SSOT: 严格基于全局 tasks 与本地提交态判定)
   const isLocationGenerating = (loc: any): boolean => {
     const locId = loc.locationId || loc.id;
     if (!locId) return false;
     if (isSubmittingRefine.has(locId)) return true;
-    return isEntityTaskRunning(tasks, 'film.scene_atmosphere', {
+    if (isEntityUpscaling('location', locId)) return true;
+    if (isEntityTaskRunning(tasks, 'film.lookdev', {
       locationId: locId,
       id: locId,
+    })) return true;
+    return false;
+  };
+
+  // 判断指定道具是否正在渲染/超分中
+  const isItemGenerating = (item: any): boolean => {
+    const itemId = item.itemId || item.id;
+    if (!itemId) return false;
+    if (isSubmittingRefine.has(itemId)) return true;
+    if (isEntityUpscaling('item', itemId)) return true;
+    if (isEntityTaskRunning(tasks, 'film.lookdev', {
+      itemId,
+      id: itemId,
+    })) return true;
+    return false;
+  };
+
+  // 获取实体当前选中版本的高清超分记录（与服务端 SSOT 保持一致）
+  const getActiveUpscale = (entity: any): { multiplier: number; upscaledAt: string } | undefined => {
+    if (!entity?.imageUrl || !Array.isArray(entity.versions) || entity.versions.length === 0) {
+      return undefined;
+    }
+    const activeVer = entity.versions.find((v: any) => v.versionId === entity.selectedVersionId);
+    return activeVer?.upscale;
+  };
+
+  // 判断实体历史版本库中是否包含任意已超分版本（便于当前停留在非超分版本时提示可切回）
+  const hasAnyUpscaledVersion = (entity: any): boolean =>
+    Array.isArray(entity?.versions) && entity.versions.some((v: any) => Boolean(v?.upscale));
+
+  // 触发单实体按需 SeedVR2 高清超分（追加无损高清新版本，原版保留可回切）
+  const handleUpscaleEntity = async (
+    kind: 'character' | 'location' | 'item',
+    entityId: string,
+    multiplier: 2 | 4 = upscaleMultiplier
+  ) => {
+    if (!entityId || isEntityUpscaling(kind, entityId)) return;
+    setSubmittingUpscale((prev) => new Set(prev).add(entityId));
+    try {
+      await onRunTool('film.image_upscale', {
+        projectId,
+        targetKind: kind,
+        targetId: entityId,
+        multiplier,
+      });
+      onRefreshProject?.();
+    } catch (err: any) {
+      alert(`高清超分失败: ${err.message || String(err)}`);
+    } finally {
+      setSubmittingUpscale((prev) => {
+        const next = new Set(prev);
+        next.delete(entityId);
+        return next;
+      });
+    }
+  };
+
+  // 手动重新触发单实体的特征规格推演 (film.entity_spec)
+  const handleExtractEntitySpec = async (kind: 'character' | 'location' | 'item', entity: any) => {
+    const id = entity.characterId || entity.locationId || entity.itemId || entity.id;
+    if (!id || isEntitySpecExtracting(kind, entity)) return;
+    try {
+      await onRunTool('film.entity_spec', {
+        projectId,
+        targetKind: kind,
+        targetId: id,
+        name: entity.name,
+        __idempotencyKey: `lookdev:manual-spec:${projectId}:${kind}:${id}:${Date.now()}`,
+      });
+      onRefreshProject?.();
+    } catch (err: any) {
+      alert(`提取特征规格失败: ${err.message || String(err)}`);
+    }
+  };
+
+  // 还原实体提示词修改
+  const handleRevertPrompt = (id: string) => {
+    setPromptDrafts((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
     });
   };
 
-  // 触发单角色定妆生图 (单个点击精准锁定，允许强制重新定妆)
+  // 触发单角色定妆生图 (单个点击精准锁定，允许强制重新定妆；若有待应用改动自动先落盘保存)
   const handleGenerateCharacter = async (char: any) => {
     const charId = char.characterId || char.id;
+    const originalPrompt = (char.promptZh || char.appearanceSummary || '').trim();
+    const draft = promptDrafts[charId];
+    if (draft !== undefined && draft.trim() !== originalPrompt) {
+      try {
+        await updateEntity(projectId, 'character', charId, { promptZh: draft });
+        handleRevertPrompt(charId);
+      } catch (err: any) {
+        console.warn('[LookdevCanvas] 自动保存角色外观设定失败:', err);
+      }
+    }
     try {
-      await onRunTool('film.character_portrait', {
-        projectId,
-        characterId: charId,
-        force: true,
-      });
+      await runLookdev({ targetKind: 'character', targetId: charId, force: true });
       onRefreshProject?.();
     } catch (err: any) {
       alert(`定妆生成失败: ${err.message || String(err)}`);
     }
   };
 
-  // 触发单场景氛围图生成 (单个点击精准锁定，允许强制重新生成)
+  // 触发单场景氛围图生成 (单个点击精准锁定，允许强制重新生成；若有待应用改动自动先落盘保存)
   const handleGenerateLocation = async (loc: any) => {
     const locId = loc.locationId || loc.id;
+    const rawPrompt = loc.promptZh || loc.appearanceSummary || loc.atmosphere || '';
+    const draftPrompt = promptDrafts[locId];
+    const isPromptMod = draftPrompt !== undefined && draftPrompt !== rawPrompt;
+
+    const rawSpatial = typeof loc.spatialLayout === 'string'
+      ? loc.spatialLayout
+      : typeof loc.spatialLayout === 'object' && loc.spatialLayout !== null
+      ? Object.values(loc.spatialLayout).filter(Boolean).join('；')
+      : String(loc.spatialLayout || '');
+    const draftSpatial = spatialDrafts[locId];
+    const isSpatialMod = draftSpatial !== undefined && draftSpatial !== rawSpatial;
+
+    if (isPromptMod || isSpatialMod) {
+      const patch: any = {};
+      if (isPromptMod) patch.promptZh = draftPrompt;
+      if (isSpatialMod) patch.spatialLayout = draftSpatial;
+      try {
+        await updateEntity(projectId, 'location', locId, patch);
+        if (isPromptMod) handleRevertPrompt(locId);
+        if (isSpatialMod) {
+          setSpatialDrafts((prev) => {
+            const next = { ...prev };
+            delete next[locId];
+            return next;
+          });
+        }
+      } catch (err: any) {
+        console.warn('[LookdevCanvas] 自动保存场景设定失败:', err);
+      }
+    }
     try {
-      await onRunTool('film.scene_atmosphere', {
-        projectId,
-        locationId: locId,
-        force: true,
-      });
+      await runLookdev({ targetKind: 'location', targetId: locId, force: true });
       onRefreshProject?.();
     } catch (err: any) {
       alert(`场景生成失败: ${err.message || String(err)}`);
+    }
+  };
+
+  // 触发单道具特写生成 (若有待应用改动自动先落盘保存)
+  const handleGenerateItem = async (item: any) => {
+    const itemId = item.itemId || item.id;
+    const originalPrompt = (item.promptZh || item.appearanceSummary || '').trim();
+    const draft = promptDrafts[itemId];
+    if (draft !== undefined && draft.trim() !== originalPrompt) {
+      try {
+        await updateEntity(projectId, 'item', itemId, { promptZh: draft });
+        handleRevertPrompt(itemId);
+      } catch (err: any) {
+        console.warn('[LookdevCanvas] 自动保存道具设定失败:', err);
+      }
+    }
+    try {
+      await runLookdev({
+        targetKind: 'item',
+        targetId: itemId,
+        force: true,
+        referenceImageUrls: item.referenceImageUrl ? [item.referenceImageUrl] : undefined,
+      });
+      onRefreshProject?.();
+    } catch (err: any) {
+      alert(`生成道具特写失败: ${err?.message || String(err)}`);
     }
   };
 
@@ -184,37 +436,29 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
     }
   };
 
-  // 批量全剧定妆 (幂等增量：已定妆的角色和场景坚决不动，仅为未完成项补齐)
+  // 批量全剧定妆：为每个待定妆实体派发独立原子任务，按序排队逐张落盘与刷新
   const handleBatchGenerate = async () => {
-    const pendingChars = characters.filter((c: any) => !c.imageUrl);
-    const pendingLocs = locations.filter((l: any) => !l.imageUrl);
+    const pendingTasks: Array<{ targetKind: 'character' | 'location' | 'item'; targetId: string }> = [
+      ...characters
+        .filter((c: any) => !c.imageUrl)
+        .map((char: any) => ({ targetKind: 'character' as const, targetId: char.characterId || char.id })),
+      ...locations
+        .filter((l: any) => !l.imageUrl)
+        .map((loc: any) => ({ targetKind: 'location' as const, targetId: loc.locationId || loc.id })),
+      ...items
+        .filter((item: any) => !item.imageUrl)
+        .map((item: any) => ({ targetKind: 'item' as const, targetId: item.itemId || item.id })),
+    ];
 
-    if (pendingChars.length === 0 && pendingLocs.length === 0) {
-      alert('全剧角色与场景已全部完成定妆，定过的保持不动！如需重新设计某位角色，请在对应卡片点击「重新定妆」。');
+    if (pendingTasks.length === 0) {
+      alert('全剧角色、场景和道具已全部完成定妆。');
       return;
     }
 
     try {
-      const taskPromises = [
-        ...pendingChars.map((char: any) => {
-          const cId = char.characterId || char.id;
-          return onRunTool('film.character_portrait', {
-            projectId,
-            characterId: cId,
-            force: false,
-          });
-        }),
-        ...pendingLocs.map((loc: any) => {
-          const lId = loc.locationId || loc.id;
-          return onRunTool('film.scene_atmosphere', {
-            projectId,
-            locationId: lId,
-            force: false,
-          });
-        }),
-      ];
-
-      await Promise.allSettled(taskPromises);
+      for (const task of pendingTasks) {
+        await runLookdev({ ...task, force: false });
+      }
       onRefreshProject?.();
     } catch (err: any) {
       alert(`批量定妆任务下发异常: ${err.message || String(err)}`);
@@ -225,24 +469,86 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
   const handleSavePrompt = async (type: 'character' | 'location' | 'item', id: string) => {
     const newPrompt = promptDrafts[id];
     if (newPrompt === undefined) {
-      setEditingPromptId(null);
       return;
     }
     try {
       await updateEntity(projectId, type, id, { promptZh: newPrompt });
       onRefreshProject?.();
-      setEditingPromptId(null);
     } catch (err: any) {
       alert(`保存提示词失败: ${err.message || String(err)}`);
+    }
+  };
+
+  // 保存场景三维空间构造蓝图 (用于下游分镜镜头机位视锥调度)
+  const handleSaveSpatialLayout = async (locId: string) => {
+    const activeLoc = locations.find((l: any) => (l.locationId || l.id) === locId);
+    const draft =
+      spatialDrafts[locId] !== undefined
+        ? spatialDrafts[locId]
+        : activeLoc?.spatialLayout || '';
+    setIsSavingSpatial(true);
+    try {
+      await updateEntity(projectId, 'location', locId, { spatialLayout: draft });
+      onRefreshProject?.();
+    } catch (err: any) {
+      alert(`保存空间构造失败: ${err.message || String(err)}`);
+    } finally {
+      setIsSavingSpatial(false);
     }
   };
 
   // 辅助获取实体当前生效的参考底图 (支持乐观更新，如果已被用户点✕删除则立即返回 undefined)
   const getEntityRefImage = (entity: any): string | undefined => {
     if (!entity) return undefined;
-    const id = entity.characterId || entity.locationId || entity.id;
+    const id = entity.characterId || entity.locationId || entity.itemId || entity.id;
     if (deletedReferenceIds.has(id)) return undefined;
     return entity.referenceImageUrl || undefined;
+  };
+
+  // 获取当前选中版本在版本数组中的 1-based 序号
+  const getSelectedVersionNumber = (entity: any): number => {
+    const versions: LookdevVersion[] = entity?.versions || [];
+    if (versions.length === 0) return 0;
+    if (!entity?.selectedVersionId) return 0;
+    const idx = versions.findIndex((v) => v.versionId === entity.selectedVersionId);
+    return idx >= 0 ? idx + 1 : 0;
+  };
+
+  // 稳定缓存版本号（避免 Date.now() 导致每次重渲染图片闪烁重下）
+  const getStableImageSrc = (url: string, entity: any): string => {
+    const tag = entity?.selectedVersionId;
+    return tag ? `${url}${url.includes('?') ? '&' : '?'}t=${encodeURIComponent(String(tag))}` : url;
+  };
+
+  const getImageGallery = (entity: any, label: string): MediaLightboxItem[] => {
+    const gallery: MediaLightboxItem[] = [];
+    const seen = new Set<string>();
+    const add = (title: string, imageUrl?: string, badge?: string, subtitle?: string) => {
+      if (!imageUrl || seen.has(imageUrl)) return;
+      seen.add(imageUrl);
+      gallery.push({ title, imageUrl, badge, subtitle });
+    };
+    const category = entity.characterId ? characters : entity.locationId ? locations : items;
+    category.forEach((item: any) => {
+      add(`参考底图 · ${item.name}`, getEntityRefImage(item), undefined, '创作者上传参考底图');
+      (item.versions || []).forEach((version: LookdevVersion, index: number) => {
+        const verUp = version.upscale;
+        add(
+          `${label} · ${item.name} · v${index + 1}`,
+          version.imageUrl,
+          verUp ? `HD ${verUp.multiplier}×` : undefined,
+          verUp ? `SeedVR2 ${verUp.multiplier}× 高清超分版本` : '原图版本（未超分）'
+        );
+      });
+      const activeUp = getActiveUpscale(item);
+      add(
+        `${label} · ${item.name} · 当前`,
+        item.imageUrl,
+        activeUp ? `HD ${activeUp.multiplier}×` : undefined,
+        activeUp ? `SeedVR2 ${activeUp.multiplier}× 高清超分版本` : '原图版本（未超分）'
+      );
+    });
+    return gallery;
   };
 
   // 上传参考图
@@ -294,7 +600,7 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
 
   // 切换实体定妆历史版本
   const handleSelectVersion = async (
-    type: 'character' | 'location',
+    type: 'character' | 'location' | 'item',
     id: string,
     versionId: string
   ) => {
@@ -308,6 +614,8 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
 
   const completedChars = characters.filter((c: any) => Boolean(c.imageUrl)).length;
   const completedLocs = locations.filter((l: any) => Boolean(l.imageUrl)).length;
+  const allReadyEntities = [...characters, ...locations, ...items].filter((e: any) => Boolean(e.imageUrl));
+  const totalUpscaledEntities = allReadyEntities.filter((e: any) => Boolean(getActiveUpscale(e))).length;
 
   // 反查当前在定妆界面中点击选中的实体对象
   const selectedCharacter = characters.find(
@@ -323,6 +631,114 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
   const isItemEntity = !selectedCharacter && !selectedLocation && Boolean(selectedItem);
   const isLocationEntity = !selectedCharacter && !isItemEntity && Boolean(selectedLocation);
   const activeRefImg = activeSelectedEntity ? getEntityRefImage(activeSelectedEntity) : undefined;
+
+  // 历史版本库防重复渲染与唯一真理源收敛（杜绝同一 versionId 或 imageUrl 重复追加引发的 React Key 碰撞泄漏）
+  const displayVersions = useMemo(() => {
+    const list: any[] = activeSelectedEntity?.versions || [];
+    const seen = new Set<string>();
+    return list.filter((v: any) => {
+      const k = v?.versionId || v?.imageUrl;
+      if (!k || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }, [activeSelectedEntity?.versions]);
+
+  const lookdevFocus = useMemo(() => {
+    const tabLabels: Record<typeof activeTab, string> = {
+      characters: '角色展台',
+      locations: '场景展台',
+      items: '道具展台',
+    };
+    if (activeSelectedEntity) {
+      const kind = selectedCharacter ? 'character' : isItemEntity ? 'item' : 'location';
+      const kindLabel = kind === 'character' ? '角色' : kind === 'item' ? '道具' : '场景';
+      const entityId =
+        activeSelectedEntity.characterId ||
+        activeSelectedEntity.locationId ||
+        activeSelectedEntity.itemId ||
+        activeSelectedEntity.id;
+      return {
+        location: `视觉定妆工坊 · ${tabLabels[activeTab]}`,
+        target: {
+          kind,
+          id: entityId,
+          label: `${kindLabel} · ${activeSelectedEntity.name}`,
+        },
+        meta: { activeTab },
+      };
+    }
+    return {
+      location: `视觉定妆工坊 · ${tabLabels[activeTab]}`,
+      meta: { activeTab },
+    };
+  }, [activeSelectedEntity, selectedCharacter, isItemEntity, activeTab]);
+  useReportFocus(lookdevFocus);
+
+  // ──────────────── Dirty State 全局变动感知与自动持久化 (Inspector SSOT) ────────────────
+  const activeEntityId = activeSelectedEntity
+    ? activeSelectedEntity.characterId ||
+      activeSelectedEntity.locationId ||
+      activeSelectedEntity.itemId ||
+      activeSelectedEntity.id
+    : null;
+  const selectedLocId = selectedLocation
+    ? selectedLocation.locationId || selectedLocation.id
+    : null;
+
+  // 生图提示词是否有改动
+  const origPrompt = activeSelectedEntity?.promptZh || activeSelectedEntity?.appearanceSummary || '';
+  const isPromptChanged = Boolean(
+    activeEntityId &&
+      promptDrafts[activeEntityId] !== undefined &&
+      promptDrafts[activeEntityId] !== origPrompt
+  );
+
+  const rawSpatial = selectedLocation?.spatialLayout;
+  const origSpatialStr =
+    typeof rawSpatial === 'string'
+      ? rawSpatial
+      : typeof rawSpatial === 'object' && rawSpatial !== null
+      ? Object.values(rawSpatial).filter(Boolean).join('；')
+      : '';
+  const currentSpatialStr = selectedLocId
+    ? spatialDrafts[selectedLocId] !== undefined
+      ? spatialDrafts[selectedLocId]
+      : origSpatialStr
+    : '';
+
+  // 场景三维空间构造是否有改动 (纯文本比对)
+  const isSpatialChanged = Boolean(
+    selectedLocId &&
+      spatialDrafts[selectedLocId] !== undefined &&
+      spatialDrafts[selectedLocId] !== origSpatialStr
+  );
+
+  // 综合是否有改动
+  const isEntityChanged = isPromptChanged || isSpatialChanged;
+
+  // 统一批量保存当前选中实体的所有未生效修改 (Prompt 和/或 空间构造)
+  const handleSaveActiveEntityChanges = async () => {
+    if (!activeSelectedEntity || !activeEntityId) return;
+    const entityType: 'character' | 'location' | 'item' = selectedCharacter
+      ? 'character'
+      : selectedLocation
+      ? 'location'
+      : 'item';
+
+    const patch: any = {};
+    if (isPromptChanged && promptDrafts[activeEntityId] !== undefined) {
+      patch.promptZh = promptDrafts[activeEntityId];
+    }
+    if (selectedLocation && selectedLocId && isSpatialChanged && spatialDrafts[selectedLocId] !== undefined) {
+      patch.spatialLayout = spatialDrafts[selectedLocId];
+    }
+
+    if (Object.keys(patch).length > 0) {
+      await updateEntity(projectId, entityType, activeEntityId, patch);
+      onRefreshProject?.();
+    }
+  };
 
   return (
     <div className="relative w-full h-full flex flex-col bg-[#f8fafc] overflow-hidden select-none animate-in fade-in duration-200">
@@ -346,27 +762,42 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
       </svg>
 
       {/* ──────────────── 1. 顶部专业视听导航栏 ──────────────── */}
-      <header className="relative z-10 px-8 py-4 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-2xs flex items-center justify-between">
+      <header className="relative z-20 px-8 py-4 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-2xs flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          <button
-            onClick={onBackToTopology}
-            className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100/80 text-xs font-bold text-slate-700 flex items-center space-x-2 transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer"
-          >
-            <span>←</span>
-            <span>返回流向拓扑</span>
-          </button>
+          {subCanvasOptions && onSwitchSubCanvas ? (
+            <SubCanvasSwitcher
+              currentId="lookdev"
+              options={subCanvasOptions}
+              onSelect={onSwitchSubCanvas}
+              onBackToTopology={onBackToTopology}
+            />
+          ) : (
+            <button
+              onClick={onBackToTopology}
+              className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100/80 text-xs font-bold text-slate-700 flex items-center space-x-2 transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer"
+            >
+              <span>←</span>
+              <span>返回流向拓扑</span>
+            </button>
+          )}
           <div className="h-4 w-px bg-slate-200" />
-          <div className="flex items-center space-x-3">
-            <span className="text-2xl">🎨</span>
-            <div className="flex items-center space-x-2">
-              <h2 className="text-base font-black text-slate-900 tracking-tight">
-                全剧视觉定妆工坊
-              </h2>
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 border border-indigo-200 text-indigo-700">
-                🎭 角色 {completedChars}/{characters.length} · 🏞️ 场景 {completedLocs}/{locations.length}
-                {' · '}🧰 道具 {items.filter((item: any) => Boolean(item.referenceImageUrl || item.imageUrl)).length}/{items.length}
+          <div className="flex items-center space-x-2">
+            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 border border-indigo-200 text-indigo-700">
+              🎭 角色 {completedChars}/{characters.length} · 🏞️ 场景 {completedLocs}/{locations.length}
+              {' · '}🧰 道具 {items.filter((item: any) => Boolean(item.referenceImageUrl || item.imageUrl)).length}/{items.length}
+            </span>
+            {allReadyEntities.length > 0 && (
+              <span
+                className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+                  totalUpscaledEntities > 0
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                    : 'bg-slate-100 border-slate-200 text-slate-500'
+                }`}
+                title="当前激活版本已完成 SeedVR2 高清超分的资产数量"
+              >
+                ✨ 已超分 {totalUpscaledEntities}/{allReadyEntities.length}
               </span>
-            </div>
+            )}
           </div>
         </div>
 
@@ -466,330 +897,70 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
               const charId = char.characterId || char.id;
               const charRefImg = getEntityRefImage(char);
               const isGen = isCharacterGenerating(char);
-              const isEditing = editingPromptId === charId;
+              const isSpecExtracting = isEntitySpecExtracting('character', char);
               const isSelected = selectedEntityId === charId;
-              const currentPrompt =
-                promptDrafts[charId] !== undefined
-                  ? promptDrafts[charId]
-                  : char.promptZh || char.appearanceSummary || '';
+              const originalPrompt = char.promptZh || char.appearanceSummary || '';
+              const hasDraft = promptDrafts[charId] !== undefined;
+              const currentPrompt = hasDraft ? promptDrafts[charId] : originalPrompt;
+              const isModified = hasDraft && promptDrafts[charId] !== originalPrompt;
 
               return (
-                <div
+                <CharacterCard
                   key={charId}
-                  onClick={() => setSelectedEntityId(charId)}
-                  className={`bg-white/95 backdrop-blur-xs border rounded-3xl p-4 transition-all flex flex-col group cursor-pointer ${
-                    isSelected
-                      ? 'border-indigo-500 ring-4 ring-indigo-500/20 shadow-md bg-indigo-50/20'
-                      : 'border-slate-200/90 hover:border-indigo-300 shadow-xs hover:shadow-md'
-                  }`}
-                >
-                  {/* 立绘主图 (工业级 2:1 三视图画幅，object-contain 保持正/侧/背三重视角 100% 完整无裁剪) */}
-                  <div className="relative w-full aspect-[2/1] rounded-2xl overflow-hidden bg-slate-100 border border-slate-200/60 mb-3.5 group/img flex items-center justify-center p-1">
-                    {char.imageUrl ? (
-                      <>
-                        <img
-                          key={`${char.imageUrl}_${char.selectedVersionId}`}
-                          src={`${char.imageUrl}?t=${char.selectedVersionId || Date.now()}`}
-                          alt={char.name}
-                          className="w-full h-full object-contain object-center group-hover/img:scale-105 transition-transform duration-300"
-                        />
-                        <div className="absolute top-2 right-2 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-xs text-white text-[10px] font-medium border border-white/20">
-                          📐 概念三视图 · 正/侧/背
-                        </div>
-                      </>
-                    ) : charRefImg ? (
-                      <div className="relative w-full h-full flex items-center justify-center">
-                        <img
-                          src={charRefImg}
-                          alt={`参考底图 · ${char.name}`}
-                          className="w-full h-full object-contain object-top group-hover/img:scale-105 transition-transform duration-300"
-                        />
-                        <div className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-black/65 backdrop-blur-xs text-white text-[10px] font-semibold border border-white/20">
-                          📷 参考底图 (待定妆)
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 p-4 text-center">
-                        <span className="text-3xl mb-2">🎭</span>
-                        <span className="text-xs font-semibold">待生成立绘</span>
-                        <span className="text-[10px] text-slate-400 mt-1">
-                          点击下方「重新定妆」立即启动
-                        </span>
-                      </div>
-                    )}
-
-                    {/* 生成中遮罩 */}
-                    {isGen && (
-                      <div className="absolute inset-0 bg-slate-900/65 backdrop-blur-xs flex flex-col items-center justify-center text-white z-10">
-                        <span className="text-2xl animate-spin mb-2">⏳</span>
-                        <span className="text-xs font-bold">AI 定妆中...</span>
-                      </div>
-                    )}
-
-                    {/* 图片左上角：版本库切换入口 (直观显示当前方案版本，点击可自由选用任意历史版本) */}
-                    {char.versions && char.versions.length > 0 && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setVersionModalEntity({
-                            type: 'character',
-                            id: char.characterId || char.id,
-                            name: char.name,
-                            currentImageUrl: char.imageUrl,
-                            versions: char.versions,
-                            selectedVersionId: char.selectedVersionId || char.versions[char.versions.length - 1]?.versionId,
-                          });
-                        }}
-                        className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-black/65 hover:bg-black/85 backdrop-blur-xs text-white text-[10px] font-mono font-semibold flex items-center space-x-1 cursor-pointer transition-all border border-white/20 z-10"
-                        title="点击查看并切换历史定妆版本"
-                      >
-                        <span>v{char.versions.length}</span>
-                        <span className="text-[9px] text-indigo-300 font-sans">({char.versions.length}版)</span>
-                      </button>
-                    )}
-
-                    {/* 图片右上角：放大灯箱入口 */}
-                    {(char.imageUrl || charRefImg) && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEnlargeMedia?.({
-                            title: char.imageUrl ? `角色定妆 · ${char.name}` : `参考底图 · ${char.name}`,
-                            imageUrl: char.imageUrl || charRefImg,
-                          });
-                        }}
-                        className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 backdrop-blur-xs text-white opacity-0 group-hover/img:opacity-100 transition-opacity text-xs z-10 cursor-pointer"
-                        title="放大查看原图"
-                      >
-                        ⛶
-                      </button>
-                    )}
-
-                    {/* 参考图微缩胶囊 (附带真实底图小预览与删除按钮) */}
-                    {char.imageUrl && charRefImg && (
-                      <div
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEnlargeMedia?.({
-                            title: `参考底图 · ${char.name}`,
-                            imageUrl: charRefImg,
-                          });
-                        }}
-                        className="absolute bottom-2 left-2 px-2 py-1 rounded-lg bg-black/75 hover:bg-black/90 backdrop-blur-xs text-white text-[10px] flex items-center space-x-1.5 cursor-pointer border border-white/20 shadow-xs z-10"
-                        title="点击全屏查看参考底图"
-                      >
-                        <img
-                          src={charRefImg}
-                          alt="底图"
-                          className="w-4 h-4 rounded-full object-cover border border-white/60 shrink-0"
-                        />
-                        <span className="font-medium text-slate-200">参考底图</span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            e.preventDefault();
-                            handleRemoveReferenceImage('character', charId);
-                          }}
-                          className="w-4 h-4 rounded-full bg-black/50 hover:bg-rose-600 text-white flex items-center justify-center transition cursor-pointer text-[10px] ml-0.5 shadow-2xs"
-                          title="删除参考底图"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 角色名称与身份简介 (分层排版，确保名字 100% 完整显示绝不被挤压遮挡) */}
-                  <div className="mb-2.5">
-                    <div className="flex items-center justify-between mb-1">
-                      <h4 className="text-sm font-bold text-slate-900 tracking-tight shrink-0">
-                        {char.name}
-                      </h4>
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200/80 shrink-0">
-                        {char.role || '主要角色'}
-                      </span>
-                    </div>
-                    {char.identity && (
-                      <p
-                        title={char.identity}
-                        className="text-[11px] text-slate-500 truncate leading-normal"
-                      >
-                        {char.identity}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* 中文提示词全展开与修改 */}
-                  <div className="flex-1 bg-slate-50 border border-slate-200/70 rounded-xl p-2.5 mb-3 flex flex-col">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[11px] font-bold text-slate-700 flex items-center space-x-1">
-                        <span>🎨 角色外观设定</span>
-                      </span>
-                      {isEditing ? (
-                        <div className="flex items-center space-x-1.5" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSavePrompt('character', charId);
-                            }}
-                            className="text-[10px] text-indigo-600 font-bold hover:underline"
-                          >
-                            保存
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingPromptId(null);
-                            }}
-                            className="text-[10px] text-slate-400 hover:text-slate-600"
-                          >
-                            取消
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingPromptId(charId);
-                            setPromptDrafts((prev) => ({
-                              ...prev,
-                              [charId]: char.promptZh || char.appearanceSummary || '',
-                            }));
-                          }}
-                          className="text-[10px] text-slate-400 hover:text-indigo-600 flex items-center space-x-0.5 cursor-pointer"
-                        >
-                          <span>✏️ 编辑</span>
-                        </button>
-                      )}
-                    </div>
-
-                    {isEditing ? (
-                      <textarea
-                        value={currentPrompt}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) =>
-                          setPromptDrafts((prev) => ({ ...prev, [charId]: e.target.value }))
-                        }
-                        rows={3}
-                        placeholder="描述角色的外貌特征、体态骨相、服装穿着与发型配饰..."
-                        className="w-full text-xs text-slate-800 bg-white border border-indigo-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
-                      />
-                    ) : (
-                      <p className="text-xs text-slate-600 leading-relaxed line-clamp-3 overflow-hidden select-text">
-                        {char.promptZh || char.appearanceSummary || '暂无详细提示词'}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* 底部操作行动条 */}
-                  <div className="flex items-center space-x-2 pt-1 border-t border-slate-100">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleTriggerUpload('character', charId);
-                      }}
-                      disabled={uploadingEntityId === charId}
-                      className="px-2.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-[11px] font-semibold text-slate-600 flex items-center space-x-1 transition-colors cursor-pointer"
-                      title="上传参考底图以控制人脸/服饰一致性"
-                    >
-                      <span>{uploadingEntityId === charId ? '上传中...' : '📷 换底图'}</span>
-                    </button>
-
-                    {/* 基于此图修改按钮 (仅当已有立绘时展示) */}
-                    {char.imageUrl && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActiveRefineEntityId(
-                            activeRefineEntityId === charId ? null : charId
-                          );
-                        }}
-                        className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-bold flex items-center space-x-1 transition-all cursor-pointer ${
-                          activeRefineEntityId === charId
-                            ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
-                            : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200'
-                        }`}
-                        title="基于当前立绘进行图生图定向精修（严格锁定人物五官身材，仅修改衣服/发色/道具）"
-                      >
-                        <span>🎨</span>
-                        <span>{activeRefineEntityId === charId ? '收起修改' : '基于此图修改'}</span>
-                      </button>
-                    )}
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleGenerateCharacter(char);
-                      }}
-                      disabled={isGen || isBusy}
-                      className={`flex-1 py-1.5 rounded-xl text-xs font-bold flex items-center justify-center space-x-1 transition-all cursor-pointer ${
-                        isGen || isBusy
-                          ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                          : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 active:scale-95'
-                      }`}
-                    >
-                      <span>✨</span>
-                      <span>{char.imageUrl ? '重新定妆' : '生成定妆'}</span>
-                    </button>
-                  </div>
-
-                  {/* 展开的基于当前图定向精修面板 */}
-                  {activeRefineEntityId === charId && (
-                    <div
-                      onClick={(e) => e.stopPropagation()}
-                      className="mt-2.5 p-3 rounded-2xl bg-gradient-to-br from-purple-50/95 to-indigo-50/90 border border-purple-200 shadow-xs space-y-2 animate-in fade-in zoom-in-95 duration-150"
-                    >
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="font-bold text-purple-950 flex items-center space-x-1">
-                          <span>🎨</span>
-                          <span>多模态通用定向精修</span>
-                        </span>
-                        <span className="text-[10px] text-purple-600 font-mono">
-                          动态差分解耦
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-purple-700 leading-tight">
-                        以当前立绘为基准底模，支持修改任意肢体姿态、面容神情、服饰道具或细节：
-                      </p>
-                      <textarea
-                        value={refineInputs[charId] || ''}
-                        onChange={(e) =>
-                          setRefineInputs((prev) => ({ ...prev, [charId]: e.target.value }))
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            handleImageRefine('character', charId, char.imageUrl);
-                          }
-                        }}
-                        rows={2}
-                        placeholder="输入任意修改指令（如：双脚并拢站立、头不要偏目光看前面、换深色风衣、去掉面具、加一道浅伤疤等）..."
-                        className="w-full text-xs text-slate-800 bg-white border border-purple-200 rounded-xl p-2 focus:outline-none focus:ring-2 focus:ring-purple-400 placeholder:text-slate-400 resize-none shadow-2xs font-sans"
-                      />
-                      <div className="flex items-center justify-between pt-0.5">
-                        <span className="text-[10px] text-purple-600">Enter 回车即刻出图</span>
-                        <div className="flex items-center space-x-1.5">
-                          <button
-                            onClick={() => setActiveRefineEntityId(null)}
-                            className="px-2 py-1 rounded-lg text-[11px] text-slate-500 hover:text-slate-700 hover:bg-slate-200/50 transition cursor-pointer"
-                          >
-                            取消
-                          </button>
-                          <button
-                            onClick={() => handleImageRefine('character', charId, char.imageUrl)}
-                            disabled={isSubmittingRefine.has(charId) || isGen || isBusy}
-                            className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-xs flex items-center space-x-1 transition active:scale-95 disabled:opacity-50 cursor-pointer"
-                          >
-                            <span>🎨</span>
-                            <span>
-                              {isSubmittingRefine.has(charId) ? 'AI 构思融合中...' : '定向修改并出图'}
-                            </span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                  char={char}
+                  isSelected={isSelected}
+                  tasks={tasks}
+                  isBusy={isBusy}
+                  charRefImg={charRefImg || undefined}
+                  isGen={isGen}
+                  isSpecExtracting={isSpecExtracting}
+                  isModified={isModified}
+                  currentPrompt={currentPrompt}
+                  activeRefineEntityId={activeRefineEntityId}
+                  refineInput={refineInputs[charId] || ''}
+                  isSubmittingRefine={isSubmittingRefine.has(charId)}
+                  uploadingEntityId={uploadingEntityId}
+                  getActiveUpscale={getActiveUpscale}
+                  hasAnyUpscaledVersion={hasAnyUpscaledVersion}
+                  getSelectedVersionNumber={getSelectedVersionNumber}
+                  getStableImageSrc={getStableImageSrc}
+                  getImageGallery={getImageGallery}
+                  onSelect={() => setSelectedEntityId(charId)}
+                  onOpenVersions={() => {
+                    setVersionModalEntity({
+                      type: 'character',
+                      id: char.characterId || char.id,
+                      name: char.name,
+                      currentImageUrl: char.imageUrl,
+                      versions: char.versions,
+                      selectedVersionId: char.selectedVersionId,
+                    });
+                  }}
+                  onEnlargeMedia={onEnlargeMedia}
+                  onRemoveRefImage={() => handleRemoveReferenceImage('character', charId)}
+                  onTriggerUpload={() => handleTriggerUpload('character', charId)}
+                  onToggleRefine={() => {
+                    setActiveRefineEntityId(
+                      activeRefineEntityId === charId ? null : charId
+                    );
+                  }}
+                  onRefineInputChange={(val) => {
+                    setRefineInputs((prev) => ({ ...prev, [charId]: val }));
+                  }}
+                  onSubmitRefine={() => handleImageRefine('character', charId, char.imageUrl)}
+                  onCancelRefine={() => setActiveRefineEntityId(null)}
+                  onUpscale={() => handleUpscaleEntity('character', charId, 2)}
+                  onExtractSpec={() => handleExtractEntitySpec('character', char)}
+                  onPromptDraftChange={(val) => {
+                    setPromptDrafts((prev) => ({ ...prev, [charId]: val }));
+                  }}
+                  onRevertPrompt={() => handleRevertPrompt(charId)}
+                  onGenerate={() => handleGenerateCharacter(char)}
+                  onRetryTask={(taskId) => {
+                    void retryTask(taskId).then(() => onRefreshProject?.());
+                  }}
+                  isEntityUpscaling={isEntityUpscaling}
+                />
               );
             })}
           </div>
@@ -802,307 +973,91 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
               const locId = loc.locationId || loc.id;
               const locRefImg = getEntityRefImage(loc);
               const isGen = isLocationGenerating(loc);
-              const isEditing = editingPromptId === locId;
+              const isSpecExtracting = isEntitySpecExtracting('location', loc);
               const isSelected = selectedEntityId === locId;
-              const currentPrompt =
-                promptDrafts[locId] !== undefined
-                  ? promptDrafts[locId]
-                  : loc.promptZh || loc.atmospherePrompt || '';
+              const originalPrompt = loc.promptZh || loc.appearanceSummary || loc.atmosphere || '';
+              const hasDraft = promptDrafts[locId] !== undefined;
+              const currentPrompt = hasDraft ? promptDrafts[locId] : originalPrompt;
+              const isModified = hasDraft && promptDrafts[locId] !== originalPrompt;
+
+              const rawSpatial = typeof loc.spatialLayout === 'string'
+                ? loc.spatialLayout
+                : typeof loc.spatialLayout === 'object' && loc.spatialLayout !== null
+                ? Object.values(loc.spatialLayout).filter(Boolean).join('；')
+                : String(loc.spatialLayout || '');
+              const hasSpatialDraft = spatialDrafts[locId] !== undefined;
+              const currentSpatial = hasSpatialDraft ? spatialDrafts[locId] : rawSpatial;
+              const isSpatialModified = hasSpatialDraft && spatialDrafts[locId] !== rawSpatial;
 
               return (
-                <div
+                <LocationCard
                   key={locId}
-                  onClick={() => setSelectedEntityId(locId)}
-                  className={`bg-white/95 backdrop-blur-xs border rounded-3xl p-4 transition-all flex flex-col group cursor-pointer ${
-                    isSelected
-                      ? 'border-indigo-500 ring-4 ring-indigo-500/20 shadow-md bg-indigo-50/20'
-                      : 'border-slate-200/90 hover:border-indigo-300 shadow-xs hover:shadow-md'
-                  }`}
-                >
-                  {/* 场景氛围主图 (16:9 画幅) */}
-                  <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-slate-100 border border-slate-200/60 mb-3.5 group/img">
-                    {loc.imageUrl ? (
-                      <img
-                        key={`${loc.imageUrl}_${loc.selectedVersionId}`}
-                        src={`${loc.imageUrl}?t=${loc.selectedVersionId || Date.now()}`}
-                        alt={loc.name}
-                        className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300"
-                      />
-                    ) : locRefImg ? (
-                      <div className="relative w-full h-full flex items-center justify-center">
-                        <img
-                          src={locRefImg}
-                          alt={`参考底图 · ${loc.name}`}
-                          className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300"
-                        />
-                        <div className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-black/65 backdrop-blur-xs text-white text-[10px] font-semibold border border-white/20">
-                          📷 参考底图 (待渲染)
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 p-4 text-center">
-                        <span className="text-3xl mb-1.5">🏞️</span>
-                        <span className="text-xs font-semibold">待生成场景氛围图</span>
-                      </div>
-                    )}
-
-                    {/* 生成中遮罩 */}
-                    {isGen && (
-                      <div className="absolute inset-0 bg-slate-900/65 backdrop-blur-xs flex flex-col items-center justify-center text-white z-10">
-                        <span className="text-2xl animate-spin mb-2">⏳</span>
-                        <span className="text-xs font-bold">场景渲染中...</span>
-                      </div>
-                    )}
-
-                    {/* 场景左上角：版本库切换入口 */}
-                    {loc.versions && loc.versions.length > 0 && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setVersionModalEntity({
-                            type: 'location',
-                            id: loc.locationId || loc.id,
-                            name: loc.name,
-                            currentImageUrl: loc.imageUrl,
-                            versions: loc.versions,
-                            selectedVersionId: loc.selectedVersionId || loc.versions[loc.versions.length - 1]?.versionId,
-                          });
-                        }}
-                        className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-black/65 hover:bg-black/85 backdrop-blur-xs text-white text-[10px] font-mono font-semibold flex items-center space-x-1 cursor-pointer transition-all border border-white/20 z-10"
-                        title="点击查看并切换历史场景氛围版本"
-                      >
-                        <span>v{loc.versions.length}</span>
-                        <span className="text-[9px] text-indigo-300 font-sans">({loc.versions.length}版)</span>
-                      </button>
-                    )}
-
-                    {/* 场景右上角：放大灯箱入口 */}
-                    {(loc.imageUrl || locRefImg) && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEnlargeMedia?.({
-                            title: loc.imageUrl ? `场景氛围 · ${loc.name}` : `场景参考底图 · ${loc.name}`,
-                            imageUrl: loc.imageUrl || locRefImg,
-                          });
-                        }}
-                        className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 backdrop-blur-xs text-white opacity-0 group-hover/img:opacity-100 transition-opacity text-xs z-10 cursor-pointer"
-                        title="放大查看原图"
-                      >
-                        ⛶
-                      </button>
-                    )}
-
-                    {/* 场景参考图微缩胶囊 (附带真实底图小预览与删除按钮) */}
-                    {loc.imageUrl && locRefImg && (
-                      <div
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEnlargeMedia?.({
-                            title: `场景参考底图 · ${loc.name}`,
-                            imageUrl: locRefImg,
-                          });
-                        }}
-                        className="absolute bottom-2 left-2 px-2 py-1 rounded-lg bg-black/75 hover:bg-black/90 backdrop-blur-xs text-white text-[10px] flex items-center space-x-1.5 cursor-pointer border border-white/20 shadow-xs z-10"
-                        title="点击全屏查看场景参考底图"
-                      >
-                        <img
-                          src={locRefImg}
-                          alt="底图"
-                          className="w-4 h-4 rounded-full object-cover border border-white/60 shrink-0"
-                        />
-                        <span className="font-medium text-slate-200">参考底图</span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            e.preventDefault();
-                            handleRemoveReferenceImage('location', locId);
-                          }}
-                          className="w-4 h-4 rounded-full bg-black/50 hover:bg-rose-600 text-white flex items-center justify-center transition cursor-pointer text-[10px] ml-0.5 shadow-2xs"
-                          title="删除场景参考底图"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="text-sm font-bold text-slate-900 truncate">
-                      {loc.name}
-                    </h4>
-                  </div>
-
-                  {/* 场景提示词 */}
-                  <div className="flex-1 bg-slate-50 border border-slate-200/70 rounded-xl p-2.5 mb-3 flex flex-col">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[11px] font-bold text-slate-700">
-                        🏞️ 空间与光影提示词
-                      </span>
-                      {isEditing ? (
-                        <div className="flex items-center space-x-1.5" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSavePrompt('location', locId);
-                            }}
-                            className="text-[10px] text-indigo-600 font-bold hover:underline"
-                          >
-                            保存
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingPromptId(null);
-                            }}
-                            className="text-[10px] text-slate-400 hover:text-slate-600"
-                          >
-                            取消
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingPromptId(locId);
-                            setPromptDrafts((prev) => ({
-                              ...prev,
-                              [locId]: loc.promptZh || loc.atmospherePrompt || '',
-                            }));
-                          }}
-                          className="text-[10px] text-slate-400 hover:text-indigo-600 flex items-center space-x-0.5 cursor-pointer"
-                        >
-                          <span>✏️ 编辑</span>
-                        </button>
-                      )}
-                    </div>
-
-                    {isEditing ? (
-                      <textarea
-                        value={currentPrompt}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) =>
-                          setPromptDrafts((prev) => ({ ...prev, [locId]: e.target.value }))
-                        }
-                        rows={3}
-                        className="w-full text-xs text-slate-800 bg-white border border-indigo-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
-                      />
-                    ) : (
-                      <p className="text-xs text-slate-600 leading-relaxed line-clamp-3 overflow-hidden select-text">
-                        {loc.promptZh || loc.atmospherePrompt || '暂无详细提示词'}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* 底部按钮 */}
-                  <div className="flex items-center space-x-2 pt-1 border-t border-slate-100">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleTriggerUpload('location', locId);
-                      }}
-                      disabled={uploadingEntityId === locId}
-                      className="px-2.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-[11px] font-semibold text-slate-600 flex items-center space-x-1 transition-colors cursor-pointer"
-                      title="上传参考底图以控制场景风格一致性"
-                    >
-                      <span>{uploadingEntityId === locId ? '上传中...' : '📷 换底图'}</span>
-                    </button>
-
-                    {/* 基于此图修改按钮 (仅当已有场景图时展示) */}
-                    {loc.imageUrl && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActiveRefineEntityId(
-                            activeRefineEntityId === locId ? null : locId
-                          );
-                        }}
-                        className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-bold flex items-center space-x-1 transition-all cursor-pointer ${
-                          activeRefineEntityId === locId
-                            ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
-                            : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200'
-                        }`}
-                        title="基于当前场景进行图生图定向精修（保持场景结构，仅修改天气/光影/氛围）"
-                      >
-                        <span>🎨</span>
-                        <span>{activeRefineEntityId === locId ? '收起修改' : '基于此图修改'}</span>
-                      </button>
-                    )}
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleGenerateLocation(loc);
-                      }}
-                      disabled={isGen || isBusy}
-                      className={`flex-1 py-1.5 rounded-xl text-xs font-bold flex items-center justify-center space-x-1 transition-all cursor-pointer ${
-                        isGen || isBusy
-                          ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                          : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 active:scale-95'
-                      }`}
-                    >
-                      <span>✨</span>
-                      <span>{loc.imageUrl ? '重新渲染' : '生成场景'}</span>
-                    </button>
-                  </div>
-
-                  {/* 展开的基于当前场景定向精修面板 */}
-                  {activeRefineEntityId === locId && (
-                    <div
-                      onClick={(e) => e.stopPropagation()}
-                      className="mt-2.5 p-3 rounded-2xl bg-gradient-to-br from-purple-50/95 to-indigo-50/90 border border-purple-200 shadow-xs space-y-2 animate-in fade-in zoom-in-95 duration-150"
-                    >
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="font-bold text-purple-950 flex items-center space-x-1">
-                          <span>🎨</span>
-                          <span>多模态通用定向精修</span>
-                        </span>
-                        <span className="text-[10px] text-purple-600 font-mono">
-                          动态差分解耦
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-purple-700 leading-tight">
-                        以当前场景为基准底模，支持修改任意空间布局、天气光影、建筑构件或时空氛围：
-                      </p>
-                      <textarea
-                        value={refineInputs[locId] || ''}
-                        onChange={(e) =>
-                          setRefineInputs((prev) => ({ ...prev, [locId]: e.target.value }))
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            handleImageRefine('location', locId, loc.imageUrl);
-                          }
-                        }}
-                        rows={2}
-                        placeholder="输入任意修改指令（如：变成暴雨倾盆的黑夜、换成黄昏暖色夕阳、增加霓虹招牌等）..."
-                        className="w-full text-xs text-slate-800 bg-white border border-purple-200 rounded-xl p-2 focus:outline-none focus:ring-2 focus:ring-purple-400 placeholder:text-slate-400 resize-none shadow-2xs font-sans"
-                      />
-                      <div className="flex items-center justify-between pt-0.5">
-                        <span className="text-[10px] text-purple-600">Enter 回车即刻出图</span>
-                        <div className="flex items-center space-x-1.5">
-                          <button
-                            onClick={() => setActiveRefineEntityId(null)}
-                            className="px-2 py-1 rounded-lg text-[11px] text-slate-500 hover:text-slate-700 hover:bg-slate-200/50 transition cursor-pointer"
-                          >
-                            取消
-                          </button>
-                          <button
-                            onClick={() => handleImageRefine('location', locId, loc.imageUrl)}
-                            disabled={isSubmittingRefine.has(locId) || isGen || isBusy}
-                            className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-xs flex items-center space-x-1 transition active:scale-95 disabled:opacity-50 cursor-pointer"
-                          >
-                            <span>🎨</span>
-                            <span>
-                              {isSubmittingRefine.has(locId) ? 'AI 构思融合中...' : '定向修改并出图'}
-                            </span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                  loc={loc}
+                  isSelected={isSelected}
+                  tasks={tasks}
+                  isBusy={isBusy}
+                  locRefImg={locRefImg || undefined}
+                  isGen={isGen}
+                  isSpecExtracting={isSpecExtracting}
+                  isModified={isModified}
+                  currentPrompt={currentPrompt}
+                  currentSpatial={currentSpatial}
+                  isSpatialModified={isSpatialModified}
+                  activeRefineEntityId={activeRefineEntityId}
+                  refineInput={refineInputs[locId] || ''}
+                  isSubmittingRefine={isSubmittingRefine.has(locId)}
+                  uploadingEntityId={uploadingEntityId}
+                  getActiveUpscale={getActiveUpscale}
+                  hasAnyUpscaledVersion={hasAnyUpscaledVersion}
+                  getSelectedVersionNumber={getSelectedVersionNumber}
+                  getStableImageSrc={getStableImageSrc}
+                  getImageGallery={getImageGallery}
+                  onSelect={() => setSelectedEntityId(locId)}
+                  onOpenVersions={() => {
+                    setVersionModalEntity({
+                      type: 'location',
+                      id: loc.locationId || loc.id,
+                      name: loc.name,
+                      currentImageUrl: loc.imageUrl,
+                      versions: loc.versions,
+                      selectedVersionId: loc.selectedVersionId,
+                    });
+                  }}
+                  onEnlargeMedia={onEnlargeMedia}
+                  onRemoveRefImage={() => handleRemoveReferenceImage('location', locId)}
+                  onTriggerUpload={() => handleTriggerUpload('location', locId)}
+                  onToggleRefine={() => {
+                    setActiveRefineEntityId(
+                      activeRefineEntityId === locId ? null : locId
+                    );
+                  }}
+                  onRefineInputChange={(val) => {
+                    setRefineInputs((prev) => ({ ...prev, [locId]: val }));
+                  }}
+                  onSubmitRefine={() => handleImageRefine('location', locId, loc.imageUrl)}
+                  onCancelRefine={() => setActiveRefineEntityId(null)}
+                  onUpscale={() => handleUpscaleEntity('location', locId, 2)}
+                  onExtractSpec={() => handleExtractEntitySpec('location', loc)}
+                  onPromptDraftChange={(val) => {
+                    setPromptDrafts((prev) => ({ ...prev, [locId]: val }));
+                  }}
+                  onRevertPrompt={() => handleRevertPrompt(locId)}
+                  onSpatialDraftChange={(val) => {
+                    setSpatialDrafts((prev) => ({ ...prev, [locId]: val }));
+                  }}
+                  onRevertSpatial={() => {
+                    setSpatialDrafts((prev) => {
+                      const next = { ...prev };
+                      delete next[locId];
+                      return next;
+                    });
+                  }}
+                  onGenerate={() => handleGenerateLocation(loc)}
+                  onRetryTask={(taskId) => {
+                    void retryTask(taskId).then(() => onRefreshProject?.());
+                  }}
+                  isEntityUpscaling={isEntityUpscaling}
+                />
               );
             })}
           </div>
@@ -1113,82 +1068,66 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {items.map((item: any) => {
               const itemId = item.itemId || item.id;
-              const imageUrl = item.imageUrl || item.referenceImageUrl;
-              const isGenerating = isEntityTaskRunning(tasks, 'film.prop_lookdev', { itemId, id: itemId });
-              const isEditing = editingPromptId === itemId;
-              const currentPrompt = promptDrafts[itemId] !== undefined ? promptDrafts[itemId] : item.promptZh || item.appearanceSummary || '';
+              const isGenerating = isItemGenerating(item);
+              const isSpecExtracting = isEntitySpecExtracting('item', item);
+              const isUpscaling = isEntityUpscaling('item', itemId);
+              const originalPrompt = item.promptZh || item.appearanceSummary || '';
+              const hasDraft = promptDrafts[itemId] !== undefined;
+              const currentPrompt = hasDraft ? promptDrafts[itemId] : originalPrompt;
+              const isModified = hasDraft && promptDrafts[itemId] !== originalPrompt;
+
               return (
-                <div
+                <ItemCard
                   key={itemId}
-                  onClick={() => setSelectedEntityId(itemId)}
-                  className="bg-white/95 border border-slate-200/90 rounded-3xl p-4 shadow-xs flex flex-col cursor-pointer"
-                >
-                  <div className="relative w-full aspect-square rounded-2xl overflow-hidden bg-slate-100 border border-slate-200/60 mb-3.5 flex items-center justify-center">
-                    {imageUrl ? (
-                      <img src={`${imageUrl}?t=${Date.now()}`} alt={item.name} className="w-full h-full object-contain" />
-                    ) : (
-                      <div className="text-center text-slate-400"><span className="text-4xl block mb-2">🧰</span><span className="text-xs font-semibold">待生成道具特写</span></div>
-                    )}
-                    {isGenerating && <div className="absolute inset-0 bg-slate-900/65 flex flex-col items-center justify-center text-white"><span className="text-2xl animate-spin mb-2">⏳</span><span className="text-xs font-bold">道具渲染中...</span></div>}
-                  </div>
-                  <h3 className="text-sm font-bold text-slate-900">{item.name}</h3>
-                  <p className="text-[11px] text-slate-500 mt-1 line-clamp-3">{item.description || item.appearanceSummary || '核心剧情道具'}</p>
-                  {isEditing ? (
-                    <textarea
-                      value={currentPrompt}
-                      onChange={(e) => setPromptDrafts((prev) => ({ ...prev, [itemId]: e.target.value }))}
-                      rows={3}
-                      className="mt-3 w-full text-xs text-slate-800 bg-white border border-indigo-200 rounded-xl p-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-y"
-                    />
-                  ) : (
-                    <p className="mt-2 text-[10px] text-slate-400 line-clamp-2">{currentPrompt}</p>
-                  )}
-                  <div className="mt-3 flex items-center gap-2">
-                    <button type="button" onClick={() => handleTriggerUpload('item', itemId)} disabled={uploadingEntityId === itemId} className="flex-1 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-[11px] font-semibold text-slate-600 cursor-pointer disabled:opacity-50">
-                      {uploadingEntityId === itemId ? '上传中...' : '📷 换底图'}
-                    </button>
-                    <button type="button" onClick={() => isEditing ? handleSavePrompt('item', itemId) : setEditingPromptId(itemId)} className="flex-1 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-[11px] font-semibold text-indigo-700 cursor-pointer">
-                      {isEditing ? '保存提示词' : '✎ 修改提示词'}
-                    </button>
-                  </div>
-                  {imageUrl && (
-                    <button
-                      type="button"
-                      onClick={() => setActiveRefineEntityId(activeRefineEntityId === itemId ? null : itemId)}
-                      className={`mt-2 w-full py-1.5 rounded-xl border text-[11px] font-bold cursor-pointer ${activeRefineEntityId === itemId ? 'bg-purple-600 text-white border-purple-600' : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'}`}
-                    >
-                      🎨 {activeRefineEntityId === itemId ? '收起智能修改' : '基于此图智能修改'}
-                    </button>
-                  )}
-                  {activeRefineEntityId === itemId && imageUrl && (
-                    <div className="mt-2 p-3 rounded-2xl bg-purple-50 border border-purple-200 space-y-2">
-                      <textarea
-                        value={refineInputs[itemId] || ''}
-                        onChange={(e) => setRefineInputs((prev) => ({ ...prev, [itemId]: e.target.value }))}
-                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleImageRefine('item', itemId, imageUrl); } }}
-                        rows={2}
-                        placeholder="输入局部修改，例如：改成银色外壳、去掉裂纹、增加蓝色指示灯"
-                        className="w-full text-xs text-slate-800 bg-white border border-purple-200 rounded-xl p-2 resize-none focus:outline-none focus:ring-2 focus:ring-purple-400"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleImageRefine('item', itemId, imageUrl)}
-                        disabled={isSubmittingRefine.has(itemId) || isGenerating || isBusy}
-                        className="w-full py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
-                      >
-                        {isSubmittingRefine.has(itemId) ? 'AI 构思融合中...' : '定向修改并出图'}
-                      </button>
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => onRunTool('film.prop_lookdev', { projectId, itemId, force: true, referenceImageUrls: item.referenceImageUrl ? [item.referenceImageUrl] : undefined }).then(() => onRefreshProject?.())}
-                    disabled={isBusy || isGenerating}
-                    className="mt-3 w-full py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold disabled:opacity-50 cursor-pointer"
-                  >
-                    {isGenerating ? '渲染中...' : imageUrl ? '重新生成道具特写' : '生成道具特写'}
-                  </button>
-                </div>
+                  item={item}
+                  isSelected={selectedEntityId === itemId}
+                  tasks={tasks}
+                  isBusy={isBusy}
+                  itemRefImg={getEntityRefImage(item) || undefined}
+                  isGenerating={isGenerating}
+                  isSpecExtracting={isSpecExtracting}
+                  isUpscaling={isUpscaling}
+                  isModified={isModified}
+                  currentPrompt={currentPrompt}
+                  activeRefineEntityId={activeRefineEntityId}
+                  refineInput={refineInputs[itemId] || ''}
+                  isSubmittingRefine={isSubmittingRefine.has(itemId)}
+                  uploadingEntityId={uploadingEntityId}
+                  getActiveUpscale={getActiveUpscale}
+                  getSelectedVersionNumber={getSelectedVersionNumber}
+                  getStableImageSrc={getStableImageSrc}
+                  getImageGallery={getImageGallery}
+                  onSelect={() => setSelectedEntityId(itemId)}
+                  onOpenVersions={() => {
+                    setVersionModalEntity({
+                      type: 'item',
+                      id: itemId,
+                      name: item.name,
+                      currentImageUrl: item.imageUrl,
+                      versions: item.versions,
+                      selectedVersionId: item.selectedVersionId,
+                    });
+                  }}
+                  onEnlargeMedia={onEnlargeMedia}
+                  onTriggerUpload={() => handleTriggerUpload('item', itemId)}
+                  onToggleRefine={() => {
+                    setActiveRefineEntityId(activeRefineEntityId === itemId ? null : itemId);
+                  }}
+                  onRefineInputChange={(val) => {
+                    setRefineInputs((prev) => ({ ...prev, [itemId]: val }));
+                  }}
+                  onSubmitRefine={() => handleImageRefine('item', itemId, item.imageUrl || item.referenceImageUrl)}
+                  onUpscale={() => handleUpscaleEntity('item', itemId, 2)}
+                  onExtractSpec={() => handleExtractEntitySpec('item', item)}
+                  onPromptDraftChange={(val) => {
+                    setPromptDrafts((prev) => ({ ...prev, [itemId]: val }));
+                  }}
+                  onRevertPrompt={() => handleRevertPrompt(itemId)}
+                  onGenerate={() => handleGenerateItem(item)}
+                  onRetryTask={(taskId) => {
+                    void retryTask(taskId).then(() => onRefreshProject?.());
+                  }}
+                />
               );
             })}
             {items.length === 0 && <div className="col-span-full py-16 text-center text-sm text-slate-400">当前没有提取到核心道具</div>}
@@ -1197,99 +1136,16 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
       </main>
 
       {/* ──────────────── 3. 历史定妆版本选择与切换弹窗 ──────────────── */}
-      {versionModalEntity && (() => {
-        const isLocationModal = versionModalEntity.type === 'location';
-        return (
-          <div
-            onClick={() => setVersionModalEntity(null)}
-            className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-6 animate-in fade-in duration-200 select-none"
-          >
-            <div
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-3xl max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-200"
-            >
-              <div className="p-4 px-6 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-                <div className="flex items-center space-x-2">
-                  <span className="text-xl">{isLocationModal ? '🏞️' : '🎨'}</span>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">
-                      {isLocationModal ? '选择场景空间版本' : '选择定妆方案版本'} · {versionModalEntity.name}
-                    </h3>
-                    <p className="text-[11px] text-slate-500">
-                      共{isLocationModal ? '渲染' : '生成'}了 {versionModalEntity.versions.length} 个版本，点击任意卡片即可直接设定为主{isLocationModal ? '场景' : '方案'}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setVersionModalEntity(null)}
-                  className="w-8 h-8 rounded-full hover:bg-slate-200 text-slate-500 flex items-center justify-center transition cursor-pointer"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className={`p-6 overflow-y-auto grid ${isLocationModal ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3' : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4'} gap-4 bg-slate-50/50`}>
-                {versionModalEntity.versions.map((ver, idx) => {
-                  const isSelected =
-                    ver.versionId ===
-                    (versionModalEntity.selectedVersionId ||
-                      versionModalEntity.versions[versionModalEntity.versions.length - 1]?.versionId);
-                  return (
-                    <div
-                      key={ver.versionId || idx}
-                      onClick={() => {
-                        handleSelectVersion(
-                          versionModalEntity.type,
-                          versionModalEntity.id,
-                          ver.versionId
-                        );
-                        setVersionModalEntity((prev) =>
-                          prev ? { ...prev, selectedVersionId: ver.versionId } : null
-                        );
-                      }}
-                      className={`group relative rounded-2xl overflow-hidden border-2 cursor-pointer transition-all bg-white flex flex-col ${
-                        isSelected
-                          ? 'border-indigo-600 ring-4 ring-indigo-500/20 shadow-md'
-                          : 'border-slate-200 hover:border-indigo-300 shadow-2xs hover:shadow-sm'
-                      }`}
-                    >
-                      <div className={`relative ${isLocationModal ? 'aspect-video' : 'aspect-[2/1]'} bg-slate-100 flex items-center justify-center ${isLocationModal ? '' : 'p-1'}`}>
-                        <img
-                          src={`${ver.imageUrl}?t=${ver.versionId}`}
-                          alt={`Version ${idx + 1}`}
-                          className={`w-full h-full ${isLocationModal ? 'object-cover' : 'object-contain object-center'}`}
-                        />
-                        <div className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-xs text-white text-[10px] font-mono font-semibold">
-                          v{idx + 1}
-                        </div>
-                        {isSelected && (
-                          <div className="absolute inset-0 bg-indigo-600/15 flex items-center justify-center">
-                            <span className="px-2.5 py-1 rounded-xl bg-indigo-600 text-white text-xs font-bold shadow-xs">
-                              当前选用
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="p-2.5 bg-white border-t border-slate-100 flex items-center justify-between">
-                        <span className="text-[10px] text-slate-400 font-mono">
-                          {new Date(ver.createdAt).toLocaleDateString()}
-                        </span>
-                        {isSelected ? (
-                          <span className="text-[10px] text-indigo-600 font-bold">✓ 选用中</span>
-                        ) : (
-                          <span className="text-[10px] text-slate-500 group-hover:text-indigo-600 font-medium">
-                            设为当前
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {versionModalEntity && (
+        <LookdevVersionModal
+          entity={versionModalEntity}
+          onClose={() => setVersionModalEntity(null)}
+          onSelectVersion={(type, id, versionId) => {
+            handleSelectVersion(type, id, versionId);
+            setVersionModalEntity((prev) => (prev ? { ...prev, selectedVersionId: versionId } : null));
+          }}
+        />
+      )}
 
       {/* ──────────────── 4. 右侧独立查看抽屉 (Inspector SSOT，专注大图、历史版本与提示词，无多余修改面板) ──────────────── */}
       {activeSelectedEntity && (
@@ -1326,12 +1182,19 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
             {/* 1. 立绘/场景大图 (角色 2:1 三视图 / 场景 16:9 横版) */}
             <div className={`relative w-full ${isLocationEntity ? 'aspect-video' : isItemEntity ? 'aspect-square' : 'aspect-[2/1]'} bg-slate-100 rounded-2xl overflow-hidden border border-slate-200/80 flex items-center justify-center ${isLocationEntity ? '' : 'p-1'} group`}>
               {activeSelectedEntity.imageUrl ? (
-                <img
-                  key={`${activeSelectedEntity.imageUrl}_${activeSelectedEntity.selectedVersionId}`}
-                  src={`${activeSelectedEntity.imageUrl}?t=${activeSelectedEntity.selectedVersionId || Date.now()}`}
-                  alt={activeSelectedEntity.name}
-                  className={`w-full h-full ${isLocationEntity ? 'object-cover' : 'object-contain object-center'}`}
-                />
+                <>
+                  <img
+                    key={`${activeSelectedEntity.imageUrl}_${activeSelectedEntity.selectedVersionId}`}
+                    src={getStableImageSrc(activeSelectedEntity.imageUrl, activeSelectedEntity)}
+                    alt={activeSelectedEntity.name}
+                    className={`w-full h-full ${isLocationEntity ? 'object-cover' : 'object-contain object-center'}`}
+                  />
+                  {getActiveUpscale(activeSelectedEntity) && (
+                    <span className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-emerald-600/90 backdrop-blur-xs text-white text-[10px] font-mono font-bold shadow-xs z-10">
+                      HD {getActiveUpscale(activeSelectedEntity)!.multiplier}×
+                    </span>
+                  )}
+                </>
               ) : activeRefImg ? (
                 <div className="relative w-full h-full flex items-center justify-center">
                   <img
@@ -1357,6 +1220,7 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
                     onEnlargeMedia?.({
                       title: `参考底图 · ${activeSelectedEntity.name}`,
                       imageUrl: activeRefImg,
+                      gallery: getImageGallery(activeSelectedEntity, selectedCharacter ? '角色定妆' : isItemEntity ? '道具特写' : '场景氛围'),
                     })
                   }
                   className="absolute bottom-2.5 left-2.5 p-1 rounded-xl bg-black/75 hover:bg-black/90 backdrop-blur-md border border-white/20 shadow-lg cursor-pointer group/ref flex items-center space-x-2 transition-all hover:scale-105 z-10"
@@ -1393,12 +1257,16 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
               {/* 放大按钮 */}
               {(activeSelectedEntity.imageUrl || activeRefImg) && (
                 <button
-                  onClick={() =>
+                  onClick={() => {
+                    const up = getActiveUpscale(activeSelectedEntity);
                     onEnlargeMedia?.({
                       title: activeSelectedEntity.imageUrl ? activeSelectedEntity.name : `参考底图 · ${activeSelectedEntity.name}`,
                       imageUrl: activeSelectedEntity.imageUrl || activeRefImg,
-                    })
-                  }
+                      badge: up ? `HD ${up.multiplier}×` : undefined,
+                      subtitle: up ? `已通过 SeedVR2 完成 ${up.multiplier}× 高清超分` : undefined,
+                      gallery: getImageGallery(activeSelectedEntity, selectedCharacter ? '角色定妆' : isItemEntity ? '道具特写' : '场景氛围'),
+                    });
+                  }}
                   className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 backdrop-blur-xs text-white opacity-0 group-hover:opacity-100 transition text-xs cursor-pointer z-10"
                   title="放大查看原图"
                 >
@@ -1430,68 +1298,196 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
               </button>
 
               <button
-                onClick={() => {
+                onClick={async () => {
+                  try {
+                    if (isEntityChanged) {
+                      await handleSaveActiveEntityChanges();
+                    }
+                  } catch (err: any) {
+                    alert(`应用修改失败: ${err?.message || String(err)}`);
+                    return;
+                  }
+
                   if (selectedCharacter) {
                     handleGenerateCharacter(selectedCharacter);
                   } else if (selectedLocation) {
                     handleGenerateLocation(selectedLocation);
                   } else if (selectedItem) {
                     const itemId = selectedItem.itemId || selectedItem.id;
-                    onRunTool('film.prop_lookdev', { projectId, itemId, force: true, referenceImageUrls: selectedItem.referenceImageUrl ? [selectedItem.referenceImageUrl] : undefined })
-                      .then(() => onRefreshProject?.());
+                    runLookdev({
+                      targetKind: 'item',
+                      targetId: itemId,
+                      force: true,
+                      referenceImageUrls: selectedItem.referenceImageUrl ? [selectedItem.referenceImageUrl] : undefined,
+                    })
+                      .then(() => onRefreshProject?.())
+                      .catch((err: any) => alert(`生成道具特写失败: ${err?.message || String(err)}`));
                   }
                 }}
                 disabled={
                   (selectedCharacter && isCharacterGenerating(selectedCharacter)) ||
                   (selectedLocation && isLocationGenerating(selectedLocation)) ||
-                  (selectedItem && isEntityTaskRunning(tasks, 'film.prop_lookdev', { itemId: selectedItem.itemId || selectedItem.id, id: selectedItem.itemId || selectedItem.id })) ||
+                  (selectedItem && isItemGenerating(selectedItem)) ||
                   isBusy
                 }
-                className="flex-1 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center justify-center space-x-1 transition shadow-xs disabled:opacity-50 cursor-pointer"
+                className={`flex-1 py-2.5 rounded-xl text-white text-xs font-bold flex items-center justify-center space-x-1.5 transition shadow-xs disabled:opacity-50 cursor-pointer ${
+                  isEntityChanged
+                    ? 'bg-gradient-to-r from-amber-600 to-indigo-600 hover:from-amber-500 hover:to-indigo-500 ring-2 ring-amber-400/40 shadow-md'
+                    : 'bg-indigo-600 hover:bg-indigo-700'
+                }`}
               >
                 <span>✨</span>
                 <span>
                   {(selectedCharacter && isCharacterGenerating(selectedCharacter)) ||
                   (selectedLocation && isLocationGenerating(selectedLocation)) ||
-                  (selectedItem && isEntityTaskRunning(tasks, 'film.prop_lookdev', { itemId: selectedItem.itemId || selectedItem.id, id: selectedItem.itemId || selectedItem.id }))
-                    ? '生成中...'
+                  (selectedItem && isItemGenerating(selectedItem))
+                    ? '处理中...'
+                    : isEntityChanged
+                    ? `应用修改并${
+                        activeSelectedEntity.imageUrl
+                          ? isLocationEntity
+                            ? '重新渲染场景'
+                            : isItemEntity
+                            ? '重新生成道具特写'
+                            : '重新定妆'
+                          : isLocationEntity
+                          ? '渲染场景'
+                          : isItemEntity
+                          ? '生成道具特写'
+                          : '立即定妆'
+                      }`
                     : activeSelectedEntity.imageUrl
-                    ? isItemEntity ? '重新生成道具特写' : '重新定妆'
-                    : isItemEntity ? '生成道具特写' : '立即定妆'}
+                    ? isLocationEntity
+                      ? '重新渲染场景'
+                      : isItemEntity
+                      ? '重新生成道具特写'
+                      : '重新定妆'
+                    : isLocationEntity
+                    ? '渲染场景'
+                    : isItemEntity
+                    ? '生成道具特写'
+                    : '立即定妆'}
                 </span>
               </button>
             </div>
 
-            {/* 3. 历史定妆/渲染版本库 (角色 3:4 / 场景 16:9 动态自适应) */}
-            {!isItemEntity && activeSelectedEntity.versions && activeSelectedEntity.versions.length > 0 && (
+            {/* 2.5 按需高清超分栏 (SeedVR2，无损追加新版本) */}
+            {activeSelectedEntity.imageUrl && (() => {
+              const entityKind: 'character' | 'location' | 'item' = selectedCharacter
+                ? 'character'
+                : isItemEntity
+                ? 'item'
+                : 'location';
+              const entityId =
+                activeSelectedEntity.characterId ||
+                activeSelectedEntity.locationId ||
+                activeSelectedEntity.itemId ||
+                activeSelectedEntity.id;
+              const upscaling = isEntityUpscaling(entityKind, entityId);
+              const entityBusy =
+                (selectedCharacter && isCharacterGenerating(selectedCharacter)) ||
+                (selectedLocation && isLocationGenerating(selectedLocation)) ||
+                (selectedItem && isItemGenerating(selectedItem)) ||
+                isBusy;
+              const currentUpscale = getActiveUpscale(activeSelectedEntity);
+
+              return (
+                <div
+                  className={`flex flex-col gap-2 rounded-2xl p-2.5 border transition-all ${
+                    currentUpscale
+                      ? 'bg-emerald-50/90 border-emerald-300'
+                      : 'bg-emerald-50/70 border-emerald-200/80'
+                  }`}
+                >
+                  <div className="flex items-center justify-between text-xs font-bold text-emerald-950 px-1">
+                    <span className="flex items-center gap-1.5">
+                      <span>✨</span>
+                      <span>SeedVR2 无损高清超分</span>
+                    </span>
+                    {currentUpscale ? (
+                      <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-mono font-bold shadow-2xs">
+                        ✓ 当前已超分 {currentUpscale.multiplier}×
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-emerald-700/80 font-normal">
+                        自动追加高清新版本
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="inline-flex rounded-xl bg-white p-0.5 border border-emerald-200 shrink-0">
+                      {([2, 4] as const).map((factor) => (
+                        <button
+                          key={factor}
+                          type="button"
+                          onClick={() => setUpscaleMultiplier(factor)}
+                          disabled={entityBusy}
+                          className={`px-2 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                            upscaleMultiplier === factor
+                              ? 'bg-emerald-600 text-white shadow-2xs'
+                              : 'text-emerald-700 hover:bg-emerald-50'
+                          }`}
+                        >
+                          {factor}×
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleUpscaleEntity(entityKind, entityId, upscaleMultiplier)}
+                      disabled={entityBusy}
+                      className="flex-1 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-2xs disabled:opacity-50 cursor-pointer"
+                      title="使用官方 SeedVR2 工作流执行无损高清超分，自动追加为新版本，原版仍保留在版本库中"
+                    >
+                      {upscaling && (
+                        <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      )}
+                      <span>
+                        {upscaling
+                          ? `SeedVR2 超分中 (${upscaleMultiplier}×)...`
+                          : currentUpscale
+                          ? `重新超分当前版本 (${upscaleMultiplier}×)`
+                          : `执行 SeedVR2 高清超分 (${upscaleMultiplier}×)`}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* 3. 历史定妆/渲染版本库 (角色 2:1 / 场景 16:9 / 道具 1:1 动态自适应) */}
+            {displayVersions.length > 0 && (
               <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-800 flex items-center space-x-1">
                     <span>📚</span>
                     <span>
-                      {isLocationEntity ? '已渲染版本库' : '已定妆版本库'} ({activeSelectedEntity.versions.length} 版)
+                      {isLocationEntity ? '已渲染版本库' : isItemEntity ? '道具版本库' : '已定妆版本库'} ({displayVersions.length} 版)
                     </span>
                   </span>
-                  <span className="text-[10px] text-slate-400 font-mono">点击直接切换选用</span>
+                  <span className="text-[10px] text-slate-500">待验收版本请对照修改要求后选用</span>
                 </div>
                 <div className={`grid ${isLocationEntity ? 'grid-cols-2 gap-2.5' : 'grid-cols-3 gap-2'} max-h-56 overflow-y-auto p-1`}>
-                  {activeSelectedEntity.versions.map((ver: any, idx: number) => {
-                    const isSelectedVer =
-                      ver.versionId ===
-                      (activeSelectedEntity.selectedVersionId ||
-                        activeSelectedEntity.versions[activeSelectedEntity.versions.length - 1]?.versionId);
+                  {displayVersions.map((ver: any, idx: number) => {
+                    const isSelectedVer = ver.versionId === activeSelectedEntity.selectedVersionId;
+                    const entityId =
+                      activeSelectedEntity.characterId ||
+                      activeSelectedEntity.locationId ||
+                      activeSelectedEntity.itemId ||
+                      activeSelectedEntity.id;
                     return (
                       <div
-                        key={ver.versionId || idx}
+                        key={`${entityId}_${ver.versionId || 'ver'}_${idx}`}
+                        title={ver.reviewStatus === 'pending' ? `待验收：${ver.instruction || '请对照画面确认修改要求'}` : undefined}
                         onClick={() =>
                           handleSelectVersion(
-                            selectedCharacter ? 'character' : 'location',
-                            activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.id,
+                            selectedCharacter ? 'character' : isItemEntity ? 'item' : 'location',
+                            entityId,
                             ver.versionId
                           )
                         }
                         className={`group relative rounded-xl overflow-hidden border-2 cursor-pointer transition-all ${
-                          isLocationEntity ? 'aspect-video' : 'aspect-[2/1]'
+                          isLocationEntity ? 'aspect-video' : isItemEntity ? 'aspect-square' : 'aspect-[2/1]'
                         } bg-white ${
                           isSelectedVer
                             ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-xs'
@@ -1506,6 +1502,17 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
                         <div className="absolute top-1 left-1 px-1 py-0.2 rounded bg-black/60 text-[9px] font-mono text-white">
                           v{idx + 1}
                         </div>
+                        {ver.upscale && (
+                          <div
+                            className="absolute top-1 right-1 px-1 py-0.2 rounded bg-emerald-600/95 text-[8px] font-mono font-bold text-white shadow-2xs z-10"
+                            title={`已完成 SeedVR2 ${ver.upscale.multiplier}× 高清超分`}
+                          >
+                            HD {ver.upscale.multiplier}×
+                          </div>
+                        )}
+                        {ver.reviewStatus === 'pending' && (
+                          <span className="absolute top-1 right-1 px-1 py-0.5 rounded bg-amber-700 text-white text-[9px] font-semibold">待验收</span>
+                        )}
                         {isSelectedVer && (
                           <div className="absolute inset-0 bg-indigo-600/15 flex items-center justify-center">
                             <span className="px-1.5 py-0.5 rounded bg-indigo-600 text-white text-[9px] font-bold shadow-2xs">
@@ -1520,40 +1527,129 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
               </div>
             )}
 
-            {/* 4. 生图提示词编辑大文本框 */}
-            <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-800 flex items-center space-x-1">
-                  <span>✏️</span>
-                  <span>生图提示词 (Prompt)</span>
-                </span>
-                <button
-                  onClick={() =>
-                      handleSavePrompt(
-                      selectedCharacter ? 'character' : isItemEntity ? 'item' : 'location',
-                      activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.itemId || activeSelectedEntity.id
-                    )
-                  }
-                  className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold shadow-2xs transition cursor-pointer"
-                >
-                  💾 保存修改
-                </button>
+            {/* 4. 全局统一实体生图设定提示词卡片 (角色、场景、道具单一真理源 SSOT) */}
+            {activeSelectedEntity && (
+              <div className="space-y-3">
+                {/* 板块 1：生图提示词 (Prompt) */}
+                <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 flex items-center space-x-1">
+                      <span>{selectedLocation ? '🎨' : '✏️'}</span>
+                      <span>
+                        {selectedLocation
+                          ? '🎨 场景生图词 (出图专用)'
+                          : selectedCharacter
+                          ? '👤 角色定妆设定 (Prompt)'
+                          : '📦 道具特写设定 (Prompt)'}
+                      </span>
+                    </span>
+                    {isPromptChanged && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!activeEntityId) return;
+                          handleRevertPrompt(activeEntityId);
+                        }}
+                        className="inline-flex items-center gap-1 text-[10px] text-white bg-amber-500 hover:bg-amber-600 border border-amber-600 px-2 py-0.5 rounded-md font-bold transition shadow-xs cursor-pointer group active:scale-95 animate-in fade-in"
+                        title="放弃未应用的改动，一键还原为当前已保存设定"
+                      >
+                        <span>↺ 还原设定</span>
+                      </button>
+                    )}
+                  </div>
+                  <textarea
+                    value={
+                      promptDrafts[
+                        activeSelectedEntity.characterId ||
+                          activeSelectedEntity.locationId ||
+                          activeSelectedEntity.itemId ||
+                          activeSelectedEntity.id
+                      ] ??
+                      (activeSelectedEntity.promptZh || activeSelectedEntity.appearanceSummary || '')
+                    }
+                    onChange={(e) =>
+                      setPromptDrafts((prev) => ({
+                        ...prev,
+                        [activeSelectedEntity.characterId ||
+                          activeSelectedEntity.locationId ||
+                          activeSelectedEntity.itemId ||
+                          activeSelectedEntity.id]: e.target.value,
+                      }))
+                    }
+                    placeholder={
+                      selectedLocation
+                        ? '聚焦宏观建筑形制开间、核心主轴陈设、PBR 真实材质与冷暖光影；纯置景描写，绝无东南西北罗盘词...'
+                        : '描述实体的外观特征、服饰/材质细节与色彩...'
+                    }
+                    rows={3}
+                    className={`w-full min-h-16 max-h-64 overflow-y-auto [field-sizing:content] text-xs text-slate-800 rounded-xl p-2.5 focus:outline-none leading-relaxed resize-y font-sans transition-colors ${
+                      isPromptChanged
+                        ? 'border-2 border-amber-400/90 bg-amber-50/20 focus:ring-2 focus:ring-amber-400/30'
+                        : 'border border-slate-200 bg-white focus:ring-1 focus:ring-indigo-500'
+                    }`}
+                  />
+                  {selectedLocation && (
+                    <p className="text-[10px] text-slate-400 leading-tight">
+                      * 专供生成场景空镜概念大片；请使用自然置景语言，避免机械方位词。
+                    </p>
+                  )}
+                </div>
+
+                {/* 板块 2：三维客观空间构造蓝图 (仅场景专有，专供下游分镜机位调度) */}
+                {selectedLocation && (() => {
+                  const locId = selectedLocation.locationId || selectedLocation.id;
+
+                  return (
+                    <div className="bg-indigo-50/40 border border-indigo-200/80 rounded-2xl p-3.5 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-indigo-950 flex items-center space-x-1">
+                          <span>🧭</span>
+                          <span>三维空间构造 (分镜机位专用)</span>
+                        </span>
+                        {isSpatialChanged && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!selectedLocId) return;
+                              setSpatialDrafts((prev) => {
+                                const next = { ...prev };
+                                delete next[selectedLocId];
+                                return next;
+                              });
+                            }}
+                            className="inline-flex items-center gap-1 text-[10px] text-white bg-amber-500 hover:bg-amber-600 border border-amber-600 px-2 py-0.5 rounded-md font-bold transition shadow-xs cursor-pointer group active:scale-95 animate-in fade-in"
+                            title="放弃未应用的改动，一键还原为当前已保存空间构造"
+                          >
+                            <span>↺ 还原空间构造</span>
+                          </button>
+                        )}
+                      </div>
+                      <textarea
+                        value={currentSpatialStr}
+                        onChange={(e) =>
+                          setSpatialDrafts((prev) => ({
+                            ...prev,
+                            [locId]: e.target.value,
+                          }))
+                        }
+                        placeholder="客观相对拓扑事实底座：以核心主地标为空间原点，交代正面出入通道、面向地标时左右翼立面/开窗/通道，以及顶空挑高与主导光源入射方向（纯客观物理事实，严禁东南西北罗盘词）..."
+                        rows={4}
+                        className={`w-full min-h-20 max-h-64 overflow-y-auto [field-sizing:content] text-xs text-slate-800 rounded-xl p-2.5 focus:outline-none leading-relaxed resize-y font-sans transition-colors ${
+                          isSpatialChanged
+                            ? 'border-2 border-amber-400/90 bg-amber-50/20 focus:ring-2 focus:ring-amber-400/30'
+                            : 'border border-indigo-200/90 bg-white focus:ring-1 focus:ring-indigo-500'
+                        }`}
+                      />
+                      <p className="text-[10px] text-indigo-600/90 leading-tight">
+                        * 场景客观相对拓扑事实底座，供下游分镜镜头按具体拍摄机位动态投影视锥，不影响场景出图。
+                      </p>
+                    </div>
+                  );
+                })()}
               </div>
-              <textarea
-                value={
-                  promptDrafts[activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.itemId || activeSelectedEntity.id] ??
-                  (activeSelectedEntity.promptZh || activeSelectedEntity.appearanceSummary || '')
-                }
-                onChange={(e) =>
-                  setPromptDrafts((prev) => ({
-                    ...prev,
-                    [activeSelectedEntity.characterId || activeSelectedEntity.locationId || activeSelectedEntity.itemId || activeSelectedEntity.id]: e.target.value,
-                  }))
-                }
-                rows={1}
-                className="w-full min-h-12 max-h-64 overflow-y-auto [field-sizing:content] text-xs text-slate-800 bg-white border border-slate-200 rounded-xl p-2.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 leading-relaxed resize-y font-sans"
-              />
-            </div>
+            )}
           </div>
         </aside>
       )}
@@ -1562,11 +1658,8 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
       <DirectorFloatingBubble
         mode="lookdev"
         projectId={projectId}
-        projectData={projectData}
         tasks={tasks}
-        onRunTool={onRunTool}
         onRefreshProject={onRefreshProject}
-        isBusy={isBusy}
       />
     </div>
   );

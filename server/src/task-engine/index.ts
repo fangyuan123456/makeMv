@@ -7,3 +7,4 @@ export * from './types.js';
 export * from './task-store.js';
 export * from './task-registry.js';
 export * from './task-dispatcher.js';
+export * from './plan-waves.js';

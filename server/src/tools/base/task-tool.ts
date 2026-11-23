@@ -56,6 +56,7 @@ export interface TaskExecutionContext {
   toolName: string;
   parentTaskId?: string;
   abortSignal?: AbortSignal;
+  reflectionContext?: string;
   reportProgress: (percent: number, note: string) => void;
 }
 
@@ -161,6 +162,7 @@ export abstract class BaseTaskTool<TInput, TOutput> extends EventEmitter {
           toolName: this.toolName,
           parentTaskId: options?.parentTaskId,
           abortSignal: options?.abortSignal,
+          reflectionContext: (input as any)?._reflectionContext,
           reportProgress: (percent, note) => {
             try {
               callbacks.onProgress?.({ percent, note });

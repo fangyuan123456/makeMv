@@ -1,72 +1,59 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import type { SubmittableToolSpec } from './types.js';
+import { IntentPolicy } from './intent-policy.js';
 
 export const EMIT_DIRECTOR_INTENT_TOOL_NAME = 'emit_director_intent';
 
 export function createIntentTools(
   specs: SubmittableToolSpec[],
   isSystemTrigger: boolean,
-  allowPostTaskProposal: boolean,
   hasPendingProposal = true
 ): Record<string, any> | undefined {
   if (!specs.length) return undefined;
 
-  const mayPropose = isSystemTrigger && allowPostTaskProposal;
-  // 纯系统复盘场景（不允许发起新提案）无需强绑意图工具，直接纯文本流式输出完整复盘，彻底避免 JSON 参数包裹与吞字
-  if (isSystemTrigger && !mayPropose) return undefined;
-
-  const availableTools = specs
-    .map((spec) => `- ${spec.toolName}: ${spec.description} (卡片标题: ${spec.title})`)
-    .join('\n');
-  const targetNames = specs.map((spec) => spec.toolName) as [string, ...string[]];
-  const targetToolEnum = z.enum(targetNames);
+  const toolNames = specs.map((spec) => spec.toolName) as [string, ...string[]];
+  const toolEnum = z.enum(toolNames);
   const allowPendingActions = !isSystemTrigger && hasPendingProposal;
-  const actionDescription = isSystemTrigger
-    ? '- propose: 复盘后若下一工具需要创作者授权，出具待审方案卡片（必须提供 description 与 targetTool + params 或 operations）；\n- chat_only: 仅汇报任务结果。'
-    : allowPendingActions
-      ? '- propose: 针对新构思、已有产物重绘/重新生成或失败重试，出具包含 description 与制片参数的待审方案卡片；\n- approve: 创作者明确同意当前挂起提案时授权执行，只填写 reply；\n- modify: 调整当前待审提案，填写 description 与完整 targetTool + params 或 operations；\n- chat_only: 只填写 reply。'
-      : '- propose: 出具包含 description 与完整制片参数的待审方案卡片，单步填写 targetTool + params，批量填写 operations；\n- chat_only: 只填写 reply。';
 
   const operationSchema = z.object({
-    targetTool: targetToolEnum,
-    title: z.string().trim().min(1),
-    params: z.record(z.any()),
-  }).strict();
-  const singleFields = {
-    targetTool: targetToolEnum,
-    params: z.record(z.any()),
-    coverage: z.enum(['selected', 'all_pending']).optional(),
-  };
-  const batchFields = {
-    operations: z.array(operationSchema).min(1),
-  };
-  const proposalFields = {
-    reply: z.string().min(1),
-    title: z.string().optional(),
-    description: z.string().trim().min(1).describe('面向创作者展示的简明业务说明，不含工具名或内部推理'),
-  };
-  const branches: z.ZodTypeAny[] = [
-    z.object({ action: z.literal('propose'), ...proposalFields, ...singleFields }).strict(),
-    z.object({ action: z.literal('propose'), ...proposalFields, ...batchFields }).strict(),
-    z.object({ action: z.literal('chat_only'), reply: z.string().min(1) }).strict(),
-  ];
-  if (allowPendingActions) {
-    branches.push(
-      z.object({ action: z.literal('approve'), reply: z.string().min(1) }).strict(),
-      z.object({ action: z.literal('modify'), ...proposalFields, ...singleFields }).strict(),
-      z.object({ action: z.literal('modify'), ...proposalFields, ...batchFields }).strict(),
-    );
-  }
+    tool: toolEnum.describe('当前步骤目标工具（单一事实来源，必须与编目工具名一致）'),
+    title: z.string().trim().min(1).describe('步骤简要标题（例如：角色定妆 · [目标实体名]）'),
+    params: z.record(z.any()).describe('当前步骤的输入参数对象'),
+  });
+
+  const actionEnum = isSystemTrigger && hasPendingProposal
+    ? z.enum(['chat_only'])
+    : allowPendingActions
+    ? z.enum(['propose', 'modify', 'approve', 'chat_only'])
+    : z.enum(['propose', 'chat_only']);
+
+  const intentInputSchema = z.object({
+    action: actionEnum.describe('选择制片意图动作（propose: 提议新方案; modify: 精修已有提案; approve: 授权开跑; chat_only: 纯对白）'),
+    reply: z.string().min(1).describe('面向创作者的自然语言发言（方案亮点说明、开跑确认、答疑或追问）'),
+    ...(allowPendingActions ? {
+      invalidatePendingProposal: z.boolean().optional().describe('仅 chat_only 使用：用户明确否定或要求修改旧方案，但还需澄清才能提出新方案时设为 true，使旧卡片失效；纯咨询或暂缓不设置'),
+    } : {}),
+    title: z.string().optional().describe('下一阶段具体制片工序的主标题（格式如：[实体名/镜号] · [工序名称]，例如“镜02 · 首帧关键帧渲染”；绝对严禁包含“复盘”、“自愈”、“已完成”等汇报性状态词）'),
+    description: z.string().optional().describe('面向创作者展示的简明工序业务说明（propose 必填，不含工具名或内部推理，阐述下一阶段将执行的具体内容）'),
+    tool: toolEnum.optional().describe('单任务目标工具（仅限单实体单步任务；若批量处理多个实体严禁填此，改填 operations）'),
+    params: z.record(z.any()).optional().describe('单任务执行参数（仅限单实体单步任务；若批量处理多个实体严禁填此，改填 operations）'),
+    operations: z.array(operationSchema).optional().describe('批量多实体/多步骤 Plan 清单（当涉及 2 个及以上实体，如多个角色/场景/道具/镜头时，必须且唯一使用本字段为每个实体独立列出一条 step，根节点 tool 与 params 留空）'),
+  }).refine((data) => {
+    if (data.invalidatePendingProposal && data.action !== 'chat_only') return false;
+    if (data.action === 'approve') {
+      return !data.params && !data.tool && !data.operations;
+    }
+    return true;
+  }, { message: 'invalidatePendingProposal 仅用于 chat_only；approve 不得附带执行参数' });
+
+  const toolDescription = IntentPolicy.getToolDescription(allowPendingActions);
 
   return {
     [EMIT_DIRECTOR_INTENT_TOOL_NAME]: createTool({
       id: EMIT_DIRECTOR_INTENT_TOOL_NAME,
-      description: `制片意图决策工具。依据当前项目状态判定后调用。reply 必须直接回答创作者，不得复述内部动作或协议。
-${actionDescription}
-当前阶段可选工序:
-${availableTools}`,
-      inputSchema: z.union(branches as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]),
+      description: toolDescription,
+      inputSchema: intentInputSchema,
       preserveInputSchema: true,
       execute: async ({ context }) => context,
     }),

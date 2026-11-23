@@ -81,7 +81,7 @@ async function testDualCallbackAndPackaging() {
     ],
   };
 
-  store.setArtifact(projectId, 'universal_prd', mockPrd);
+  store.setArtifact(projectId, 'prd', mockPrd);
 
   let receivedTaskId: string | null = null;
   let receivedResult: any = null;

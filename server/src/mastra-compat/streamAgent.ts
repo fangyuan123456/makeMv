@@ -18,7 +18,7 @@ import {
 import { JsonSanitizer } from '../utils/JsonSanitizer.js';
 import { toolCallJsonHealingMiddleware } from './jsonHealing.js';
 
-export type StepToolChoice = 'auto' | 'required' | 'none';
+export type StepToolChoice = 'auto' | 'required' | 'none' | { type: 'tool'; toolName: string };
 
 export interface CompatAgentStreamOptions {
   model?: LanguageModelV1;
@@ -181,13 +181,15 @@ export function streamAgentWithCompat(
             : params.mode.tools;
 
         const nextToolChoice =
-          stepCfg.toolChoice === 'required'
-            ? ({ type: 'required' } as const)
-            : stepCfg.toolChoice === 'none'
-              ? ({ type: 'none' } as const)
-              : stepCfg.toolChoice === 'auto'
-                ? ({ type: 'auto' } as const)
-                : params.mode.toolChoice;
+          typeof stepCfg.toolChoice === 'object' && stepCfg.toolChoice && (stepCfg.toolChoice as any).type === 'tool'
+            ? stepCfg.toolChoice
+            : stepCfg.toolChoice === 'required'
+              ? ({ type: 'required' } as const)
+              : stepCfg.toolChoice === 'none'
+                ? ({ type: 'none' } as const)
+                : stepCfg.toolChoice === 'auto'
+                  ? ({ type: 'auto' } as const)
+                  : params.mode.toolChoice;
 
         return {
           ...params,

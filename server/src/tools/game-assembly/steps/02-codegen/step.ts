@@ -510,7 +510,7 @@ export async function executeCodegenStep(
   }
 
   // 3. 提取分幕与初始状态
-  const effectivePrd: UniversalPrdSpec = input.prd || store.getArtifact(input.projectId, 'universal_prd') || store.getArtifact(input.projectId, 'prd');
+  const effectivePrd: UniversalPrdSpec = input.prd || store.getArtifact(input.projectId, 'prd');
   const title = input.title || effectivePrd?.gameTitle || '未命名互动影游';
   const startSceneId = input.startNodeId || input.script?.startSceneId || effectivePrd?.startNodeId || 'S1';
   const initialState = input.script?.initialState || effectivePrd?.initialState || {};

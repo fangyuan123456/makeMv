@@ -10,38 +10,32 @@
  */
 
 import React, { useRef, useEffect, useMemo } from 'react';
-import type { ProjectData, TaskRecord } from '../../../types/index.js';
+import type { TaskRecord } from '../../../types/index.js';
 import {
-  PlannerChatSessionClient,
-  type ChatMessageItem,
+  PlannerConversationClient,
+  type ConversationMessage,
   type PlannerActionIntent,
-} from '../../../lib/ChatSession.js';
+} from '../../../lib/DirectorConversation.js';
 import { useDirectorChatFlow } from '../../../hooks/useDirectorChatFlow.js';
 import { DirectorTaskCard } from './DirectorTaskCard.js';
 import { ProposalCard } from './ProposalCard.js';
+import { ChatAttachmentStrip } from './ChatAttachmentStrip.js';
 
 export type ActionIntent = PlannerActionIntent;
-export type { ChatMessageItem };
+export type { ConversationMessage };
 
 interface PlannerChatProps {
   projectId: string;
-  projectData: ProjectData | null;
-  onRunTool: (toolName: string, input: Record<string, any>) => Promise<TaskRecord | any>;
   tasks?: TaskRecord[];
-  onAssetProduced?: (type: 'screenplay' | 'prd') => void;
-  onSelectStage?: (stage: string) => void;
-  isBusy: boolean;
+  onRefreshProject?: () => void;
 }
 
 export const PlannerChat: React.FC<PlannerChatProps> = ({
   projectId,
-  projectData,
-  onRunTool,
   tasks = [],
-  onAssetProduced,
-  isBusy,
+  onRefreshProject,
 }) => {
-  const session = useMemo(() => new PlannerChatSessionClient(projectId || ''), [projectId]);
+  const session = useMemo(() => new PlannerConversationClient(projectId || ''), [projectId]);
 
   const defaultWelcome =
     '你好，我是你的专属故事总监。我负责为你构建本互动影游的世界观大纲、人物动机与多结局分支因果树。\n你可以直接向我描述故事设想，也可以点击下方的灵感预设开始构思。';
@@ -50,47 +44,37 @@ export const PlannerChat: React.FC<PlannerChatProps> = ({
     messages,
     inputText,
     setInputText,
+    pendingImages,
+    isUploadingImage,
     isStreaming,
+    isApproving,
     streamingContent,
     streamingTargetId,
     streamingAppendContent,
-    nowTick,
     isTaskRunning,
     pendingProposalMsg,
+    focusLabel,
     computeDisplayPercent,
+    handleAddImages,
+    handleRemovePendingImage,
+    handlePasteImages,
     handleSendMessage,
+    handleApproveProposal,
+    handleRetryTask,
+    handleCancelPlan,
   } = useDirectorChatFlow({
     projectId,
-    projectData,
     session,
     tasks,
-    onRunTool,
-    onRefreshProject: () => {},
-    isBusy,
+    onRefreshProject,
     defaultWelcomeMessage: defaultWelcome,
     welcomeMessageId: 'welcome_msg',
-    resolveHistoricalProposals: (h, data) => {
-      // 仅凭资产已存在不能判定提案已执行；未绑定任务的最新修改提案必须保留待审卡片。
-      // 旧提案本身已有 proposalResolved 标记时，历史加载器会直接使用该标记。
-      if (!h.taskId && h.taskStatus !== 'completed') return false;
-      const hasScreenplay = Boolean(data?.screenplay || data?.artifacts?.screenplay);
-      const hasPrd = Boolean(data?.prd || data?.artifacts?.prd || data?.artifacts?.prdMarkdown);
-      if (h.proposal?.action === 'next_stage') return true;
-      if (h.proposal?.tool === 'planner.screenplay_writer' && hasScreenplay) return true;
-      if (h.proposal?.tool === 'planner.script_to_prd' && hasPrd) return true;
-      return false;
-    },
-    generatePostTaskTriggerPrompt: (toolName, actionTitle) => {
-      const isStage1AllCompleted = toolName.includes('prd');
-      return isStage1AllCompleted
-        ? `【制片工序事件】工序【${actionTitle || toolName}】已圆满执行并物理落盘！剧本与 PRD 双基准均已收敛，工序 1 全线完工。请你对照当前【工序 1 制片管线与实时状态看板】，为创作者出具工序 1 全景收官总纲复盘。`
-        : `【制片工序事件】工序【${actionTitle || toolName}】已圆满执行并物理落盘！请你对照当前【工序 1 制片管线与实时状态看板】，为创作者出具阶段复盘，并阐述下一步 PRD 分幕拓扑拆解方案。`;
-    },
-    onAssetProduced: onAssetProduced ? (type) => onAssetProduced(type as any) : undefined,
+    mode: 'planner',
   });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesViewportRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const shouldAutoScrollRef = useRef(true);
 
   const handleMessagesScroll = () => {
@@ -107,12 +91,12 @@ export const PlannerChat: React.FC<PlannerChatProps> = ({
     if (shouldAutoScrollRef.current) scrollToBottom();
   }, [messages, streamingContent, streamingAppendContent]);
 
-  // 灵感预设胶囊
+  // 灵感预设胶囊（题材中立，聚焦网状叙事与互动影游核心戏剧决策）
   const quickPrompts = [
-    '题材：科幻生存，空间站引力异常，舰长在副手与AI间抉择',
-    '题材：末日悬疑，记忆被篡改的侦探调查避难所谋杀案',
-    '在第二幕增加一个关于氧气配给的高风险道德难题',
-    '直接为我推演完整的全景互动剧本',
+    '🎲 规划包含多重结局分支的网状互动剧本',
+    '⚡ 在核心分幕设计一个关乎生死的高压道德难题',
+    '🎭 梳理各阵营核心人物的隐秘动机与对立冲突',
+    '🎬 为各分幕拆解电影级戏剧节拍与互动规则',
   ];
 
   // 灵感胶囊仅在初始未开始对话阶段展示；一旦创作者开始对话或正在打字，立即自动隐藏
@@ -136,7 +120,9 @@ export const PlannerChat: React.FC<PlannerChatProps> = ({
                 <span>在线指导</span>
               </span>
             </div>
-            <p className="text-[10px] text-slate-400 mt-0.5">工序 1 专属互动叙事架构师</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">
+              {focusLabel ? `🎯 当前聚焦: ${focusLabel}` : '工序 1 专属互动叙事架构师'}
+            </p>
           </div>
         </div>
 
@@ -148,31 +134,33 @@ export const PlannerChat: React.FC<PlannerChatProps> = ({
       {/* 消息对话流视窗 */}
       <div ref={messagesViewportRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg) => {
-          // 刚性过滤无内容无任务无提案的空消息，彻底消灭幽灵圆圈
-          if (!msg.content?.trim() && !msg.taskId && !msg.proposal) {
+          // 刚性过滤无内容无附件无任务无提案的空消息，彻底消灭幽灵圆圈
+          if (!msg.content?.trim() && !msg.attachments?.length && !msg.taskId && !msg.planSteps?.length && !msg.proposal) {
             return null;
           }
 
           const isUser = msg.role === 'user';
-          const hasTask = Boolean(msg.taskId);
+          const hasTask = Boolean(msg.taskId || (msg.planSteps && msg.planSteps.length > 0));
 
-          // 统一任务推演卡片
+          // 统一任务推演卡片（支持单步原子任务与多步 Plan 执行清单）
           if (hasTask) {
             return (
               <DirectorTaskCard
                 key={msg.id}
                 msg={msg}
                 tasks={tasks}
-                nowTick={nowTick}
                 displayPercent={computeDisplayPercent(msg)}
                 streamingTargetId={streamingTargetId}
                 streamingAppendContent={streamingAppendContent}
-                onRetry={() => handleSendMessage('重试本工序')}
-                onApprove={() => handleSendMessage('同意')}
-                canApprove={pendingProposalMsg?.id === msg.id}
-                proposalAccentClassName="bg-indigo-600 hover:bg-indigo-700"
+                onRetry={() => (msg.taskId ? handleRetryTask(msg.taskId) : handleSendMessage('重试本工序'))}
+                onRetryTask={handleRetryTask}
+                onCancelPlan={handleCancelPlan}
                 directorRoleName="故事总监"
                 progressGradientClass="from-indigo-500 via-indigo-600 to-purple-600"
+                onApproveProposal={handleApproveProposal}
+                isApproving={isApproving}
+                isStreaming={isStreaming}
+                isTaskRunning={isTaskRunning}
               />
             );
           }
@@ -196,12 +184,20 @@ export const PlannerChat: React.FC<PlannerChatProps> = ({
                     : 'bg-slate-50/80 border border-slate-200/80 text-slate-800 rounded-tl-xs'
                 }`}
               >
-                <div className="whitespace-pre-wrap">{msg.content}</div>
-                {msg.proposal && msg.proposalState === 'pending' && pendingProposalMsg?.id === msg.id && (
+                {msg.attachments && msg.attachments.length > 0 && (
+                  <ChatAttachmentStrip
+                    attachments={msg.attachments}
+                    variant="message"
+                    size="md"
+                    className="mb-2"
+                  />
+                )}
+                {msg.content && <div className="whitespace-pre-wrap">{msg.content}</div>}
+                {msg.proposal && !msg.taskId && (!msg.planSteps || msg.planSteps.length === 0) && msg.proposalState === 'pending' && pendingProposalMsg?.id === msg.id && (
                   <ProposalCard
                     proposal={msg.proposal}
-                    onApprove={() => handleSendMessage('同意')}
-                    disabled={isStreaming || isBusy || isTaskRunning}
+                    onApprove={() => handleApproveProposal(msg.id)}
+                    disabled={isStreaming || isApproving || isTaskRunning}
                   />
                 )}
               </div>
@@ -236,7 +232,7 @@ export const PlannerChat: React.FC<PlannerChatProps> = ({
                 key={idx}
                 type="button"
                 onClick={() => handleSendMessage(p)}
-                disabled={isStreaming || isBusy || isTaskRunning}
+                disabled={isStreaming || isTaskRunning}
                 className="text-left px-2.5 py-1.5 bg-white hover:bg-indigo-50/80 hover:border-indigo-200 hover:text-indigo-700 text-slate-700 text-[11px] rounded-xl border border-slate-200/90 shadow-2xs transition-all leading-relaxed disabled:opacity-40 cursor-pointer"
               >
                 {p}
@@ -247,11 +243,43 @@ export const PlannerChat: React.FC<PlannerChatProps> = ({
       )}
 
       {/* 底部输入框与人在回路真实状态操作条 */}
-      <div className="p-3.5 border-t border-slate-100 bg-white flex-shrink-0">
+      <div className="p-3.5 border-t border-slate-100 bg-white flex-shrink-0 space-y-2">
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files?.length) void handleAddImages(e.target.files);
+            e.target.value = '';
+          }}
+        />
+
+        {pendingImages.length > 0 && (
+          <ChatAttachmentStrip
+            attachments={pendingImages}
+            variant="pending"
+            size="md"
+            onRemove={handleRemovePendingImage}
+          />
+        )}
+
         <div className="flex items-center space-x-2">
+          <button
+            type="button"
+            onClick={() => imageInputRef.current?.click()}
+            disabled={isStreaming || isTaskRunning || isUploadingImage || pendingImages.length >= 4}
+            className="p-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 rounded-xl text-xs transition disabled:opacity-40 cursor-pointer flex-shrink-0"
+            title="发送图片（支持多选，也可直接 Ctrl+V 粘贴截图）"
+          >
+            {isUploadingImage ? '⏳' : '🖼️'}
+          </button>
+
           <textarea
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
+            onPaste={handlePasteImages}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -261,7 +289,7 @@ export const PlannerChat: React.FC<PlannerChatProps> = ({
             placeholder={
               isTaskRunning
                 ? '后台任务正在执行，请稍候...'
-                : '描述你的剧情构想、修改意见或向总监提问 (Enter 发送)...'
+                : '描述你的剧情构想、修改意见，或粘贴参考图 (Enter 发送)...'
             }
             rows={1}
             disabled={isStreaming || isTaskRunning}
@@ -270,7 +298,7 @@ export const PlannerChat: React.FC<PlannerChatProps> = ({
 
           <button
             onClick={() => handleSendMessage()}
-            disabled={!inputText.trim() || isStreaming || isBusy || isTaskRunning}
+            disabled={(!inputText.trim() && pendingImages.length === 0) || isStreaming || isUploadingImage || isTaskRunning}
             className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-xl text-xs transition disabled:opacity-40 shadow-xs active:scale-[0.99] flex-shrink-0 cursor-pointer"
           >
             发送

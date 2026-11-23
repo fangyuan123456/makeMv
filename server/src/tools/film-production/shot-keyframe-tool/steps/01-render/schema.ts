@@ -13,6 +13,10 @@ export const ShotKeyframeStepInputSchema = z.object({
   customPrompt: z.string().optional().describe('创作者手动调整的关键帧生图词'),
   customNegativePrompt: z.string().optional().describe('创作者手动调整的负向词'),
   referenceImageUrls: z.array(z.string()).optional().describe('创作者上传或指定的垫图参考图 URLs'),
+  instruction: z.string().optional().describe('基于当前帧的定向微调要求（有值时本次出图记为 refine 版本）'),
+  maskImageUrl: z.string().optional().describe('局部重绘或精准擦除的黑白遮罩蒙版图片 URL'),
+  denoise: z.number().min(0.01).max(1.0).optional().describe('自适应去噪强度（微调通常 0.45~0.60，全量重构 1.0）'),
+  continuityMode: z.enum(['auto', 'linked', 'detached']).optional().describe('前序镜头连续性模式：auto（AI智能同场景连贯）、linked（强制承接上镜尾帧）、detached（独立机位断开）'),
 });
 
 export const ShotKeyframeStepOutputSchema = z.object({

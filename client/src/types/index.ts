@@ -14,12 +14,68 @@ export interface ProjectMetadata {
   currentStage: 'gdd_planning' | 'text_game_authoring' | 'film_compiling' | 'completed';
 }
 
+export interface ImageUpscaleMeta {
+  multiplier: number;
+  upscaledAt: string;
+  sourceVersionId?: string;
+}
+
 export interface LookdevVersion {
   versionId: string;
   imageUrl: string;
   promptZh?: string;
   referenceImageUrl?: string;
+  instruction?: string;
+  reviewStatus?: 'pending' | 'accepted';
+  upscale?: ImageUpscaleMeta;
   createdAt: string;
+}
+
+/** 分镜镜头某一帧（首帧/末帧）的历史版本 */
+export interface ShotFrameVersion {
+  versionId: string;
+  imageUrl: string;
+  fileName?: string;
+  numericCode?: string;
+  prompt?: string;
+  instruction?: string;
+  createdAt: string;
+  source: 'generate' | 'refine' | 'upscale' | 'continuity_preceding' | 'detached_composition';
+  continuityMode?: 'auto' | 'linked' | 'detached';
+  cameraDirective?: VisualDirective;
+  colorDirective?: VisualDirective;
+  poseDirective?: VisualDirective;
+  nameSegments?: {
+    frameKind: string;
+    continuity: string;
+    visualCode?: string;
+    motionCode?: string;
+    versionSeq: string;
+  };
+  upscale?: ImageUpscaleMeta;
+}
+
+/** 分镜镜头视频历史版本 */
+export interface ShotVideoVersion {
+  versionId: string;
+  videoUrl: string;
+  fileName?: string;
+  numericCode?: string;
+  prompt?: string;
+  instruction?: string;
+  createdAt: string;
+  source: 'generate' | 'upscale';
+  continuityMode?: 'auto' | 'linked' | 'detached';
+  motionDirective?: VisualDirective;
+  dynamicDirective?: VisualDirective;
+  focusDirective?: VisualDirective;
+  nameSegments?: {
+    frameKind: string;
+    continuity: string;
+    visualCode?: string;
+    motionCode?: string;
+    versionSeq: string;
+  };
 }
 
 export interface ExtractedCharacter {
@@ -41,13 +97,19 @@ export interface ExtractedItem {
   appearanceSummary: string;
   promptZh: string;
   referenceImageUrl?: string;
+  imageUrl?: string;
+  versions?: LookdevVersion[];
+  selectedVersionId?: string;
 }
+
+export type SpatialLayout = string;
 
 export interface ExtractedLocation {
   locationId: string;
   name: string;
   atmosphere: string;
   appearanceSummary: string;
+  spatialLayout?: string;
   promptZh: string;
   sceneIds: string[];
   referenceImageUrl?: string;
@@ -63,6 +125,12 @@ export interface LookdevEntitiesArtifact {
   locations: ExtractedLocation[];
 }
 
+export interface VisualDirective {
+  label: string;
+  instruction: string;
+  presetId?: string;
+}
+
 export interface CinematicShotOrder {
   shotId: string;
   clipId: string;
@@ -73,6 +141,15 @@ export interface CinematicShotOrder {
   generationMode?: 'first_frame' | 'first_last_frame';
   characters?: string[];
   items?: string[];
+  // 视听工业级开放元数据体系 (SSOT，开放无边界)
+  cameraDirective?: VisualDirective;
+  colorDirective?: VisualDirective;
+  poseDirective?: VisualDirective;
+  sceneSubject?: string;
+  // 视频专属开放元数据体系
+  motionDirective?: VisualDirective;
+  dynamicDirective?: VisualDirective;
+  focusDirective?: VisualDirective;
   backgroundImageUrl?: string;
   characterReferenceImageUrls?: string[];
   firstFramePrompt: string;
@@ -81,6 +158,8 @@ export interface CinematicShotOrder {
   audioPrompt: string;
   firstFrameImageUrl?: string;
   lastFrameImageUrl?: string;
+  firstFrameUpscale?: ImageUpscaleMeta;
+  lastFrameUpscale?: ImageUpscaleMeta;
   keyframeUrl?: string;
   videoUrl?: string;
   dialogue?: string;
@@ -175,6 +254,18 @@ export interface UniversalPrdSpec {
   [key: string]: any;
 }
 
+export interface StaleEntry {
+  reason: string;
+  updatedAt: number;
+}
+
+export interface ProjectStaleMap {
+  prd?: StaleEntry;
+  clips: Record<string, StaleEntry>;
+  shotKeyframes: Record<string, StaleEntry>;
+  shotVideos: Record<string, StaleEntry>;
+}
+
 export interface ProjectData {
   meta: ProjectMetadata;
   artifacts: {
@@ -184,6 +275,7 @@ export interface ProjectData {
     hasStandaloneGame?: boolean;
     film_spec?: FilmAdapterArtifact;
     storyboards?: any[];
+    staleMap?: ProjectStaleMap;
     [key: string]: any;
   };
   prd?: UniversalPrdSpec | any;
@@ -193,19 +285,40 @@ export interface ProjectData {
   screenplay?: string;
   story?: string;
   storySections?: Record<string, { title: string; narrativeText: string }>;
+  staleMap?: ProjectStaleMap;
 }
 
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export type TaskFailureType =
+  | 'llm_contract_error'      // LLM 输出不符合契约/缺失必填/JSON解析失败/语义脱轨
+  | 'media_service_error'     // ComfyUI / DashScope / 外部 GPU 算力异常 / 显存溢出 / 规格不符
+  | 'system_interrupted'      // 服务重启中断 / 执行线程丢失 / 僵尸任务回收
+  | 'transient_network_error' // 网络超时 / 连接重置 / 502 / 504 瞬态网关错误
+  | 'system_fault';           // 其他系统未捕获异常
+
+export interface TaskFailureRecord {
+  timestamp: number;
+  type: TaskFailureType;
+  error: string;
+  attempt: number;
+  details?: Record<string, any>;
+}
 
 export interface TaskRecord<TInput = any, TOutput = any> {
   taskId: string;
   projectId: string;
   toolName: string;
+  replacesTaskId?: string;
   status: TaskStatus;
   progress?: { current: number; total: number; message?: string; percent?: number };
   input: TInput;
   output?: TOutput;
   error?: string;
+  failureType?: TaskFailureType;
+  lastFailure?: TaskFailureRecord;
+  retryCount?: number;
+  maxRetries?: number;
   createdAt: number;
   startedAt?: number;
   completedAt?: number;
@@ -238,8 +351,40 @@ export interface CanvasShotNode {
   candidateTaskIds?: string[];
   videoUrl?: string;
   keyframeUrl?: string;
+  firstFrameImageUrl?: string;
+  lastFrameUrl?: string;
+  lastFrameImageUrl?: string;
+  firstFrameUpscale?: ImageUpscaleMeta;
+  lastFrameUpscale?: ImageUpscaleMeta;
+  firstFrameVersions?: ShotFrameVersion[];
+  lastFrameVersions?: ShotFrameVersion[];
+  videoVersions?: ShotVideoVersion[];
+  generationMode?: 'first_frame' | 'first_last_frame';
+  firstFramePrompt?: string;
+  lastFramePrompt?: string;
+  videoPrompt?: string;
+  // 视听工业级开放元数据体系 (SSOT: 首帧/末帧/视频三轨独立存储)
+  firstFrameCameraDirective?: VisualDirective;
+  firstFrameColorDirective?: VisualDirective;
+  firstFramePoseDirective?: VisualDirective;
+  lastFrameCameraDirective?: VisualDirective;
+  lastFrameColorDirective?: VisualDirective;
+  lastFramePoseDirective?: VisualDirective;
+  cameraDirective?: VisualDirective;
+  colorDirective?: VisualDirective;
+  poseDirective?: VisualDirective;
+  sceneSubject?: string;
+  // 视频专属开放元数据体系
+  motionDirective?: VisualDirective;
+  dynamicDirective?: VisualDirective;
+  focusDirective?: VisualDirective;
   characters?: CanvasLookdevEntitySummary[];
   locations?: CanvasLookdevEntitySummary[];
+  isUnlocked?: boolean;
+  staleKeyframeReason?: string;
+  staleVideoReason?: string;
+  // 前序镜头视听连续性模式：auto（智能决策）、linked（强制承接尾帧）、detached（独立机位）
+  continuityMode?: 'auto' | 'linked' | 'detached';
 }
 
 export interface CanvasBranchEdge {

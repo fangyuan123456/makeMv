@@ -26,7 +26,7 @@ function collectStoryboardShotMap(storyboards: any[]): Map<string, any> {
   return map;
 }
 
-function syncCanvasUpscaleFromStoryboards(canvasData: any, storyboards: any[]): boolean {
+function syncCanvasFromStoryboards(canvasData: any, storyboards: any[]): boolean {
   if (!canvasData?.nodes || !Array.isArray(storyboards) || storyboards.length === 0) return false;
   const shotMap = collectStoryboardShotMap(storyboards);
   let changed = false;
@@ -46,6 +46,27 @@ function syncCanvasUpscaleFromStoryboards(canvasData: any, storyboards: any[]): 
       else delete node.lastFrameUpscale;
       changed = true;
     }
+
+    // 同步提示词与视听结构化元数据 (SSOT 闭环)
+    const syncFields = [
+      'firstFramePrompt',
+      'lastFramePrompt',
+      'videoPrompt',
+      'sceneSubject',
+      'cameraDirective',
+      'colorDirective',
+      'poseDirective',
+      'motionDirective',
+      'dynamicDirective',
+      'focusDirective',
+    ];
+
+    for (const f of syncFields) {
+      if (matched[f] !== undefined && JSON.stringify(node[f] || null) !== JSON.stringify(matched[f] || null)) {
+        node[f] = matched[f];
+        changed = true;
+      }
+    }
   }
   return changed;
 }
@@ -59,10 +80,10 @@ export const getStoryboardCanvas = (req: Request, res: Response) => {
       safeReadJsonSync<any[]>(path.join(projectDir, 'storyboards.json')) ||
       [];
 
-    // 1. 若已有落盘画布，检查是否需要自愈补全定妆母体起点并对齐最新超分元数据
+    // 1. 若已有落盘画布，检查是否需要自愈补全定妆母体起点并对齐最新超分与视听元数据
     let canvasData = store.getArtifact<any>(projectId, 'storyboard_canvas');
     if (canvasData && canvasData.nodes && Object.keys(canvasData.nodes).length > 0) {
-      let canvasChanged = syncCanvasUpscaleFromStoryboards(canvasData, storyboards);
+      let canvasChanged = syncCanvasFromStoryboards(canvasData, storyboards);
       if (!canvasData.nodes['node_lookdev_root']) {
         const entities =
           store.getArtifact<any>(projectId, 'lookdev_entities') ||
@@ -130,7 +151,7 @@ export const getStoryboardCanvas = (req: Request, res: Response) => {
       safeReadJsonSync<any>(path.join(projectDir, 'prd.json')) ||
       {};
 
-    const rawClips = prd.clips || prd.scenes || [];
+    const rawClips = Array.isArray(prd.clips) ? prd.clips : [];
 
     const nodes: Record<string, any> = {};
     const edges: Record<string, any> = {};
@@ -151,32 +172,26 @@ export const getStoryboardCanvas = (req: Request, res: Response) => {
     let startY = 140;
 
     rawClips.forEach((c: any, index: number) => {
-      const clipId = c.id || c.clipId || `c${index + 1}`;
+      const clipId = c.id || `c${index + 1}`;
       const nodeId = `node_${clipId}`;
 
       // 尝试匹配已有的成片/关键帧资产
-      const matchedSb = storyboards.find((s: any) => s.clipId === clipId || s.id === clipId);
+      const matchedSb = storyboards.find((s: any) => s.clipId === clipId);
       const primaryShot = Array.isArray(matchedSb?.shots) ? matchedSb.shots[0] : matchedSb;
-      const videoUrl = primaryShot?.videoUrl || matchedSb?.videoUrl || c.videoUrl || '';
-      const keyframeUrl =
-        primaryShot?.firstFrameImageUrl ||
-        primaryShot?.keyframeUrl ||
-        matchedSb?.firstFrameImageUrl ||
-        matchedSb?.keyframeUrl ||
-        c.firstFrameImageUrl ||
-        '';
-      const lastFrameUrl = primaryShot?.lastFrameImageUrl || primaryShot?.lastFrameUrl || '';
-      const taskId = primaryShot?.taskId || matchedSb?.taskId || '';
+      const videoUrl = primaryShot?.videoUrl || '';
+      const keyframeUrl = primaryShot?.firstFrameImageUrl || '';
+      const lastFrameUrl = primaryShot?.lastFrameImageUrl || '';
+      const taskId = primaryShot?.taskId || '';
 
       nodes[nodeId] = {
         id: nodeId,
         type: 'shot_node',
-        shotId: primaryShot?.shotId || matchedSb?.shotId || `s_${clipId}_1`,
+        shotId: primaryShot?.shotId || `s_${clipId}_1`,
         clipId,
         title: c.title || `第 ${index + 1} 幕`,
         // 画布节点展示镜头演绎台本；首帧提示词由下一级关键帧处理使用。
-        prompt: matchedSb?.videoPrompt || matchedSb?.description || matchedSb?.promptZh || c.narrativeText || '',
-        durationSec: primaryShot?.durationSec || matchedSb?.durationSec || 4.0,
+        prompt: primaryShot?.videoPrompt || primaryShot?.firstFramePrompt || c.narrativeText || '',
+        durationSec: primaryShot?.durationSec || 4.0,
         position: {
           x: startX + index * 380,
           y: startY + (index % 2 === 1 ? 60 : 0),
@@ -189,23 +204,32 @@ export const getStoryboardCanvas = (req: Request, res: Response) => {
         lastFrameUrl: lastFrameUrl || undefined,
         firstFrameUpscale: primaryShot?.firstFrameUpscale || undefined,
         lastFrameUpscale: primaryShot?.lastFrameUpscale || undefined,
+        // 关键视听结构化元数据透传 (SSOT 闭环)
+        firstFramePrompt: primaryShot?.firstFramePrompt || undefined,
+        lastFramePrompt: primaryShot?.lastFramePrompt || undefined,
+        videoPrompt: primaryShot?.videoPrompt || undefined,
+        sceneSubject: primaryShot?.sceneSubject || undefined,
+        cameraDirective: primaryShot?.cameraDirective || undefined,
+        colorDirective: primaryShot?.colorDirective || undefined,
+        poseDirective: primaryShot?.poseDirective || undefined,
+        motionDirective: primaryShot?.motionDirective || undefined,
+        dynamicDirective: primaryShot?.dynamicDirective || undefined,
+        focusDirective: primaryShot?.focusDirective || undefined,
       };
 
       // 解析选项连线 (仅保留纯粹镜头之间的因果流，过滤抽象互动杂点)
       (c.choices || []).forEach((ch: any, chIdx: number) => {
-        const rawTargetId = ch.to || ch.targetNodeId || ch.targetSceneId;
+        const rawTargetId = ch.to;
         if (rawTargetId) {
           // 智能归一化目标镜头 ID (如 S7 / scene_7 -> c7)
           let resolvedTargetId = rawTargetId;
           const matchNum = String(rawTargetId).match(/\d+/);
           if (matchNum) {
             const targetClip = rawClips.find(
-              (rc: any) =>
-                (rc.id || rc.clipId) === rawTargetId ||
-                (rc.id || rc.clipId) === `c${matchNum[0]}`
+              (rc: any) => rc.id === rawTargetId || rc.id === `c${matchNum[0]}`
             );
             if (targetClip) {
-              resolvedTargetId = targetClip.id || targetClip.clipId;
+              resolvedTargetId = targetClip.id;
             }
           }
           const edgeId = `edge_${clipId}_to_${resolvedTargetId}_${chIdx}`;
@@ -213,7 +237,7 @@ export const getStoryboardCanvas = (req: Request, res: Response) => {
             id: edgeId,
             fromNodeId: nodeId,
             toNodeId: `node_${resolvedTargetId}`,
-            choiceText: ch.text || ch.label || `抉择 ${chIdx + 1}`,
+            choiceText: ch.label || ch.text || `抉择 ${chIdx + 1}`,
           };
         }
       });
@@ -221,7 +245,7 @@ export const getStoryboardCanvas = (req: Request, res: Response) => {
 
     // 定妆母体节点直连第一个分镜镜头
     if (rawClips.length > 0) {
-      const firstClipId = rawClips[0].id || rawClips[0].clipId || 'c1';
+      const firstClipId = rawClips[0].id || 'c1';
       edges['edge_root_to_first'] = {
         id: 'edge_root_to_first',
         fromNodeId: rootNodeId,

@@ -11,6 +11,8 @@ export interface ImageGenerationOptions {
   seed?: number;
   abortSignal?: AbortSignal;
   referenceImageUrls?: string[];
+  denoise?: number;
+  maskImageUrl?: string;
   mode?:
     | 'character_t2i'
     | 'character_ref2i'

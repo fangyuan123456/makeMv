@@ -11,6 +11,7 @@ import {
   createProject,
   runTask,
   cancelTask,
+  retryTask,
   fetchTasks,
 } from '../../lib/api.js';
 import { upsertTaskRecords } from '../../lib/taskUtils.js';
@@ -19,6 +20,7 @@ import { TaskDrawer } from './TaskDrawer.js';
 import { PlannerStage } from './stages/PlannerStage.js';
 import { VisualStage } from './stages/VisualStage.js';
 import { GameStage } from './stages/GameStage.js';
+import { StudioFocusProvider } from '../../hooks/StudioFocusContext.js';
 
 // 从浏览器地址栏解析当前 projectId
 function getUrlProjectId(): string {
@@ -53,6 +55,7 @@ export function StudioApp() {
   const [isBusy, setIsBusy] = useState(false);
   const initializedStageProjectRef = useRef<string | null>(null);
   const selectedProjectIdRef = useRef(currentProjectId);
+  const projectRefreshRequestRef = useRef(0);
   selectedProjectIdRef.current = currentProjectId;
 
   // 1. 初始化项目列表与会话路由判定（无参数时一律作为全新创作会话，绝不隐式回填旧项目）
@@ -105,12 +108,14 @@ export function StudioApp() {
 
   // 4. 加载当前项目数据与任务列表
   const refreshCurrentProject = useCallback(async (pid: string) => {
+    const requestId = ++projectRefreshRequestRef.current;
     try {
       const [pData, tList] = await Promise.all([
         fetchProject(pid).catch(() => null),
         fetchTasks(pid).catch(() => []),
       ]);
-      if (selectedProjectIdRef.current !== pid) return;
+      // 任务完成、手动编辑和初始化加载可能同时触发刷新。旧请求晚返回时不能覆盖新结果。
+      if (selectedProjectIdRef.current !== pid || requestId !== projectRefreshRequestRef.current) return;
       setProjectData(pData);
       setTasks((prev) => upsertTaskRecords(prev, tList));
     } catch (err) {
@@ -128,13 +133,31 @@ export function StudioApp() {
     }
   }, [currentProjectId, refreshCurrentProject]);
 
-  // 3. 建立 SSE 实时长连接
+  // 3. 建立 SSE 实时长连接（支持后端重启 / 代理半开假死自动探测重连与状态补齐）
   useEffect(() => {
     if (!currentProjectId) return;
 
-    const eventSource = new EventSource(`/api/events?projectId=${encodeURIComponent(currentProjectId)}`);
+    let disposed = false;
+    let hasConnectedOnce = false;
+    let eventSource: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastActivityAt = Date.now();
 
-    eventSource.addEventListener('task_event', (e: MessageEvent) => {
+    const markAlive = () => {
+      lastActivityAt = Date.now();
+    };
+
+    const handleConnected = () => {
+      markAlive();
+      if (hasConnectedOnce) {
+        refreshCurrentProject(currentProjectId);
+      } else {
+        hasConnectedOnce = true;
+      }
+    };
+
+    const handleTaskEvent = (e: MessageEvent) => {
+      markAlive();
       try {
         const payload = JSON.parse(e.data);
         console.log('[SSE Task Event]:', payload);
@@ -142,18 +165,71 @@ export function StudioApp() {
         // 权威状态跃迁合并 (SSOT)
         setTasks((prev) => upsertTaskRecords(prev, payload));
 
-        // 若任务完成，自动刷新全局资产黑板
-        if (payload.status === 'completed' || payload.status === 'failed') {
+        // 若任务终态，自动刷新全局资产黑板
+        if (payload.status === 'completed' || payload.status === 'failed' || payload.status === 'cancelled') {
           refreshCurrentProject(currentProjectId);
           setIsBusy(false);
         }
       } catch (err) {
         console.error('[SSE] 解析任务事件失败:', err);
       }
-    });
+    };
+
+    const scheduleReconnect = (delayMs = 2000) => {
+      if (disposed || reconnectTimer) return;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delayMs);
+    };
+
+    const closeCurrent = () => {
+      if (!eventSource) return;
+      eventSource.removeEventListener('connected', handleConnected);
+      eventSource.removeEventListener('ping', markAlive);
+      eventSource.removeEventListener('task_event', handleTaskEvent);
+      eventSource.close();
+      eventSource = null;
+    };
+
+    const connect = () => {
+      if (disposed) return;
+      closeCurrent();
+      lastActivityAt = Date.now();
+      const es = new EventSource(`/api/events?projectId=${encodeURIComponent(currentProjectId)}`);
+      eventSource = es;
+
+      es.addEventListener('connected', handleConnected);
+      es.addEventListener('ping', markAlive);
+      es.addEventListener('task_event', handleTaskEvent);
+      es.onerror = () => {
+        if (disposed) return;
+        // 代理返回 500/502 时浏览器会将 EventSource 永久置为 CLOSED，需手动重连
+        if (es.readyState === EventSource.CLOSED) {
+          closeCurrent();
+          scheduleReconnect(2000);
+        }
+      };
+    };
+
+    // 心跳看门狗：后端每 15s 发 ping，超过 35s 毫无动静说明连接在后端重启/代理断连后已假死，强制重连并补拉
+    const watchdogTimer = setInterval(() => {
+      if (disposed) return;
+      if (Date.now() - lastActivityAt > 35000) {
+        console.warn('[SSE] 全局事件流心跳超时，自动重连并同步最新状态');
+        closeCurrent();
+        connect();
+        refreshCurrentProject(currentProjectId);
+      }
+    }, 10000);
+
+    connect();
 
     return () => {
-      eventSource.close();
+      disposed = true;
+      clearInterval(watchdogTimer);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      closeCurrent();
     };
   }, [currentProjectId, refreshCurrentProject]);
 
@@ -241,8 +317,18 @@ export function StudioApp() {
     }
   };
 
+  const handleRetryTask = async (taskId: string) => {
+    try {
+      await retryTask(taskId);
+      if (currentProjectId) refreshCurrentProject(currentProjectId);
+    } catch (err) {
+      console.error('[Studio] 重试任务失败:', err);
+    }
+  };
+
   return (
-    <div className="flex flex-col h-screen w-screen bg-slate-50 text-slate-800 font-sans overflow-hidden select-none">
+    <StudioFocusProvider>
+      <div className="flex flex-col h-screen w-screen bg-slate-50 text-slate-800 font-sans overflow-hidden select-none">
       {/* 顶部管线步进 */}
       <PipelineStepper
         currentStage={visibleStage}
@@ -266,8 +352,8 @@ export function StudioApp() {
             projectId={currentProjectId}
             projectData={projectData}
             onRunTool={handleRunTool}
+            onRefreshProject={() => currentProjectId && refreshCurrentProject(currentProjectId)}
             tasks={tasks}
-            onSelectStage={handleSelectStage}
             isBusy={isBusy}
           />
         )}
@@ -297,6 +383,7 @@ export function StudioApp() {
         onRefreshTasks={() => currentProjectId && refreshCurrentProject(currentProjectId)}
         onCancelTask={handleCancelTask}
       />
-    </div>
+      </div>
+    </StudioFocusProvider>
   );
 }

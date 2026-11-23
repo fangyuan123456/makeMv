@@ -23,6 +23,10 @@ export interface ConversationMessage<TIntent = any> {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  /** 开跑前言对白（方案锁定、授权开跑时的前置说明，与卡片上方对白绑定） */
+  leadInSpeech?: string;
+  /** 任务全部物理落盘后出具的阶段复盘对白（与卡片下方对白绑定） */
+  postSummarySpeech?: string;
   attachments?: ChatImageAttachment[];
   createdAt: string;
   status?: 'streaming' | 'done' | 'error';
@@ -90,10 +94,14 @@ export interface SubmittableToolSpec {
   toolName: string;
   /** 卡片业务标题，例如“推演互动全景剧本” */
   title: string;
+  /** 简明标准工序阶段名，例如“首帧关键帧渲染”，缺失时回退使用 title */
+  stageName?: string;
   /** 工具制片职责说明 */
   description: string;
   /** 严格强类型的入参 Schema (Zod) */
   schema: z.ZodType<any>;
+  /** 实体作用域类型（如 global, character, shot），用于流水线 SOP 顺位推导与实体绑定 */
+  targetKind?: 'shot' | 'character' | 'location' | 'item' | 'global';
 }
 
 export interface SessionActionIntent {
@@ -109,7 +117,6 @@ export interface SessionActionIntent {
   title: string;
   params: Record<string, any>;
   operations?: Array<{ tool: string; title: string; params: Record<string, any> }>;
-  coverage?: 'selected' | 'all_pending';
   description?: string;
   reasoning?: string;
   reply?: string;

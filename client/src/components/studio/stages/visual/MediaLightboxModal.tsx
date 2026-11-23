@@ -3,12 +3,27 @@
  * 高清大图与全屏视听播放器放大弹窗 (Media Lightbox Modal SSOT)
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+
+export interface MediaLightboxItem {
+  title: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  badge?: string;
+  subtitle?: string;
+}
 
 export interface MediaLightboxModalProps {
   title: string;
   imageUrl?: string;
   videoUrl?: string;
+  badge?: string;
+  gallery?: MediaLightboxItem[];
+  initialIndex?: number;
+  subtitle?: string;
+  footerText?: string;
+  downloadImageLabel?: string;
   onClose: () => void;
 }
 
@@ -16,18 +31,37 @@ export const MediaLightboxModal: React.FC<MediaLightboxModalProps> = ({
   title,
   imageUrl,
   videoUrl,
+  badge,
+  gallery,
+  initialIndex,
+  subtitle,
+  footerText,
+  downloadImageLabel,
   onClose,
 }) => {
-  // 监听 ESC 键关闭
+  const items = gallery?.length ? gallery : [{ title, imageUrl, videoUrl, badge, subtitle }];
+  const [currentIndex, setCurrentIndex] = useState(() => {
+    if (typeof initialIndex === 'number' && initialIndex >= 0 && initialIndex < items.length) {
+      return initialIndex;
+    }
+    const index = items.findIndex((item) => item.imageUrl === imageUrl && item.videoUrl === videoUrl);
+    return index < 0 ? 0 : index;
+  });
+  const current = items[currentIndex] || items[0];
+  const hasNavigation = items.length > 1;
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
+      if (items.length < 2) return;
+      if (e.key === 'ArrowLeft') setCurrentIndex((index) => (index - 1 + items.length) % items.length);
+      if (e.key === 'ArrowRight') setCurrentIndex((index) => (index + 1) % items.length);
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, items.length]);
 
-  return (
+  const modalContent = (
     <div
       onClick={onClose}
       className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-200 select-none"
@@ -39,11 +73,24 @@ export const MediaLightboxModal: React.FC<MediaLightboxModalProps> = ({
         {/* 顶部标题栏与关闭按钮 */}
         <div className="p-4 px-6 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <span className="text-xl">🎬</span>
+            <span className="text-xl">{current.videoUrl ? '🎬' : '🖼️'}</span>
             <div>
-              <h3 className="text-sm font-bold text-slate-100 tracking-wide">{title}</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-100 tracking-wide">{current.title}</h3>
+                {(current.badge || (!gallery?.length && badge)) && (
+                  <span className="px-2 py-0.5 rounded-md bg-emerald-500/90 text-white text-[10px] font-mono font-bold shadow-2xs">
+                    {current.badge || badge}
+                  </span>
+                )}
+              </div>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                {videoUrl ? '高保真视听切片播放' : '4K 关键帧超清原图预览'}
+                {current.subtitle ??
+                  subtitle ??
+                  (current.videoUrl
+                    ? '高保真视听切片播放'
+                    : current.badge || (!gallery?.length && badge)
+                    ? `SeedVR2 高清超分原图预览（${current.badge || badge}）`
+                    : '原图预览（未超分）')}
               </p>
             </div>
           </div>
@@ -58,19 +105,20 @@ export const MediaLightboxModal: React.FC<MediaLightboxModalProps> = ({
 
         {/* 核心大屏视听媒体区 (16:9) */}
         <div className="flex-1 bg-black flex items-center justify-center relative aspect-video max-h-[75vh] overflow-hidden">
-          {videoUrl ? (
+          {current.videoUrl ? (
             <video
-              src={videoUrl}
+              key={current.videoUrl}
+              src={current.videoUrl}
               controls
               autoPlay
               loop
               playsInline
               className="w-full h-full object-contain"
             />
-          ) : imageUrl ? (
+          ) : current.imageUrl ? (
             <img
-              src={imageUrl}
-              alt={title}
+              src={current.imageUrl}
+              alt={current.title}
               className="w-full h-full object-contain"
             />
           ) : (
@@ -79,31 +127,52 @@ export const MediaLightboxModal: React.FC<MediaLightboxModalProps> = ({
               <span className="text-sm font-medium">尚未渲染视听画面</span>
             </div>
           )}
+          {hasNavigation && (
+            <>
+              <button
+                type="button"
+                onClick={() => setCurrentIndex((index) => (index - 1 + items.length) % items.length)}
+                className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-slate-950/75 hover:bg-slate-800 text-white text-3xl flex items-center justify-center transition cursor-pointer"
+                aria-label="上一张"
+                title="上一张 (←)"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentIndex((index) => (index + 1) % items.length)}
+                className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-slate-950/75 hover:bg-slate-800 text-white text-3xl flex items-center justify-center transition cursor-pointer"
+                aria-label="下一张"
+                title="下一张 (→)"
+              >
+                ›
+              </button>
+            </>
+          )}
         </div>
 
         {/* 底部操作与规格提示栏 */}
         <div className="p-3 px-6 bg-slate-950/90 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 min-w-0">
             <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            <span>影视切片规格：16:9 · 854×480 · 24fps</span>
+            {hasNavigation && <span className="font-mono text-slate-200 shrink-0">{currentIndex + 1} / {items.length}</span>}
+            <span className="hidden sm:inline truncate">
+              {footerText ?? '影视切片规格：16:9 · 854×480 · 24fps'}
+            </span>
           </div>
           <div className="flex items-center space-x-3">
-            {imageUrl && (
+            {current.imageUrl && (
               <a
-                href={imageUrl}
-                target="_blank"
-                rel="noreferrer"
+                href={current.imageUrl}
                 download
                 className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold transition"
               >
-                📥 下载首帧原图
+                {downloadImageLabel ?? '📥 下载首帧原图'}
               </a>
             )}
-            {videoUrl && (
+            {current.videoUrl && (
               <a
-                href={videoUrl}
-                target="_blank"
-                rel="noreferrer"
+                href={current.videoUrl}
                 download
                 className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold transition"
               >
@@ -115,4 +184,6 @@ export const MediaLightboxModal: React.FC<MediaLightboxModalProps> = ({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 };

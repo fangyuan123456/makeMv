@@ -41,8 +41,6 @@ export const CANONICAL_ARTIFACT_MAP: Record<
   story: { filename: 'story.md', type: 'text' },
   prd: { filename: 'prd.json', type: 'json' },
   prd_markdown: { filename: 'prd.md', type: 'text' },
-  universal_prd: { filename: 'prd.json', type: 'json' },
-  gdd: { filename: 'prd.json', type: 'json' },
 
   // 工序 2 资产
   lookdev_entities: { filename: 'entities.json', type: 'json', subDir: 'scenes' },
@@ -153,6 +151,40 @@ export class ProjectStore {
   }
 
   /**
+   * 原子性更新运行时黑板与落盘资产 (Atomic Mutator SSOT)
+   * 即时获取最新黑板状态 ➔ 执行突变 ➔ 立即同步内存与磁盘，杜绝并发子任务读取陈旧快照全量覆写导致的数据踩踏
+   */
+  public mutateArtifact<T = any>(
+    projectId: string,
+    artifactKey: string,
+    mutator: (current: T) => T | void
+  ): T {
+    let current = this.getArtifact<T>(projectId, artifactKey);
+    if (!current) {
+      throw new Error(`无法更新不存在的产物: ${artifactKey}`);
+    }
+    const result = mutator(current);
+    const updated = result !== undefined ? result : current;
+
+    this.setArtifact(projectId, artifactKey, updated);
+
+    const spec = CANONICAL_ARTIFACT_MAP[artifactKey];
+    if (spec) {
+      const projectDir = this.getProjectDir(projectId);
+      const baseDir = spec.subDir ? path.join(projectDir, spec.subDir) : projectDir;
+      fs.mkdirSync(baseDir, { recursive: true });
+      const filePath = path.join(baseDir, spec.filename);
+      if (spec.type === 'json') {
+        atomicWriteJsonSync(filePath, updated);
+      } else {
+        fs.writeFileSync(filePath, String(updated), 'utf-8');
+      }
+    }
+
+    return updated;
+  }
+
+  /**
    * 读取运行时黑板（单一事实来源 SSOT：内存优先，缺失时依照 CANONICAL_ARTIFACT_MAP 精准原子读盘水合）
    */
   public getArtifact<T = any>(projectId: string, artifactKey: string): T | null {
@@ -208,7 +240,7 @@ export class ProjectStore {
       const legacyPrdMdPath = path.join(projectDir, '01-planner', '04-prd-synthesis', 'prd.md');
       const legacyStoryMdPath = path.join(projectDir, '01-planner', '04-prd-synthesis', 'story.md');
 
-      if (artifactKey === 'prd' || artifactKey === 'universal_prd' || artifactKey === 'gdd') {
+      if (artifactKey === 'prd') {
         if (fs.existsSync(legacyPrdMdPath)) {
           const prdText = fs.readFileSync(legacyPrdMdPath, 'utf-8');
           const jsonMatch = prdText.match(/```json\s*([\s\S]*?)\s*```/);

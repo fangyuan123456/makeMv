@@ -4,8 +4,7 @@
  *
  * 核心特性：
  * 1. 视听预览窗：支持首帧图片与成品视频预览（悬浮自动播放）；
- * 2. 多候选方案切换器 (Candidate Selector)：支持同分镜多方案并存与一键采纳；
- * 3. 局部快捷生成：单镜头直接派发独立 Task，完全不影响全剧其他节点。
+ * 2. 节点只负责展示首帧、悬停预览视频与镜头台本；生成操作在下一级处理。
  */
 
 import React, { useState, useRef } from 'react';
@@ -14,31 +13,25 @@ import type { CanvasShotNode } from '../../../types/index.js';
 interface ShotCanvasCardProps {
   node: CanvasShotNode;
   isSelected?: boolean;
+  isExtractingPrompt?: boolean;
   onSelect?: () => void;
   onOpenDrillDown?: (node: CanvasShotNode) => void;
-  onRenderVideo: (node: CanvasShotNode, customPrompt?: string) => void;
-  onSelectCandidate: (nodeId: string, taskId: string) => void;
-  isBusy?: boolean;
 }
 
 export const ShotCanvasCard: React.FC<ShotCanvasCardProps> = ({
   node,
   isSelected,
+  isExtractingPrompt,
   onSelect,
   onOpenDrillDown,
-  onRenderVideo,
-  onSelectCandidate,
-  isBusy,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [showPromptEdit, setShowPromptEdit] = useState(false);
-  const [customPrompt, setCustomPrompt] = useState(node.prompt || '');
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const hasVideo = Boolean(node.videoUrl);
   const hasKeyframe = Boolean(node.keyframeUrl);
-  const candidates = node.candidateTaskIds || [];
+  const isUnlocked = node.isUnlocked !== false;
 
   const handleMouseEnter = () => {
     setIsHovered(true);
@@ -59,21 +52,23 @@ export const ShotCanvasCard: React.FC<ShotCanvasCardProps> = ({
 
   return (
     <div
-      onClick={onSelect}
+      onClick={() => isUnlocked && onSelect?.()}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        onOpenDrillDown?.(node);
+        if (isUnlocked) onOpenDrillDown?.(node);
       }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       style={{
         transform: `translate(${node.position.x}px, ${node.position.y}px)`,
-        width: node.size?.w || 320,
+        width: node.size?.w || 260,
       }}
-      className={`absolute select-none bg-white rounded-2xl border transition-shadow duration-200 cursor-move shadow-md hover:shadow-xl ${
+      className={`absolute select-none bg-white rounded-2xl border transition-all duration-200 cursor-move shadow-[0_4px_20px_-4px_rgba(15,23,42,0.08)] hover:shadow-[0_10px_30px_-6px_rgba(15,23,42,0.14)] overflow-hidden ${
         isSelected
-          ? 'border-indigo-500 ring-2 ring-indigo-500/20 z-30'
-          : 'border-slate-200/90 z-10 hover:border-slate-300'
+          ? 'border-indigo-500 ring-4 ring-indigo-500/15 z-30'
+          : isUnlocked
+            ? 'border-slate-200/90 z-10 hover:border-indigo-300'
+            : 'border-slate-200/60 z-10 opacity-60 bg-slate-50'
       }`}
     >
       {/* 左右连接桩端点 (Port Anchors 用于 SVG 连线对齐) */}
@@ -93,148 +88,125 @@ export const ShotCanvasCard: React.FC<ShotCanvasCardProps> = ({
         <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
       </div>
 
-      {/* 卡片顶栏 */}
-      <div className="px-3.5 py-2.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 rounded-t-2xl">
-        <div className="flex items-center space-x-2 truncate">
-          <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-100/80">
-            {node.clipId}
-          </span>
-          <span className="text-xs font-bold text-slate-900 truncate" title={node.title}>
-            {node.title}
-          </span>
-        </div>
-
-        <div className="flex items-center space-x-2">
-          <span className="text-[10px] font-mono text-slate-400">⏱️ {node.durationSec || 4.0}s</span>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenDrillDown?.(node);
-            }}
-            className="px-1.5 py-0.5 rounded-md text-[10px] font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition border border-indigo-100/80 flex items-center gap-0.5"
-            title="深入递进演播舱"
-          >
-            <span>🔍</span>
-            <span>演播舱</span>
-          </button>
-        </div>
+      {/* 顶部标题与时长状态条 (明朗通透排版) */}
+      <div className="flex items-center justify-between px-3 py-2 bg-white border-b border-slate-100">
+        <span className="text-xs font-bold text-slate-900 truncate" title={node.title}>
+          {node.title}
+        </span>
+        <span className="text-[10px] font-mono font-bold text-slate-500 bg-slate-100/90 px-1.5 py-0.5 rounded-md border border-slate-200/60 shrink-0 ml-1.5">
+          {node.durationSec || 4.0}s
+        </span>
       </div>
 
-      {/* 中部：媒体视听视窗 */}
-      <div className="relative w-full h-44 bg-slate-900 overflow-hidden flex items-center justify-center group">
-        {hasVideo ? (
+      {/* 中部：媒体视听画廊视窗 (16:9 画幅比例) */}
+      <div className="relative w-full h-40 bg-slate-100/70 overflow-hidden flex items-center justify-center group">
+        {/* 左上角版本数指示 */}
+        {((node.firstFrameVersions && node.firstFrameVersions.length > 1) || (node.videoVersions && node.videoVersions.length > 1)) && (
+          <div
+            className="absolute top-2 left-2 z-10 px-1.5 py-0.5 rounded-lg bg-black/65 backdrop-blur-xs text-[9px] font-mono font-semibold text-white border border-white/20 shadow-2xs"
+            title="当前镜头拥有多版本可选（双击卡片进入版本库选择）"
+          >
+            📚 {Math.max(node.firstFrameVersions?.length || 0, node.videoVersions?.length || 0)} 版
+          </div>
+        )}
+        {/* 时空连贯继承角标 */}
+        {node.continuityMode === 'linked' && (
+          <div
+            className="absolute top-2 right-2 z-10 px-1.5 py-0.5 rounded-lg bg-emerald-600/95 backdrop-blur-xs text-[9px] font-bold text-white shadow-2xs border border-emerald-400/30"
+            title="当前镜头承接前序尾帧光影与动作"
+          >
+            🔗 继承尾帧
+          </div>
+        )}
+        {hasKeyframe ? (
+          <img
+            src={node.keyframeUrl}
+            alt={node.title}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+          />
+        ) : hasVideo ? (
           <video
             ref={videoRef}
             src={node.videoUrl}
-            poster={node.keyframeUrl}
             loop
             muted
             playsInline
             className="w-full h-full object-cover"
           />
-        ) : hasKeyframe ? (
-          <img
-            src={node.keyframeUrl}
-            alt={node.title}
-            className="w-full h-full object-cover"
-          />
+        ) : isExtractingPrompt ? (
+          <div className="flex flex-col items-center justify-center space-y-1.5 text-indigo-600 p-3 text-center animate-pulse">
+            <span className="w-5 h-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin mb-1" />
+            <span className="text-[11px] font-bold text-indigo-700">推演分镜词中...</span>
+            <span className="text-[9px] text-slate-400">双击进入查看详情</span>
+          </div>
         ) : (
-          <div className="flex flex-col items-center justify-center space-y-1.5 text-slate-500">
-            <span className="text-2xl">🎬</span>
-            <span className="text-[11px] font-medium">待生成视听镜头</span>
+          <div className="flex flex-col items-center justify-center space-y-1.5 text-slate-400 p-3 text-center">
+            <span className="text-2xl opacity-70">🎬</span>
+            <span className="text-[11px] font-semibold text-slate-500">待生成视听镜头</span>
+            <span className="text-[9px] text-slate-400">双击卡片下钻制作</span>
           </div>
         )}
 
         {/* 悬浮播放状态标签 */}
-        {hasVideo && (
-          <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/60 backdrop-blur-xs text-[10px] font-mono text-white flex items-center gap-1">
-            <span>{isPlaying ? '▶' : '⏸'}</span>
-            <span>MP4</span>
+        {hasVideo && hasKeyframe && (
+          <video
+            ref={videoRef}
+            src={node.videoUrl}
+            loop
+            muted
+            playsInline
+            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-150 ${isPlaying ? 'opacity-100' : 'opacity-0'}`}
+          />
+        )}
+
+        {(node.staleKeyframeReason || node.staleVideoReason) && (
+          <div
+            className="absolute bottom-2 left-2 z-10 px-1.5 py-0.5 rounded bg-amber-500/90 backdrop-blur-xs text-[10px] font-semibold text-white shadow-xs"
+            title={node.staleKeyframeReason || node.staleVideoReason}
+          >
+            ⚠ 上游已变更
           </div>
         )}
-
-        {/* 快捷悬浮遮罩操作 */}
-        <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onRenderVideo(node, customPrompt);
-            }}
-            disabled={isBusy}
-            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-md transition active:scale-95 flex items-center gap-1 disabled:opacity-50"
-          >
-            <span>🎬</span>
-            <span>{hasVideo ? '重制本镜头' : '渲染视频'}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 提示词说明 */}
-      <div className="p-3 bg-white space-y-2">
-        <div className="flex items-center justify-between text-[11px] text-slate-500">
-          <span className="font-semibold text-slate-700">镜头提示词</span>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowPromptEdit(!showPromptEdit);
-            }}
-            className="text-indigo-600 hover:underline text-[10px]"
-          >
-            {showPromptEdit ? '收起' : '编辑'}
-          </button>
-        </div>
-
-        {showPromptEdit ? (
-          <textarea
-            value={customPrompt}
-            onChange={(e) => setCustomPrompt(e.target.value)}
-            onClick={(e) => e.stopPropagation()}
-            rows={2}
-            className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 resize-none leading-relaxed"
-            placeholder="自定义本镜头视频生成提示词..."
-          />
-        ) : (
-          <p
-            className="text-[11px] text-slate-600 line-clamp-2 leading-relaxed"
-            title={node.prompt}
-          >
-            {node.prompt || '暂无详细提示词，将基于分镜自动生成'}
-          </p>
+        {(node.firstFrameUpscale || node.lastFrameUpscale) && (() => {
+          const firstUp = node.firstFrameUpscale;
+          const lastUp = node.lastFrameUpscale;
+          const label =
+            firstUp && lastUp
+              ? `✨ 首/末 HD ${firstUp.multiplier}×`
+              : firstUp
+              ? `✨ HD ${firstUp.multiplier}×`
+              : `✨ 末帧 HD ${lastUp!.multiplier}×`;
+          const tooltip = [
+            firstUp ? `首帧已通过 SeedVR2 完成 ${firstUp.multiplier}× 高清超分` : '',
+            lastUp ? `末帧已通过 SeedVR2 完成 ${lastUp.multiplier}× 高清超分` : '',
+          ]
+            .filter(Boolean)
+            .join('；');
+          return (
+            <div
+              className="absolute bottom-2 right-2 z-10 px-1.5 py-0.5 rounded-md bg-emerald-600/95 backdrop-blur-xs text-[10px] font-mono font-bold text-white shadow-xs border border-emerald-300/40"
+              title={tooltip}
+            >
+              {label}
+            </div>
+          );
+        })()}
+        {hasVideo && isHovered && (
+          <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/60 backdrop-blur-xs text-[10px] font-mono text-white flex items-center gap-1">
+            <span>{isPlaying ? '▶' : '⏸'}</span>
+            <span>预览</span>
+          </div>
         )}
-
-        {/* 核心亮点：多候选方案胶囊切换器 (Candidate Selector) */}
-        {candidates.length > 1 && (
-          <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-1 overflow-x-auto no-scrollbar">
-            <span className="text-[10px] text-slate-400 font-medium shrink-0">备选方案:</span>
-            <div className="flex items-center space-x-1 shrink-0">
-              {candidates.map((tid, idx) => {
-                const isActive = node.activeTaskId === tid;
-                return (
-                  <button
-                    key={tid}
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectCandidate(node.id, tid);
-                    }}
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-mono transition ${
-                      isActive
-                        ? 'bg-indigo-600 text-white font-bold shadow-2xs'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                    title={`采用任务 [${tid}] 的生成视频`}
-                  >
-                    方案 {idx + 1}
-                  </button>
-                );
-              })}
+        {!isUnlocked && (
+          <div className="absolute inset-0 z-20 bg-slate-900/40 backdrop-blur-2xs flex items-center justify-center">
+            <div className="px-3 py-1.5 rounded-full bg-white/95 border border-slate-200 text-[11px] font-semibold text-slate-700 shadow-md flex items-center gap-1.5">
+              <span>🔒</span>
+              <span>等待前一镜头完成</span>
             </div>
           </div>
         )}
       </div>
+
     </div>
   );
 };

@@ -46,7 +46,7 @@ export const ShotFocusDrawer: React.FC<ShotFocusDrawerProps> = ({
   // 初始化与节点变化同步
   useEffect(() => {
     if (node) {
-      setCustomPrompt(node.prompt || '');
+      setCustomPrompt(node.videoPrompt || node.prompt || '');
       setSelectedTaskId(node.activeTaskId || (node.candidateTaskIds && node.candidateTaskIds[0]) || null);
       if (node.type === 'lookdev_root') {
         setActiveStep('keyframe');
@@ -271,11 +271,21 @@ export const ShotFocusDrawer: React.FC<ShotFocusDrawerProps> = ({
                     </h4>
                     <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 shadow-xs flex items-center justify-center">
                       {node.keyframeUrl ? (
-                        <img
-                          src={node.keyframeUrl}
-                          alt={node.title}
-                          className="w-full h-full object-cover"
-                        />
+                        <>
+                          <img
+                            src={node.keyframeUrl}
+                            alt={node.title}
+                            className="w-full h-full object-cover"
+                          />
+                          {node.firstFrameUpscale && (
+                            <span
+                              className="absolute bottom-2 left-2 px-2 py-0.5 rounded-md bg-emerald-600/95 backdrop-blur-xs text-white text-[10px] font-mono font-bold shadow-xs border border-emerald-300/40"
+                              title={`首帧已通过 SeedVR2 完成 ${node.firstFrameUpscale.multiplier}× 高清超分`}
+                            >
+                              ✨ 已超分 HD {node.firstFrameUpscale.multiplier}×
+                            </span>
+                          )}
+                        </>
                       ) : (
                         <div className="text-center p-6 space-y-2">
                           <span className="text-3xl">🖼️</span>
@@ -328,7 +338,7 @@ export const ShotFocusDrawer: React.FC<ShotFocusDrawerProps> = ({
                       </label>
                       <button
                         type="button"
-                        onClick={() => setCustomPrompt(node.prompt || '')}
+                        onClick={() => setCustomPrompt(node.videoPrompt || node.prompt || '')}
                         className="text-[10px] text-slate-400 hover:text-slate-600"
                       >
                         重置默认

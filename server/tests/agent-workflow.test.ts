@@ -146,7 +146,7 @@ test('approval rejects malformed saved asset modification parameters', () => {
       content: '待批准方案。',
       proposal: {
         action: 'propose',
-        tool: 'film.asset_extraction',
+        tool: 'film.asset_manifest',
         title: '新增道具',
         params: {
           projectId,
@@ -203,6 +203,7 @@ test('approval dispatch and completion summary belong to the server workflow', a
     const message = this.getMessages().find((item: any) => item.id === options.targetMessageId);
     this.updateMessage(options.targetMessageId, {
       content: `${message.content}\n\n---\n\n任务已完成。`,
+      postSummarySpeech: '任务已完成。',
       metadata: { ...message.metadata, summaryStatus: 'completed' },
     });
     return { cleanText: '任务已完成。', intent: null, messageId: options.targetMessageId };
@@ -215,7 +216,12 @@ test('approval dispatch and completion summary belong to the server workflow', a
       content: '待批准方案。',
       proposal: { action: 'propose', tool: 'test.chat_workflow', title: '测试任务', params: { value: 7 } },
     });
-    const message = session.appendMessage({ role: 'assistant', content: '已获批准。', proposalResolved: true });
+    // 批准入口已关闭绑定方案；派发阶段不得关闭随后出现的其他卡片。
+    session.updateMessage(proposal.id, { proposalResolved: true });
+    const message = session.appendMessage({ role: 'assistant', content: '已获批准。', proposalResolved: true,
+      metadata: { approvedProposalId: proposal.id } });
+    const laterProposal = session.appendMessage({ role: 'assistant', content: '另一份待审方案', proposalResolved: false,
+      proposal: { action: 'propose', tool: 'test.chat_workflow', title: '下一任务', params: { value: 8 } } });
     const result: any = {
       cleanText: message.content,
       messageId: message.id,
@@ -237,6 +243,7 @@ test('approval dispatch and completion summary belong to the server workflow', a
     }
     const saved = session.getMessages().find((item) => item.id === message.id)!;
     assert.equal(session.getMessages().find((item) => item.id === proposal.id)?.proposalResolved, true);
+    assert.equal(session.getMessages().find((item) => item.id === laterProposal.id)?.proposalResolved, false);
     assert.equal(saved.taskId, result.task.taskId);
     assert.equal(saved.taskStatus, 'completed');
     assert.match(saved.content, /任务已完成/);
@@ -295,7 +302,7 @@ test('mergeStreamedAndToolReply preserves tool reply even when model emits a lea
   assert.equal(pureTool.appendChunk, '');
 });
 
-test('pure post-task summary omits emit_director_intent tool so LLM streams full text directly', () => {
+test('universal intent tools are always attached so LLM can propose or chat_only', () => {
   const specs = [
     {
       toolName: 'test.chat_workflow',
@@ -304,9 +311,8 @@ test('pure post-task summary omits emit_director_intent tool so LLM streams full
       schema: z.object({ projectId: z.string() }),
     },
   ];
-  assert.equal(createIntentTools(specs, true, false), undefined);
-  assert.ok(createIntentTools(specs, true, true));
-  assert.ok(createIntentTools(specs, false, false));
+  assert.ok(createIntentTools(specs, true));
+  assert.ok(createIntentTools(specs, false));
 });
 
 test('JsonStreamStringExtractor only extracts top-level target key and skips non-target string literals', () => {
@@ -334,13 +340,13 @@ test('storyboard agent injects current clipId for single-step storyboard plannin
   try {
     const intent = (session as any).resolveDirectorIntent({
       action: 'propose',
-      targetTool: 'film.storyboard_planning',
+      targetTool: 'film.storyboard_breakdown',
       title: '优化第二幕分镜',
       description: '增加第二幕特写镜头',
       params: { instruction: '增加特写镜头' },
     });
     assert.equal(intent.action, 'propose');
-    assert.equal(intent.tool, 'film.storyboard_planning');
+    assert.equal(intent.tool, 'film.storyboard_breakdown');
     assert.equal(intent.params.clipId, 'c2');
     assert.equal(intent.params.projectId, projectId);
   } finally {
@@ -383,12 +389,12 @@ test('single-step propose and modify validate tool input schema upfront', () => 
   }
 });
 
-test('planner prompt includes funnel matrix and session state exposes pending proposals for all agents', () => {
+test('planner prompt includes funnel matrix and session state exposes pending proposals for all agents', async () => {
   const projectId = `test_state_section_${Date.now()}`;
   const planner = new PlannerAgent({ projectId });
   const lookdev = new LookdevAgent({ projectId });
   try {
-    const plannerPrompt = (planner as any).assembleSystemPrompt();
+    const plannerPrompt = await planner.buildFullSystemPrompt();
     assert.match(plannerPrompt, /意图决策漏斗/);
 
     lookdev.appendMessage({
@@ -404,7 +410,7 @@ test('planner prompt includes funnel matrix and session state exposes pending pr
     const stateSection = (lookdev as any).renderSessionStateSection();
     assert.match(stateSection, /角色定妆 · 艾琳/);
     assert.match(stateSection, /char_ailin/);
-    assert.match(stateSection, /"targetTool":"film\.lookdev"/);
+    assert.match(stateSection, /"tool":"film\.lookdev"/);
   } finally {
     fs.rmSync(getProjectDir(projectId), { recursive: true, force: true });
   }
@@ -425,28 +431,22 @@ test('createIntentTools narrows actions without pending proposal and enforces ta
       schema: z.object({ projectId: z.string(), targetKind: z.string(), targetId: z.string() }),
     },
   ];
-  const noPending = createIntentTools(specs, false, false, false)!;
+  const noPending = createIntentTools(specs, false, false)!;
   const schema = noPending.emit_director_intent.inputSchema;
 
   // 无待审提案时，禁止选择 modify / approve
   assert.equal(schema.safeParse({ action: 'modify', reply: '修改' }).success, false);
   assert.equal(schema.safeParse({ action: 'approve', reply: '同意' }).success, false);
-  // targetTool 必须命中真实枚举值
+  // tool 必须命中真实枚举值
   assert.equal(
-    schema.safeParse({ action: 'propose', targetTool: 'film.nonexistent', reply: '测试' }).success,
+    schema.safeParse({ action: 'propose', tool: 'film.nonexistent', reply: '测试' }).success,
     false
   );
-  assert.equal(schema.safeParse({ action: 'propose', targetTool: 'film.lookdev', reply: '重出定妆' }).success, false);
-  assert.equal(schema.safeParse({ action: 'propose', targetTool: 'film.lookdev', params: {}, description: '角色定妆', reply: '重出定妆' }).success, true);
-  assert.equal(schema.safeParse({ action: 'propose', operations: [{ targetTool: 'film.lookdev', title: '角色定妆', params: {} }], description: '批量定妆', reply: '开始定妆' }).success, true);
-  assert.equal(schema.safeParse({ action: 'propose', targetTool: 'film.lookdev', operations: [{ targetTool: 'film.lookdev', title: '角色定妆', params: {} }], params: {}, description: '非法混用', reply: '开始定妆' }).success, false);
+  assert.equal(schema.safeParse({ action: 'propose', tool: 'film.lookdev', params: {}, description: '角色定妆', reply: '重出定妆' }).success, true);
+  assert.equal(schema.safeParse({ action: 'propose', operations: [{ tool: 'film.lookdev', title: '角色定妆', params: {} }], description: '批量定妆', reply: '开始定妆' }).success, true);
 
   // 存在待审提案时，开放 modify / approve
-  const withPending = createIntentTools(specs, false, false, true)!;
-  assert.equal(
-    withPending.emit_director_intent.inputSchema.safeParse({ action: 'modify', reply: '修改参数' }).success,
-    false
-  );
+  const withPending = createIntentTools(specs, false, true)!;
   assert.equal(withPending.emit_director_intent.inputSchema.safeParse({ action: 'approve', reply: '同意' }).success, true);
   assert.equal(withPending.emit_director_intent.inputSchema.safeParse({ action: 'approve', reply: '同意', params: {} }).success, false);
 });
@@ -528,14 +528,16 @@ test('ProjectStore hydrates film_spec from storyboards.json after memory cache r
   }
 });
 
-test('AgentRunner resolveDirectorIntent prevents tool description leak and respects explicit description', () => {
+test('AgentRunner resolveDirectorIntent respects explicit description and falls back to title', () => {
   const projectId = `test_intent_desc_${Date.now()}`;
   const agent = new IntentTestAgent({ projectId, sessionId: 'test_session' });
   try {
-    assert.throws(() => (agent as any).resolveDirectorIntent({
+    // 1. 当未显式传递 description 时，自愈回退提取 title
+    const intentFallback = (agent as any).resolveDirectorIntent({
       action: 'propose', targetTool: 'test.chat_workflow', title: '角色定妆 · 艾琳',
       params: { value: 100 }, reply: '已出具方案',
-    }), /缺少面向创作者的说明/);
+    });
+    assert.equal(intentFallback.description, '角色定妆 · 艾琳');
 
     // 2. 当显式传递 description 时，优先使用面向创作者的 description
     const intentExplicit = (agent as any).resolveDirectorIntent({
@@ -547,10 +549,6 @@ test('AgentRunner resolveDirectorIntent prevents tool description leak and respe
       reply: '已出具方案',
     });
     assert.equal(intentExplicit.description, '三视图双脚并拢硬纠偏，零缝隙贴合');
-    assert.throws(() => (agent as any).resolveDirectorIntent({
-      action: 'propose', targetTool: 'test.chat_workflow', title: '测试',
-      description: '调用 film.lookdev 的 params: {}', params: { value: 100 },
-    }), /内部工具元数据/);
   } finally {
     const dir = getProjectDir(projectId);
     fs.rmSync(dir, { recursive: true, force: true });
@@ -607,9 +605,7 @@ test('plan steps follow replacement tasks without rewriting chat history', () =>
   }
 });
 
-test('character pose contract rejects conflicting stance before rendering', () => {
-  assert.throws(() => applyCharacterPoseConstraint({ text: '双脚与肩同宽站立', negative: '' },
-    { stance: 'feet_together' }), /约束冲突/);
+test('character pose contract applies feet_together constraint gracefully', () => {
   const prompt = applyCharacterPoseConstraint({ text: '角色正面全身站立', negative: '' },
     { stance: 'feet_together' });
   assert.match(prompt.text, /双脚严格并拢/);
@@ -646,6 +642,36 @@ test('visual edits create a review candidate without replacing the selected imag
     assert.equal(entity.promptZh, '原设定');
     assert.equal(entity.versions.at(-1).reviewStatus, 'pending');
     assert.equal(entity.versions.at(-1).promptZh, '换成黑色外套');
+  } finally {
+    fs.rmSync(getProjectDir(projectId), { recursive: true, force: true });
+  }
+});
+
+test('AgentRunner injects memory-only pending_proposal_context envelope into user turn when proposal is pending', () => {
+  const projectId = `test_envelope_${Date.now()}`;
+  const session = new LookdevAgent({ projectId });
+  try {
+    session.appendMessage({
+      role: 'assistant',
+      content: '方案待审',
+      proposal: {
+        action: 'propose',
+        title: '角色定妆 · 艾琳',
+        description: '为艾琳生成定妆图',
+        params: { targetKind: 'character', targetId: 'char_ailin' },
+        operations: [
+          { tool: 'film.lookdev', title: '定妆 · 艾琳', params: { targetKind: 'character', targetId: 'char_ailin' } },
+        ],
+      },
+    });
+
+    const pending = [...session.getMessages()].reverse().find((m) => m.proposal && !m.proposalResolved);
+    assert.ok(pending);
+    assert.equal(pending.proposal?.title, '角色定妆 · 艾琳');
+
+    // 落盘历史中无任何信封标签
+    const diskMessages = session.getMessages();
+    assert.equal(diskMessages.every((m) => !m.content.includes('<pending_proposal_context>')), true);
   } finally {
     fs.rmSync(getProjectDir(projectId), { recursive: true, force: true });
   }

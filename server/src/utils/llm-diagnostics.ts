@@ -231,7 +231,9 @@ export async function generateStructured<S extends ZodTypeAny>(params: {
     }
     const digest = dumpStructuredFailure(rest, err, prompt);
     const suffix = digest.dumpDir ? `（原始输出与提示词已落盘：${digest.dumpDir}）` : '';
-    throw new Error(`${digest.summary}${suffix}`);
+    const structuredErr = new Error(`${digest.summary}${suffix}`);
+    (structuredErr as any).failureType = 'llm_contract_error';
+    throw structuredErr;
   }
 }
 

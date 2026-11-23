@@ -3,10 +3,10 @@ import path from 'node:path';
 import { ProjectStore } from '../../../project-store/ProjectStore.js';
 import type { GlobalEntities, PoseConstraint } from '../../../project-store/contracts/film-production/lookdev.js';
 import { atomicWriteJsonSync } from '../../../utils/atomicFile.js';
-import { imageGenerateTool } from '../../image-generate/image-generate.tool.js';
+import { imageGenerateTool } from '../../media/image-generate.tool.js';
 import { isAbortError } from '../../../workflow-engine/run-context.js';
 import type { TaskExecutionContext } from '../../base/task-tool.js';
-import { compileVisualEditPrompt, type VisualEditPrompt } from '../visual-edit-prompt.js';
+import { compileVisualEditPrompt, type VisualEditPrompt } from '../shared/visual-edit-prompt.js';
 import type { LookdevTarget } from './steps/01-render/schema.js';
 import { characterProfile } from './character/index.js';
 import { locationProfile } from './location/index.js';
@@ -37,13 +37,6 @@ export type RenderProfile = {
 };
 
 const profiles = { character: characterProfile, location: locationProfile, item: itemProfile };
-
-function persistEntities(store: ProjectStore, projectId: string, entities: GlobalEntities) {
-  store.setArtifact(projectId, 'lookdev_entities', entities);
-  const scenesDir = path.join(store.getProjectDir(projectId), 'scenes');
-  fs.mkdirSync(scenesDir, { recursive: true });
-  atomicWriteJsonSync(path.join(scenesDir, 'entities.json'), entities);
-}
 
 export async function renderLookdevTarget(
   target: LookdevTarget,
@@ -87,10 +80,14 @@ export async function renderLookdevTarget(
     : undefined;
   const prompt = await profile.prompt(entity, entities.artStyle || '电影级写实光影质感，细节丰富，自然色彩影调', Boolean(referenceUrls?.length), target, edit);
   const versionId = `v_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  // 注意：当前工作流（如 Qwen 文生图与参考图）使用 Empty Latent 作为 KSampler 输入；
+  // 必须保持 denoise: 1.0 走完完整采样步数，严禁在采样中途 50% 截断导致 VAE 解码出纯灰褐色高频噪点
+  const effectiveDenoise = 1.0;
   try {
     const result = await (imageGenerateTool.execute as any)({ context: {
       projectId, prompt: prompt.text, negativePrompt: prompt.negative,
       referenceImageUrls: referenceUrls,
+      denoise: effectiveDenoise,
       mode: profile.mode(Boolean(referenceUrls?.length)), size: profile.size,
       subfolder: profile.subfolder, customFilename: `${id}_${versionId}`,
     } });
@@ -98,22 +95,51 @@ export async function renderLookdevTarget(
     if (!result?.success || !mediaUrl) throw new Error(result?.error || '未返回有效媒体链接');
 
     const poseConstraint = target.poseConstraint || edit?.poseConstraint || entity.poseConstraint;
-    const candidate = Boolean(entity.imageUrl && (isEdit || target.force));
-    entity.versions.push({ versionId, imageUrl: mediaUrl, promptZh: prompt.savedPrompt || entity.promptZh || prompt.text,
-      negativePrompt: target.customNegativePrompt || undefined,
-      instruction: target.instruction || undefined,
-      derivedFromUrl: isEdit ? referenceUrls?.[0] : undefined,
-      referenceImageUrl: entity.referenceImageUrl,
-      reviewStatus: candidate ? 'pending' : 'accepted',
-      poseConstraint,
-      createdAt: new Date().toISOString() });
-    if (!candidate) {
-      if (prompt.savedPrompt) entity.promptZh = prompt.savedPrompt;
-      if (poseConstraint) entity.poseConstraint = poseConstraint;
-      entity.selectedVersionId = versionId;
-      entity.imageUrl = mediaUrl;
-    }
-    persistEntities(store, projectId, entities);
+    // 只要是基于已有图片的定向微调/重新生成候选版本 (isEdit)，均作为 pending 待验收候选版本；
+    // 只有初次全量生成或非微调时，才直接作为 accepted 默认生效
+    const candidate = Boolean(entity.imageUrl && isEdit);
+
+    // 采用原子变更事务 (mutateArtifact)，基于黑板最新数据增量追加版本并跃迁状态，彻底消灭并发子任务覆盖踩踏
+    store.mutateArtifact<GlobalEntities>(projectId, 'lookdev_entities', (latestEntities) => {
+      const latestCollection = target.targetKind === 'character' ? latestEntities.characters
+        : target.targetKind === 'location' ? latestEntities.locations : latestEntities.items;
+      const targetEntity = latestCollection.find((item) => (item as any)[profile.idKey] === id) as RenderEntity | undefined;
+      if (!targetEntity) throw new Error(`落盘阶段找不到资产 ${target.targetKind} ID: ${id}`);
+
+      targetEntity.versions = targetEntity.versions || [];
+      const newVersionEntry = {
+        versionId,
+        imageUrl: mediaUrl,
+        promptZh: prompt.savedPrompt || targetEntity.promptZh || prompt.text,
+        negativePrompt: target.customNegativePrompt || undefined,
+        instruction: target.instruction || undefined,
+        derivedFromUrl: isEdit ? referenceUrls?.[0] : undefined,
+        referenceImageUrl: targetEntity.referenceImageUrl,
+        reviewStatus: candidate ? 'pending' : 'accepted',
+        poseConstraint,
+        createdAt: new Date().toISOString(),
+      };
+
+      const existingVerIndex = targetEntity.versions.findIndex(
+        (v: any) => v.versionId === versionId || (mediaUrl && v.imageUrl === mediaUrl)
+      );
+      if (existingVerIndex >= 0) {
+        targetEntity.versions[existingVerIndex] = {
+          ...targetEntity.versions[existingVerIndex],
+          ...newVersionEntry,
+        };
+      } else {
+        targetEntity.versions.push(newVersionEntry);
+      }
+
+      if (!candidate) {
+        if (prompt.savedPrompt) targetEntity.promptZh = prompt.savedPrompt;
+        if (poseConstraint) targetEntity.poseConstraint = poseConstraint;
+        targetEntity.selectedVersionId = versionId;
+        targetEntity.imageUrl = mediaUrl;
+      }
+    });
+
     return { mediaUrl, versionId, renderedCount: 1, reviewStatus: candidate ? 'pending' : 'accepted' };
   } catch (error: any) {
     if (isAbortError(error)) throw error;

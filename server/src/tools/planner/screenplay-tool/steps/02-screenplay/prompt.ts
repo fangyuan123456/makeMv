@@ -33,7 +33,7 @@ export function buildScreenplaySystemPrompt(): string {
 
 3. **因果闭环与道具状态**：
    - 如果某个关键抉择需要前序获得的物品或关键情报，在剧情中要明确交代玩家在此处获得了什么（如 \`【获得关键道具：加密门禁卡】\`）。
-   - 结局必须包含至少一个胜利终局（HE）与若干个危险/致命终局（BE）。`;
+   - 结局数量、情绪与类型服从创作者要求和故事因果，可使用 HE、BE 或 NE；每个选择应有可辨别的后果，不为凑结局强加死亡、危险或胜利路线。`;
 }
 
 export function buildFullScriptPrompt(params: {

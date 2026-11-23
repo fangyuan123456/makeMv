@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Request, Response } from 'express';
 import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { recordEntityUpdated } from '../../project-store/freshness.js';
+import { recordEntityUpdated, recordEntitySpecUpdated } from '../../project-store/freshness.js';
 import { safeReadJsonSync, atomicWriteJsonSync } from '../../utils/atomicFile.js';
-import { compileVisualEditPrompt } from '../../tools/film-production/visual-edit-prompt.js';
+import { compileVisualEditPrompt } from '../../tools/film-production/shared/visual-edit-prompt.js';
 import { taskDispatcher } from '../../task-engine/index.js';
 import { sendError } from '../helpers.js';
 
@@ -113,6 +113,15 @@ export const updateEntity = (req: Request, res: Response) => {
     if (updates.promptZh !== undefined) {
       target.promptZh = updates.promptZh;
     }
+    if (updates.appearanceSummary !== undefined) {
+      target.appearanceSummary = updates.appearanceSummary;
+    }
+    if (updates.atmosphere !== undefined) {
+      target.atmosphere = updates.atmosphere;
+    }
+    if (updates.spatialLayout !== undefined) {
+      target.spatialLayout = String(updates.spatialLayout || '');
+    }
     if (updates.referenceImageUrl !== undefined) {
       if (!updates.referenceImageUrl) {
         const oldRefUrl = target.referenceImageUrl;
@@ -134,7 +143,7 @@ export const updateEntity = (req: Request, res: Response) => {
           }
           // 2. 匹配所有属于该实体的历史碎片文件并物理清理
           const files = fs.readdirSync(refDir);
-          const targetId = target.characterId || target.locationId || target.itemId || target.id || entityId;
+          const targetId = entityId;
           const matchedFiles = files.filter(
             (f) => f.startsWith(`${targetId}_`) || f.startsWith(`${targetId}.`) || f.includes(targetId)
           );
@@ -154,6 +163,20 @@ export const updateEntity = (req: Request, res: Response) => {
     store.setArtifact(projectId, 'lookdev_entities', entities);
     if (!fs.existsSync(scenesDir)) fs.mkdirSync(scenesDir, { recursive: true });
     atomicWriteJsonSync(entitiesPath, entities);
+
+    // 若更新了设定字段（prompt/门窗/陈设/氛围），登记设定变更记账以触发脏态检测
+    if (
+      updates.promptZh !== undefined ||
+      updates.spatialLayout !== undefined ||
+      updates.appearanceSummary !== undefined ||
+      updates.atmosphere !== undefined
+    ) {
+      recordEntitySpecUpdated(projectId, {
+        kind: entityType,
+        id: entityId,
+        label: target.name || entityId,
+      });
+    }
 
     res.json({ success: true, entity: target });
   } catch (err: any) {
@@ -271,7 +294,7 @@ export const refineEntityImage = async (req: Request, res: Response) => {
     const { directedPrompt, negativePrompt, poseConstraint } = await compileVisualEditPrompt({
       entityType: isChar ? 'character' : isItem ? 'item' : 'location',
       name: target.name,
-      originalDescription: target.promptZh || target.appearanceSummary || target.description || target.identity || '',
+      originalDescription: target.promptZh || target.appearanceSummary || '',
       instruction,
     });
 

@@ -59,7 +59,7 @@ export const StoryboardStage: React.FC<StoryboardStageProps> = ({
   }, [projectData]);
 
   const handlePlanStoryboards = async () => {
-    await onRunTool('film.storyboard_planning', {});
+    await onRunTool('film.storyboard_breakdown', {});
   };
 
   const handleBatchKeyframes = async () => {

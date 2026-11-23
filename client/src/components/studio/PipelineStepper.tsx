@@ -67,42 +67,45 @@ export const PipelineStepper: React.FC<PipelineStepperProps> = ({
   ];
 
   return (
-    <nav className="bg-white/95 border-b border-slate-200/90 px-6 py-2.5 flex flex-wrap items-center justify-between gap-4 backdrop-blur-md sticky top-0 z-30 shadow-xs">
-      <div className="flex items-center space-x-3">
-        <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-lg shadow-xs">
+    <nav className="bg-white/85 border-b border-slate-200/80 px-6 py-2.5 flex flex-wrap items-center justify-between gap-4 backdrop-blur-xl sticky top-0 z-30 shadow-[0_1px_8px_-1px_rgba(0,0,0,0.04)] select-none">
+      <div className="flex items-center space-x-3.5">
+        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 to-indigo-700 text-white flex items-center justify-center text-base shadow-sm ring-1 ring-indigo-600/20">
           🎬
         </div>
         <div>
-          <h1 className="text-sm font-bold text-slate-900 tracking-wide flex items-center gap-2">
-            <span>MakeMv Director Studio</span>
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-semibold border border-indigo-100">
-              PRO
+          <h1 className="text-sm font-black text-slate-900 tracking-tight flex items-center gap-2">
+            <span>MakeMv Studio</span>
+            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-indigo-50 text-indigo-700 font-bold border border-indigo-200/80 tracking-wide">
+              DIRECTOR
             </span>
           </h1>
-          <p className="text-[11px] text-slate-400">工业级 Tool-First 互动影游制作管线</p>
+          <p className="text-[10px] text-slate-500 font-medium">全链路互动影游导演工坊</p>
         </div>
 
         {/* 项目选择与新建 */}
-        <div className="flex items-center space-x-2 pl-4 border-l border-slate-200">
-          <select
-            value={currentProjectId}
-            onChange={(e) => onSelectProject?.(e.target.value)}
-            className="bg-slate-50 border border-slate-200 text-xs text-slate-800 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500 focus:bg-white transition font-mono shadow-xs"
-          >
-            {projects.map((p) => (
-              <option key={p.projectId} value={p.projectId}>
-                {p.title || p.projectId} ({p.projectId.slice(-6)})
-              </option>
-            ))}
-            {projects.length === 0 && (
-              <option value={currentProjectId}>{currentProjectId}</option>
-            )}
-          </select>
+        <div className="flex items-center space-x-1.5 pl-4 ml-1 border-l border-slate-200/90">
+          <div className="relative flex items-center">
+            <span className="absolute left-2.5 text-[11px] text-slate-400 pointer-events-none">🎞️</span>
+            <select
+              value={currentProjectId}
+              onChange={(e) => onSelectProject?.(e.target.value)}
+              className="bg-slate-50/90 hover:bg-slate-100/90 border border-slate-200/90 text-xs font-semibold text-slate-800 rounded-xl pl-7 pr-3 py-1.5 focus:outline-none focus:border-indigo-400 focus:bg-white transition font-sans shadow-2xs cursor-pointer"
+            >
+              {projects.map((p) => (
+                <option key={p.projectId} value={p.projectId}>
+                  {p.title || p.projectId} ({p.projectId.slice(-6)})
+                </option>
+              ))}
+              {projects.length === 0 && (
+                <option value={currentProjectId}>{currentProjectId}</option>
+              )}
+            </select>
+          </div>
 
           {onCreateProject && (
             <button
               onClick={onCreateProject}
-              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium border border-slate-200 transition shadow-xs flex items-center gap-1"
+              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold border border-slate-200 transition shadow-2xs flex items-center gap-1 cursor-pointer active:scale-95"
               title="新建项目"
             >
               <span>➕</span>
@@ -113,40 +116,40 @@ export const PipelineStepper: React.FC<PipelineStepperProps> = ({
       </div>
 
       {/* 工序步进按钮组 */}
-      <div className="flex items-center space-x-1 sm:space-x-2">
+      <div className="flex items-center space-x-1.5 sm:space-x-2.5 bg-slate-100/60 p-1 rounded-2xl border border-slate-200/60">
         {steps.map((step, idx) => {
           const isActive = currentStage === step.id;
           const isLocked = step.id === 'visual' ? !canEnterVisual : step.id === 'game' ? !canEnterGame : false;
           const lockedReason = step.id === 'visual' ? '请先完成剧本与策划，生成完整 PRD' : '请先完成视听工坊中所有剧情片段的镜头视频';
           return (
             <React.Fragment key={step.id}>
-              {idx > 0 && <span className="text-slate-300 text-xs select-none px-0.5">➔</span>}
+              {idx > 0 && <span className="text-slate-300 text-[10px] select-none">→</span>}
               <button
                 disabled={isLocked}
                 title={isLocked ? lockedReason : step.desc}
                 onClick={() => onSelectStage(step.id)}
-                className={`flex items-center space-x-2.5 px-3.5 py-1.5 rounded-xl text-xs transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
+                className={`flex items-center space-x-2.5 px-3.5 py-1.5 rounded-xl text-xs transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
                   isActive
-                    ? 'bg-indigo-50 border border-indigo-200 text-indigo-950 shadow-xs ring-1 ring-indigo-500/20'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border border-transparent'
+                    ? 'bg-white text-slate-900 shadow-xs border border-slate-200/90 ring-1 ring-black/5'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60 border border-transparent'
                 }`}
               >
                 <span
                   className={`w-5 h-5 rounded-full flex items-center justify-center font-mono text-[10px] transition-all ${
                     isActive
-                      ? 'bg-indigo-600 text-white font-bold shadow-xs'
+                      ? 'bg-indigo-600 text-white font-black shadow-2xs ring-2 ring-indigo-200'
                       : step.isReady
-                      ? 'bg-emerald-100 text-emerald-700 font-bold border border-emerald-300/80'
-                      : 'bg-slate-200 text-slate-500'
+                      ? 'bg-emerald-50 text-emerald-700 font-bold border border-emerald-300'
+                      : 'bg-slate-200/90 text-slate-500 font-medium'
                   }`}
                 >
                   {step.isReady && !isActive ? '✓' : step.number}
                 </span>
                 <div className="text-left hidden md:block">
-                  <div className={`font-semibold leading-none ${isActive ? 'text-indigo-950' : 'text-slate-700'}`}>
+                  <div className={`font-bold leading-none ${isActive ? 'text-indigo-950' : 'text-slate-700'}`}>
                     {step.title}
                   </div>
-                  <div className={`text-[10px] leading-tight mt-0.5 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`}>
+                  <div className={`text-[9.5px] leading-tight mt-0.5 ${isActive ? 'text-indigo-600 font-medium' : 'text-slate-400'}`}>
                     {step.desc}
                   </div>
                 </div>

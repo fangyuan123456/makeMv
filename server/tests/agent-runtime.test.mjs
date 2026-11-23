@@ -8,14 +8,14 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 import { LLMProvider } from '../dist/llm/provider.js';
 import { compileVisualEditPrompt } from '../dist/tools/film-production/visual-edit-prompt.js';
 
-test('intent tool exposes required proposal branches to the model gateway', () => {
-  const tool = createIntentTools([{ toolName: 'test.tool', title: 'Test', description: 'Test', schema: {} }], false, false, false).emit_director_intent;
+test('intent tool exposes standard proposal schema to the model gateway', () => {
+  const tool = createIntentTools([{ toolName: 'test.tool', title: 'Test', description: 'Test', schema: {} }], false, false).emit_director_intent;
   const jsonSchema = zodToJsonSchema(tool.inputSchema);
-  const branches = jsonSchema.anyOf || jsonSchema.definitions?.input?.anyOf || [];
-  assert.ok(branches.length >= 3);
-  const single = branches.find((branch) => branch.required?.includes('targetTool'));
-  assert.ok(single?.required?.includes('description'));
-  assert.ok(single?.required?.includes('params'));
+  assert.equal(jsonSchema.type, 'object');
+  assert.ok(jsonSchema.properties?.action);
+  assert.ok(jsonSchema.properties?.reply);
+  assert.ok(jsonSchema.properties?.tool);
+  assert.ok(jsonSchema.properties?.params);
 });
 
 test('Mastra Agent streams a reply through its intent tool', async () => {
