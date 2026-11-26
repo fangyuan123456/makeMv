@@ -19,7 +19,6 @@ export interface RuntimeFile {
 
 /** 编码前由系统落盘，AI 只在规划里引用、在代码里 import */
 export const RUNTIME_FILES: RuntimeFile[] = [
-  { path: 'runtime/routing.js', content: readRuntime('routing.js') },
   { path: 'runtime/player.js', content: readRuntime('player.js') },
   { path: 'runtime/player.css', content: readRuntime('player.css') },
 ];

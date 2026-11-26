@@ -18,6 +18,7 @@ import {
 } from './schema.js';
 import { buildShootingScriptPrompt } from './prompt.js';
 import { extractNarrativeDialogues, verifyDialogueCoverage } from './verifier.js';
+import { resolveEntityBindingsFromText } from '../../../media/compiler/media-semantic-compiler.js';
 
 export const shootingScriptStep = createStep({
   id: 'shooting-script-step',
@@ -74,7 +75,7 @@ export const shootingScriptStep = createStep({
       characters: entities.characters || [],
       locations: entities.locations || [],
       items: entities.items || [],
-      instruction: input.instruction,
+      instruction: input.instruction?.trim() || undefined,
       storyOverview,
       previousClipSummary,
       nextClipSummary,
@@ -93,32 +94,22 @@ export const shootingScriptStep = createStep({
       actionBeats: any[];
     };
 
-    // 实体依赖图谱自愈对齐
-    const availableItems: Array<{ itemId: string; name: string }> = Array.isArray(entities.items) ? entities.items : [];
-    const availableChars: Array<{ characterId: string; name: string }> = Array.isArray(entities.characters) ? entities.characters : [];
-
+    // 服务端通用语义解析器：精准扫描正文对齐角色、道具与场景资产 ID
     let beats = (result.actionBeats || []).map((beat: any, idx: number) => {
       const textToScan = `${beat.beatTitle || ''} ${beat.actionDescription || ''} ${beat.cinematicIntent || ''}`;
-      const matchedItemIds = new Set<string>(Array.isArray(beat.itemIds) ? beat.itemIds : []);
-      for (const item of availableItems) {
-        if (item.name && textToScan.includes(item.name)) {
-          matchedItemIds.add(item.itemId);
-        }
-      }
+      const resolved = resolveEntityBindingsFromText(textToScan, entities);
 
-      const matchedCharIds = new Set<string>(Array.isArray(beat.characterIds) ? beat.characterIds : []);
-      for (const char of availableChars) {
-        if (char.name && textToScan.includes(char.name)) {
-          matchedCharIds.add(char.characterId);
-        }
-      }
+      const mergedCharIds = Array.from(new Set([...(beat.characterIds || []), ...resolved.characterIds]));
+      const mergedItemIds = Array.from(new Set([...(beat.itemIds || []), ...resolved.itemIds]));
 
       return {
         ...beat,
         beatId: beat.beatId || `b${idx + 1}`,
         shotNumber: beat.shotNumber || idx + 1,
-        characterIds: Array.from(matchedCharIds),
-        itemIds: Array.from(matchedItemIds),
+        location: beat.location || resolved.locationName,
+        locationId: beat.locationId || resolved.locationId,
+        characterIds: mergedCharIds,
+        itemIds: mergedItemIds,
       };
     });
 
@@ -134,7 +125,7 @@ export const shootingScriptStep = createStep({
           coverage.missingLines
         );
         for (const missing of coverage.missingLines) {
-          const matchedChar = availableChars.find((c) => c.name === missing.speaker);
+          const matchedChar = (entities.characters || []).find((c: any) => c.name === missing.speaker);
           beats.push({
             beatId: `b_heal_${beats.length + 1}`,
             shotNumber: beats.length + 1,

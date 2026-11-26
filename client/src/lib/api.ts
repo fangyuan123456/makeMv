@@ -11,9 +11,33 @@ import type {
   TaskRecord,
   ToolMetadata,
   StoryboardCanvasData,
+  ReviewFreshnessView,
 } from '../types/index.js';
 
 export const API_BASE = '/api';
+
+/**
+ * 健壮的响应体解析辅助函数：防御空响应体与非 JSON 错误，避免抛出 Unexpected end of JSON input
+ */
+async function parseResponseJson<T = any>(res: Response, fallbackError: string): Promise<T> {
+  const text = await res.text();
+  let data: any = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // 容错：非合法 JSON
+    }
+  }
+  if (!res.ok) {
+    const errorMsg = data?.error || data?.message || (text && text.length < 200 ? text : `服务未正常响应 (${res.status} ${res.statusText})`);
+    throw new Error(errorMsg || fallbackError);
+  }
+  if (data && typeof data === 'object' && data.success === false) {
+    throw new Error(data.error || fallbackError);
+  }
+  return (data ?? {}) as T;
+}
 
 /**
  * 获取所有项目列表
@@ -50,6 +74,44 @@ export async function fetchProject(projectId: string): Promise<ProjectData> {
     throw new Error(`获取项目详情失败: ${res.statusText}`);
   }
   return res.json();
+}
+
+/**
+ * 保存手动编辑后的剧本正文（不自动触发大模型重审，自动比对指纹标脏）
+ */
+export async function saveScreenplay(
+  projectId: string,
+  screenplay: string
+): Promise<{ success: boolean; screenplay: string; screenplayReview: ReviewFreshnessView }> {
+  const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/screenplay`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ screenplay }),
+  });
+  const data = await parseResponseJson(res, '保存剧本失败');
+  if (!res.ok || !data?.success) {
+    throw new Error(data?.error || '保存剧本失败');
+  }
+  return data;
+}
+
+/**
+ * 手动触发剧本质量审查
+ */
+export async function triggerScreenplayReview(
+  projectId: string,
+  screenplay?: string
+): Promise<{ success: boolean; screenplayReview: ReviewFreshnessView }> {
+  const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/screenplay/review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ screenplay }),
+  });
+  const data = await parseResponseJson(res, '触发剧本审查失败');
+  if (!res.ok || !data?.success) {
+    throw new Error(data?.error || '触发剧本审查失败');
+  }
+  return data;
 }
 
 /**
@@ -278,10 +340,7 @@ export async function selectEntityVersion(
       }),
     }
   );
-  const data = await res.json();
-  if (!res.ok || !data.success) {
-    throw new Error(data.error || '切换定妆版本失败');
-  }
+  await parseResponseJson(res, '切换定妆版本失败');
 }
 
 /**
@@ -330,10 +389,7 @@ export async function selectShotVersion(
       body: JSON.stringify({ shotId, frame, versionId }),
     }
   );
-  const data = await res.json();
-  if (!res.ok || !data.success) {
-    throw new Error(data.error || '切换镜头版本失败');
-  }
+  await parseResponseJson(res, '切换镜头版本失败');
 }
 
 /** 保存镜头首/末帧/视频的提示词 */
@@ -362,20 +418,22 @@ export async function updateShotPrompt(
 export async function updateShotContinuity(
   projectId: string,
   shotId: string,
-  continuityMode: 'auto' | 'linked' | 'detached'
-): Promise<void> {
+  continuityMode: 'auto' | 'linked' | 'detached',
+  firstFramePrompt?: string
+): Promise<any> {
   const res = await fetch(
     `${API_BASE}/projects/${encodeURIComponent(projectId)}/shots/update-continuity`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ shotId, continuityMode }),
+      body: JSON.stringify({ shotId, continuityMode, firstFramePrompt }),
     }
   );
   const data = await res.json();
   if (!res.ok || !data.success) {
     throw new Error(data.error || '更新镜头连续性模式失败');
   }
+  return data;
 }
 
 /** 基于当前帧图片做 AI 定向微调，产出的一帧自动追加为新版本 */

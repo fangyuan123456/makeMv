@@ -80,6 +80,13 @@ export const entitySpecStep = createStep({
     const knownLocations = (entities.locations || []).map((l: any) => l.name).filter(Boolean);
     const knownItems = (entities.items || []).map((i: any) => i.name).filter(Boolean);
 
+    // 阻断旧数据污染：场景在推演时，绝不把旧的未收束 spatialLayout 回灌到提示词中，避免大模型注意力黏连照抄
+    let cleanExistingSpec = existingItem;
+    if (targetKind === 'location' && existingItem) {
+      const { spatialLayout: _discarded, ...rest } = existingItem;
+      cleanExistingSpec = rest;
+    }
+
     const basePrompt = buildEntitySpecPrompt({
       targetKind,
       name: input.name,
@@ -88,7 +95,7 @@ export const entitySpecStep = createStep({
       storyMarkdown,
       prd,
       artStyle: entities.artStyle,
-      existingSpec: existingItem,
+      existingSpec: cleanExistingSpec,
       knownCharacters,
       knownLocations,
       knownItems,

@@ -458,4 +458,46 @@ export const DIRECTOR_PRESETS: DirectorPreset[] = [
       </svg>
     ),
   },
+  {
+    id: 'pose_crouch_cowering',
+    category: 'pose',
+    name: '贴地深蹲蜷缩',
+    enName: 'Crouching Low',
+    badge: '低重心防御',
+    description: '臀部脚踝贴地，双膝深屈抵胸，身体紧绷缩成一团，绝对排斥站姿',
+    instruction: '角色整个人紧紧蜷缩蹲在冰冷地面上，臀部与脚踝贴地，双膝紧紧曲起抵在胸前，身体重心极低，背死贴墙壁或掩体，绝非站立姿态',
+    renderThumbnail: () => (
+      <svg viewBox="0 0 80 50" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="80" height="50" rx="6" fill="#0f172a" />
+        {/* 地平面 */}
+        <line x1="10" y1="42" x2="70" y2="42" stroke="#334155" strokeWidth="1.5" />
+        {/* 贴地深蹲蜷缩身形 */}
+        <ellipse cx="40" cy="40" rx="14" ry="4" fill="#1e293b" />
+        <circle cx="34" cy="24" r="4.5" fill="#e2e8f0" />
+        {/* 紧缩屈膝团身 */}
+        <path d="M30 28C28 32 30 40 38 41C44 41 48 37 46 32C44 28 36 27 30 28Z" fill="#38bdf8" />
+        <path d="M38 31L43 38" stroke="#cbd5e1" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    id: 'pose_kneeling_grounded',
+    category: 'pose',
+    name: '屈膝跪地/撑地',
+    enName: 'Kneeling Grounded',
+    badge: '受创与服从',
+    description: '单膝或双膝跪地，一手撑地，重心下沉，呈现臣服、疲惫或受击状态',
+    instruction: '角色单膝或双膝跪在地面上，小腿贴地，身体前倾或单手撑地，重心下沉，绝非直立',
+    renderThumbnail: () => (
+      <svg viewBox="0 0 80 50" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="80" height="50" rx="6" fill="#0f172a" />
+        {/* 地平面 */}
+        <line x1="10" y1="42" x2="70" y2="42" stroke="#334155" strokeWidth="1.5" />
+        {/* 跪地身形 */}
+        <circle cx="30" cy="18" r="4" fill="#e2e8f0" />
+        <path d="M28 22L34 32L46 41" stroke="#38bdf8" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M30 26L42 36L42 41" stroke="#cbd5e1" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    ),
+  },
 ];

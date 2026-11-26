@@ -9,6 +9,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tiptap/extension-mention": "^3.35.0",
+    "@tiptap/react": "^3.35.0",
+    "@tiptap/starter-kit": "^3.35.0",
     "makemv-monorepo": "file:..",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

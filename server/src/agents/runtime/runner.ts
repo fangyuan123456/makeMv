@@ -30,6 +30,7 @@ import { JsonStreamStringExtractor } from '../../utils/JsonStreamStringExtractor
 import { AgentSessionStore } from './session-store.js';
 import { approveProposal as approveSavedProposal } from './approval-service.js';
 import { createIntentTools, EMIT_DIRECTOR_INTENT_TOOL_NAME } from './intent-tool.js';
+import { createSkillTools } from '../../skills/index.js';
 import { DirectorIntentResolver } from './intent-resolver.js';
 import { IntentPolicy } from './intent-policy.js';
 import { IntentRepairEngine } from './intent-repair.js';
@@ -225,12 +226,37 @@ export abstract class AgentRunner<TIntent = any> {
         model: LLMProvider.getModel(),
         tools: tools || {},
       });
-      const result = streamAgentWithCompat(agent, workingMessages, {
-        maxSteps: 1,
-        ...(tools ? { toolChoice: 'required' as const } : {}),
-        experimentalToolCallStreaming: true,
-        abortSignal,
-      });
+      let hasEmittedIntent = false;
+      const result = streamAgentWithCompat(
+        agent,
+        workingMessages,
+        isSystemTrigger
+          ? {
+              maxSteps: 1,
+              ...(tools ? { toolChoice: 'required' as const } : {}),
+              experimentalToolCallStreaming: true,
+              abortSignal,
+            }
+          : {
+              maxSteps: 4,
+              prepareStep: ({ stepNumber, maxSteps }) => {
+                if (hasEmittedIntent) {
+                  return { toolChoice: 'none' };
+                }
+                if (stepNumber >= maxSteps - 1) {
+                  return {
+                    toolChoice: { type: 'tool', toolName: EMIT_DIRECTOR_INTENT_TOOL_NAME },
+                  };
+                }
+                if (stepNumber === 0 && tools) {
+                  return { toolChoice: 'required' };
+                }
+                return { toolChoice: 'auto' };
+              },
+              experimentalToolCallStreaming: true,
+              abortSignal,
+            }
+      );
 
       let fullRawText = '';
       let streamedReplyText = '';
@@ -253,8 +279,15 @@ export abstract class AgentRunner<TIntent = any> {
           fullRawText += part.textDelta;
           if (streamedOutputSource.current === null && part.textDelta) streamedOutputSource.current = 'text';
           if (streamedOutputSource.current === 'text') onTextChunk?.(part.textDelta);
-        } else if (part.type === 'tool-call-delta' && (part as any).argsTextDelta) {
-          extractor.feed((part as any).argsTextDelta);
+        } else if (part.type === 'tool-call-delta') {
+          if ((part as any).toolName === EMIT_DIRECTOR_INTENT_TOOL_NAME) {
+            hasEmittedIntent = true;
+          }
+          if ((part as any).argsTextDelta) {
+            extractor.feed((part as any).argsTextDelta);
+          }
+        } else if (part.type === 'tool-call' && (part as any).toolName === EMIT_DIRECTOR_INTENT_TOOL_NAME) {
+          hasEmittedIntent = true;
         }
       }
 
@@ -268,7 +301,9 @@ export abstract class AgentRunner<TIntent = any> {
         try {
           const toolCalls = await result.toolCalls;
           if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-            const activeCall = toolCalls[0];
+            const activeCall =
+              toolCalls.slice().reverse().find((call: any) => call.toolName === EMIT_DIRECTOR_INTENT_TOOL_NAME) ||
+              toolCalls[0];
             if (activeCall.toolName === EMIT_DIRECTOR_INTENT_TOOL_NAME) {
               failedArgs = activeCall.args;
               if (typeof activeCall.args?.reply === 'string') {
@@ -310,12 +345,24 @@ export abstract class AgentRunner<TIntent = any> {
               if (repaired?.intent) {
                 const repairedIntent = repaired.intent as unknown as SessionActionIntent;
                 const repairedAction = repairedIntent.action;
-                const reply = repairedAction === 'approve'
-                  ? '方案校验已恢复，已确认待审方案，接下来调度执行。'
-                  : repairedAction === 'chat_only'
-                    ? `本轮操作未启动。${repairedIntent.reply || repaired.reply || '请补充要求后重试。'}`
-                    : '方案已修正，尚未启动。请审阅新的待确认方案。';
-                capturedIntent = { ...repaired.intent, reply, replyOverride: true } as TIntent;
+                const repairedReply = (repairedIntent.reply || repaired.reply || '').trim();
+                if (repairedAction === 'chat_only') {
+                  capturedIntent = {
+                    ...repaired.intent,
+                    reply: `本轮操作未启动。${repairedReply || '请补充要求后重试。'}`,
+                    replyOverride: true,
+                  } as TIntent;
+                } else {
+                  const fallbackReply =
+                    repairedAction === 'approve'
+                      ? '方案校验已恢复，已确认待审方案，接下来调度执行。'
+                      : '已为您整理好可执行方案，尚未启动，请审阅待确认卡片。';
+                  const preservedReply = existingSpeech || repairedReply || fallbackReply;
+                  capturedIntent = {
+                    ...repaired.intent,
+                    reply: preservedReply,
+                  } as TIntent;
+                }
               }
             } catch (repairErr: any) {
               finalErrMsg = repairErr?.message || errMsg;
@@ -649,11 +696,22 @@ ${lines.join('\n')}
    * 严格内聚【自顶向下 P0 ➔ P5 多层意图决策漏斗】
    */
   protected buildDefaultTools(isSystemTrigger = false, hasPendingProposal = this.hasPendingProposal()): Record<string, any> | undefined {
-    return createIntentTools(
+    const intentTools = createIntentTools(
       this.getIntentToolSpecs(),
       isSystemTrigger,
       hasPendingProposal
     );
+    if (!intentTools) return undefined;
+    if (isSystemTrigger) {
+      return intentTools;
+    }
+
+    // 挂载 Mastra 官方原生技能工具集 (skill, skill_search, skill_read)
+    const skillTools = createSkillTools();
+    return {
+      ...intentTools,
+      ...skillTools,
+    };
   }
 
   /**

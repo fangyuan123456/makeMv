@@ -10,9 +10,67 @@
  * 5. 遵守约束：在单镜头卡片检视器中不开放新增和删除镜头功能。
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { CanvasShotNode } from '../../../types/index.js';
 import { updateShootingScript } from '../../../lib/api.js';
+import { EntityMentionText, toMentionText } from './EntityMentionText.js';
+import { TiptapMentionEditor } from './TiptapMentionEditor.js';
+
+const AutoExpandTextarea: React.FC<{
+  value: string;
+  onChange: (val: string) => void;
+  placeholder?: string;
+  className?: string;
+  minRows?: number;
+  autoFocus?: boolean;
+  onBlur?: () => void;
+  onFocus?: () => void;
+}> = ({ value, onChange, placeholder, className = '', minRows = 1, autoFocus, onBlur, onFocus }) => {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const resize = useCallback(() => {
+    const el = textareaRef.current;
+    if (el) {
+      el.style.height = 'auto';
+      el.style.height = `${Math.max(el.scrollHeight, minRows * 20)}px`;
+    }
+  }, [minRows]);
+
+  useEffect(() => {
+    resize();
+    const timer = setTimeout(resize, 30);
+    return () => clearTimeout(timer);
+  }, [value, resize]);
+
+  useEffect(() => {
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, [resize]);
+
+  useEffect(() => {
+    if (autoFocus && textareaRef.current) {
+      textareaRef.current.focus();
+      const len = textareaRef.current.value.length;
+      textareaRef.current.setSelectionRange(len, len);
+    }
+  }, [autoFocus]);
+
+  return (
+    <textarea
+      ref={textareaRef}
+      rows={minRows}
+      value={value}
+      onChange={(e) => {
+        onChange(e.target.value);
+        resize();
+      }}
+      onBlur={onBlur}
+      onFocus={onFocus}
+      placeholder={placeholder}
+      className={`resize-none overflow-hidden block w-full ${className}`}
+    />
+  );
+};
 
 export interface ShotScriptCardProps {
   node: CanvasShotNode;
@@ -70,6 +128,10 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
     return { targetClip: c, matchedBeat: b };
   }, [projectData, clipId, node.shotId, (node as any).shotIndex]);
 
+  const lookdevEntities = useMemo(() => {
+    return projectData?.artifacts?.lookdev_entities || projectData?.lookdev_entities;
+  }, [projectData]);
+
   // 2. 提取基准原始数据 (Original SSOT)
   const original = useMemo(() => {
     const rawTitle =
@@ -77,12 +139,16 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
       node.title ||
       node.sliceSummary ||
       '';
-    const rawAction =
-      matchedBeat?.actionDescription ||
-      node.actionDescription ||
-      node.sceneSubject ||
-      node.prompt ||
-      '';
+    const rawAction = toMentionText(
+      (
+        matchedBeat?.actionDescription ||
+        node.actionDescription ||
+        node.sceneSubject ||
+        node.prompt ||
+        ''
+      ).replace(/[@＠]{2,}/g, '@'),
+      lookdevEntities
+    );
     const rawDialogue = (matchedBeat?.dialogue ?? node.dialogue ?? '').trim();
     const rawCamera =
       matchedBeat?.cinematicIntent ||
@@ -106,7 +172,7 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
       cinematicIntent: rawCamera,
       audioAmbience: rawSound,
     };
-  }, [matchedBeat, node]);
+  }, [matchedBeat, node, lookdevEntities]);
 
   // 3. 本地可编辑表单状态
   const [form, setForm] = useState({ ...original });
@@ -120,16 +186,40 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
     setSaveError(null);
   }, [original, node.id]);
 
-  // 4. 字段级修改判定
-  const isFieldModified = (field: keyof typeof original) => {
-    const origVal = original[field] ?? '';
-    const currVal = form[field] ?? '';
+  // 4. 字段级修改判定 (纯粹内容级比对：统一空白、换行与 @ 符号，打字即修改，删回即还原)
+  const isFieldModified = (
+    field: 'actionDescription' | 'dialogue' | 'cinematicIntent' | 'audioAmbience' | 'durationSec' | string
+  ) => {
+    const origVal = original[field as keyof typeof original] ?? '';
+    const currVal = form[field as keyof typeof form] ?? '';
+
+    // 1. 严格相等或纯文本 trim 后相等，直接判定为未修改
+    if (origVal === currVal) return false;
+    if (String(origVal).trim() === String(currVal).trim()) return false;
+
+    // 2. 动作流比对：统一换行与首尾空白，任何字符（包括 @）输入均变黄，删回原样严格恢复
+    if (field === 'actionDescription') {
+      const clean = (s: any) =>
+        String(s || '')
+          .replace(/\r\n/g, '\n')
+          .trim();
+      return clean(origVal) !== clean(currVal);
+    }
+
+    // 3. 时长数字归一化比对
+    if (field === 'durationSec') {
+      return Number(origVal || 4) !== Number(currVal || 4);
+    }
+
     return String(origVal).trim() !== String(currVal).trim();
   };
 
-  const isModified = (
-    Object.keys(original) as Array<keyof typeof original>
-  ).some((f) => isFieldModified(f));
+  // 严格限定在用户真正可编辑的 5 大交互字段上，杜绝因只读系统标题或元数据差异导致卡片整体卡在修改态
+  const editableFields: Array<
+    'actionDescription' | 'dialogue' | 'cinematicIntent' | 'audioAmbience' | 'durationSec'
+  > = ['actionDescription', 'dialogue', 'cinematicIntent', 'audioAmbience', 'durationSec'];
+
+  const isModified = editableFields.some((f) => isFieldModified(f));
 
   // 5. 还原修改 (单镜重置)
   const handleReset = () => {
@@ -172,13 +262,17 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
           (nodeAny.shotIndex !== undefined && b.shotNumber === nodeAny.shotIndex + 1)
       );
 
+      const storageAction = form.actionDescription.trim();
+      const storageTitle = form.beatTitle.trim();
+      const storageCamera = form.cinematicIntent.trim();
+
       const updatedBeatData = {
         beatId: node.shotId || `beat_${node.id}`,
-        beatTitle: form.beatTitle,
+        beatTitle: storageTitle,
         estimatedSeconds: Number(form.durationSec) || 4,
-        actionDescription: form.actionDescription,
+        actionDescription: storageAction,
         dialogue: form.dialogue,
-        cinematicIntent: form.cinematicIntent,
+        cinematicIntent: storageCamera,
         audioAmbience: form.audioAmbience,
       };
 
@@ -208,9 +302,9 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
         ...node,
         title: form.beatTitle,
         durationSec: Number(form.durationSec) || 4,
-        actionDescription: form.actionDescription,
+        actionDescription: storageAction,
         dialogue: form.dialogue,
-        cinematicIntent: form.cinematicIntent,
+        cinematicIntent: storageCamera,
         audioAmbience: form.audioAmbience,
       });
 
@@ -228,9 +322,20 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
 
   // 提取纯数字序号 (例如 01)
   const numMatch = (form.beatTitle || node.title || node.id || '').match(
-    /(?:镜头|\bshot[_-]?|[sS]\d+[_-])\s*(\d+)/i
+    /(?:镜头|片段|\bshot[_-]?|[sS]\d+[_-])\s*(\d+)/i
   );
   const shotNumStr = numMatch ? String(numMatch[1]).padStart(2, '0') : '01';
+
+  // 提取景别或简短副标题徽章
+  const shotBadge = useMemo(() => {
+    if (form.beatTitle) {
+      const m = form.beatTitle.match(/[（(](.*?)[）)]/);
+      if (m && m[1]) return m[1].split('·')[0].trim();
+      const cleaned = form.beatTitle.replace(/^(?:镜头|片段)\s*\d+[:：\s]*/, '').split('·')[0].trim();
+      if (cleaned && cleaned !== form.beatTitle) return cleaned;
+    }
+    return matchedBeat?.cameraMotion || '';
+  }, [form.beatTitle, matchedBeat]);
 
   return (
     <div
@@ -245,7 +350,7 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
         <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-300/80 text-amber-900 animate-in fade-in duration-150">
           <span className="text-[11px] font-medium flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-            <span>镜头属性已修改，与全剧摄制单联动</span>
+            <span>片段属性已修改，与全剧演绎清单联动</span>
           </span>
           <div className="flex items-center gap-1.5">
             <button
@@ -282,23 +387,23 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
         </div>
       )}
 
-      {/* 顶部标题、时长与重置栏 */}
+      {/* 顶部紧凑状态条：纯粹标号、景别徽章、转场与时长（彻底消除冗余大标题框） */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <span className="shrink-0 px-2 py-0.5 rounded-md bg-indigo-50 border border-indigo-200 text-indigo-700 font-mono font-bold text-xs">
             {shotNumStr}
           </span>
-          <input
-            type="text"
-            value={form.beatTitle}
-            onChange={(e) => setForm({ ...form, beatTitle: e.target.value })}
-            placeholder="输入镜头标题与景别（如：近景甩镜 · 违规回头 · 3s）"
-            className={`flex-1 min-w-0 text-xs sm:text-sm font-bold rounded-lg px-2 py-1 outline-hidden transition border ${
-              isFieldModified('beatTitle')
-                ? 'bg-amber-50/70 border-amber-300 text-amber-950 focus:border-amber-500 ring-1 ring-amber-200'
-                : 'bg-transparent border-transparent hover:border-slate-200 focus:border-indigo-400 focus:bg-white text-slate-800'
-            }`}
-          />
+          {shotBadge && (
+            <span className="shrink-0 px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 font-medium text-xs border border-slate-200/60 truncate max-w-[200px]">
+              {shotBadge}
+            </span>
+          )}
+          {node.isSceneTransition && (
+            <span className="px-2 py-0.5 rounded-md bg-amber-500 text-white font-bold text-[10px] flex items-center gap-1 shadow-2xs">
+              <span>🔄</span>
+              <span>场景转换</span>
+            </span>
+          )}
         </div>
 
         <div className="shrink-0 flex items-center gap-1.5">
@@ -308,7 +413,7 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
               type="button"
               onClick={handleReset}
               className="px-2 py-0.5 rounded-md border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-[11px] font-semibold flex items-center gap-1 transition"
-              title="还原当前镜头为未修改状态"
+              title="还原当前片段为未修改状态"
             >
               <span>↺</span>
               <span>重置</span>
@@ -366,33 +471,25 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
         </div>
       </div>
 
-      {/* 1. 纯物理动作与表演时序编辑区 (Action & Staging) */}
-      <div>
-        <textarea
-          rows={3}
-          value={form.actionDescription}
-          onChange={(e) =>
-            setForm({ ...form, actionDescription: e.target.value })
-          }
-          placeholder="描写纯物理表演动作流与画面视觉主体（禁文学心理散文）..."
-          className={`w-full rounded-xl p-3 text-xs leading-relaxed outline-hidden transition border resize-y ${
-            isFieldModified('actionDescription')
-              ? 'bg-amber-50/70 border-amber-300 text-amber-950 focus:border-amber-500 ring-1 ring-amber-200'
-              : 'bg-slate-50/80 border-slate-200/70 focus:bg-white focus:border-indigo-400 text-slate-800'
-          }`}
-        />
-      </div>
+      {/* 1. 视听动作流与场面调度编辑器：所见即所得即梦式行内资产编辑器（输入与显示 100% 同体） */}
+      <TiptapMentionEditor
+        value={form.actionDescription}
+        entities={lookdevEntities}
+        onChange={(val) => setForm({ ...form, actionDescription: val })}
+        isModified={isFieldModified('actionDescription')}
+        placeholder="在 @场景 中，@角色 动作走位与 @道具 交互..."
+      />
 
       {/* 2. 角色对白与台词栏 (Dialogue) */}
-      <div className="border-l-[3px] border-indigo-500 pl-2.5 py-0.5 flex items-center gap-2">
-        <span className="text-xs font-semibold text-indigo-600 shrink-0 inline-flex items-center gap-1 select-none">
+      <div className="border-l-[3px] border-indigo-500 pl-2.5 py-0.5 flex items-start gap-2">
+        <span className="text-xs font-semibold text-indigo-600 shrink-0 inline-flex items-center gap-1 select-none pt-1">
           <span>💬</span>
           <span>对白:</span>
         </span>
-        <input
-          type="text"
+        <AutoExpandTextarea
+          minRows={1}
           value={form.dialogue}
-          onChange={(e) => setForm({ ...form, dialogue: e.target.value })}
+          onChange={(val) => setForm({ ...form, dialogue: val })}
           placeholder="角色台词（无对白可留空）"
           className={`flex-1 rounded-lg px-2.5 py-1.5 text-xs outline-hidden transition border ${
             isFieldModified('dialogue')
@@ -415,14 +512,14 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
             <span>🎥</span>
             <span>机位:</span>
           </span>
-          <textarea
-            rows={2}
+          <AutoExpandTextarea
+            minRows={1}
             value={form.cinematicIntent}
-            onChange={(e) =>
-              setForm({ ...form, cinematicIntent: e.target.value })
+            onChange={(val) =>
+              setForm({ ...form, cinematicIntent: val })
             }
             placeholder="填写机位构图、摄影运镜指令（如：近景甩镜头 Whip Pan）..."
-            className="flex-1 bg-transparent text-xs leading-relaxed text-slate-800 outline-hidden resize-none"
+            className="flex-1 bg-transparent text-xs leading-relaxed text-slate-800 outline-hidden"
           />
         </div>
       </div>
@@ -440,14 +537,14 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
             <span>🔊</span>
             <span>拟音:</span>
           </span>
-          <textarea
-            rows={2}
+          <AutoExpandTextarea
+            minRows={1}
             value={form.audioAmbience}
-            onChange={(e) =>
-              setForm({ ...form, audioAmbience: e.target.value })
+            onChange={(val) =>
+              setForm({ ...form, audioAmbience: val })
             }
             placeholder="填写现场物理拟音与环境声音设计（如：脚步声、衣物摩擦、烛灭抽吸声）..."
-            className="flex-1 bg-transparent text-xs leading-relaxed text-amber-950 outline-hidden resize-none"
+            className="flex-1 bg-transparent text-xs leading-relaxed text-amber-950 outline-hidden"
           />
         </div>
       </div>

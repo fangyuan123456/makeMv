@@ -25,13 +25,17 @@ export function buildSceneAtmospherePrompt(
     .trim()
     .replace(/[，,。；;]+$/, '');
   const cleanArtStyle = artStyle?.trim() ? `画风：${artStyle.trim()}。` : '';
-  const layout = location.spatialLayout?.trim()
-    ? `空间布局依据：${location.spatialLayout.trim()}。按此布局安排入口与地标，不机械照搬参考图中冲突的位置。`
+  // 剔除【入场路径】槽位，避免生图模型把门扉/入口画在前景形成“隔门框外窥”构图
+  const cleanedLayout = (location.spatialLayout || '')
+    .replace(/【入场路径】：[^【]*/g, '')
+    .trim();
+  const layout = cleanedLayout
+    ? `空间布局依据：${cleanedLayout}。按此布局安排地标，不机械照搬参考图中冲突的位置。`
     : '';
 
   if (!hasReferenceImage) {
-    return `${coreContent}。${layout}纯空间无人物，材质与光影服从指定画风，无文字无水印。${cleanArtStyle}`.trim();
+    return `${coreContent}。${layout}置身空间内部，前景无门框，纯空间无人物，无文字水印。${cleanArtStyle}`.trim();
   }
 
-  return `参考 <image1> 的环境外观：${coreContent}。${layout}纯空间无人物，材质与光影服从指定画风，无文字无水印。${cleanArtStyle}`.trim();
+  return `参考 <image1> 的环境外观：${coreContent}。${layout}置身空间内部，前景无门框，纯空间无人物，无文字水印。${cleanArtStyle}`.trim();
 }

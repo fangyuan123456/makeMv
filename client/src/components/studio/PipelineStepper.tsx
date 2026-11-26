@@ -54,7 +54,7 @@ export const PipelineStepper: React.FC<PipelineStepperProps> = ({
       id: 'visual',
       number: '02',
       title: '视听制作工坊',
-      desc: '定妆母体 & 分镜台本 & 关键帧',
+      desc: '定妆母体 & 演绎片段 & 视听成片',
       isReady: hasEntities || hasStoryboards,
     },
     {

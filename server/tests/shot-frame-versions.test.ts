@@ -107,9 +107,20 @@ describe('Shot Media Version Ledger SSOT', () => {
     const versions = readVideoVersions(shot);
     assert.equal(versions.length, 2);
 
-    // 切换回 v1
+    // 切换回 v1（仅切换视频版本，保留当前最新 videoPrompt）
     applyVideoVersion(shot, v1);
     assert.equal(shot.videoUrl, 'http://localhost/shot_03_video_v1.mp4');
-    assert.equal(shot.videoPrompt, '镜头平移');
+    assert.equal(shot.selectedVideoVersionId, v1.versionId);
+    assert.equal(shot.videoPrompt, '镜头环绕');
+
+    // 历史重复 versionId 自动去重
+    shot.videoVersions.push({
+      versionId: v1.versionId,
+      videoUrl: 'http://localhost/shot_03_video_v3.mp4',
+      createdAt: new Date().toISOString(),
+      source: 'generate',
+    });
+    const deduped = readVideoVersions(shot);
+    assert.equal(new Set(deduped.map((v) => v.versionId)).size, deduped.length);
   });
 });

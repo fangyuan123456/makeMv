@@ -15,7 +15,7 @@
  *      - 📝 切片 Markdown 全文：原汁原味呈现 story.md 分幕清单全文。
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type {
   ProjectData,
   TaskRecord,
@@ -27,8 +27,9 @@ import type {
 } from '../../../types/index.js';
 import { PlannerChat } from '../chat/PlannerChat.js';
 import { PlannerTopologyDiagram } from './planner/PlannerTopologyDiagram.js';
-import { ScreenplayReader } from './planner/ScreenplayReader.js';
+import { ScreenplayReviewActionButton } from './planner/ScreenplayReviewActionButton.js';
 import { useReportFocus } from '../../../hooks/StudioFocusContext.js';
+import { saveScreenplay, triggerScreenplayReview } from '../../../lib/api.js';
 
 interface PlannerStageProps {
   projectId: string;
@@ -68,6 +69,50 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
   const [screenplayMarkdown, setScreenplayMarkdown] = useState('');
   const [storyMarkdown, setStoryMarkdown] = useState('');
   const [copiedSliced, setCopiedSliced] = useState(false);
+
+  // 剧本质量审查与手动修复状态
+  const [isSavingScript, setIsSavingScript] = useState(false);
+  const [isTriggeringReview, setIsTriggeringReview] = useState(false);
+  const [isFixingIssues, setIsFixingIssues] = useState(false);
+  const [reviewActionError, setReviewActionError] = useState<string | null>(null);
+  const pendingFixTaskIdRef = useRef<string | null>(null);
+  const screenplayReview = projectData?.screenplayReview;
+
+  // 感知当前是否有正在执行的剧本生成或局部修改任务
+  const activeScreenplayTask = useMemo(() => {
+    return tasks.find(
+      (t) =>
+        (t.toolName === 'planner.screenplay_writer' || t.toolName.includes('screenplay')) &&
+        (t.status === 'running' || t.status === 'pending')
+    );
+  }, [tasks]);
+  const isScreenplayRunning = Boolean(activeScreenplayTask) || isFixingIssues;
+
+  // 若后台正在执行剧本审查，温和轮询刷新直至结束
+  useEffect(() => {
+    if (screenplayReview?.status !== 'reviewing' || !onRefreshProject) return;
+    const timer = setInterval(() => {
+      onRefreshProject();
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [screenplayReview?.status, onRefreshProject]);
+
+  // 监听一键修复任务完成：刷新最新剧本（不自动触发重审，由创作者按需手动重审）
+  useEffect(() => {
+    if (!pendingFixTaskIdRef.current) return;
+    const targetTask = tasks.find((t) => t.taskId === pendingFixTaskIdRef.current);
+    if (!targetTask) return;
+
+    if (targetTask.status === 'completed') {
+      pendingFixTaskIdRef.current = null;
+      setIsFixingIssues(false);
+      onRefreshProject?.();
+    } else if (targetTask.status === 'failed') {
+      pendingFixTaskIdRef.current = null;
+      setIsFixingIssues(false);
+      setReviewActionError(`修复任务执行失败: ${targetTask.error || targetTask.lastFailure?.error || '大模型未能返回有效的修改内容'}`);
+    }
+  }, [tasks, onRefreshProject]);
 
   // 1. 水合剧本资产 (以全局权威黑板 projectData 为唯一优先 SSOT，仅在尚未返回时用最新任务产物兜底)
   useEffect(() => {
@@ -187,6 +232,65 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
     });
   };
 
+  // 保存手动编辑的剧本（不自动触发大模型重审，由系统自动比对指纹标脏）
+  const handleSaveEditedScreenplay = async () => {
+    if (!screenplayMarkdown.trim()) return;
+    setIsSavingScript(true);
+    setReviewActionError(null);
+    try {
+      await saveScreenplay(projectId, screenplayMarkdown);
+      setOriginalMode('reading');
+      onRefreshProject?.();
+    } catch (err: any) {
+      setReviewActionError(err?.message || '保存剧本失败');
+    } finally {
+      setIsSavingScript(false);
+    }
+  };
+
+  // 手动触发剧本重审
+  const handleTriggerReview = async () => {
+    if (!screenplayMarkdown.trim()) return;
+    setIsTriggeringReview(true);
+    setReviewActionError(null);
+    try {
+      await triggerScreenplayReview(projectId, screenplayMarkdown);
+      onRefreshProject?.();
+    } catch (err: any) {
+      setReviewActionError(err?.message || '触发审查失败');
+    } finally {
+      setIsTriggeringReview(false);
+    }
+  };
+
+  // 一键修复全部审查问题（调用局部 Patch 手术工具，完成后自动触发重审闭环）
+  const handleFixAllIssues = async () => {
+    const issues = screenplayReview?.report?.issues || [];
+    if (issues.length === 0) return;
+    setReviewActionError(null);
+    setIsFixingIssues(true);
+
+    try {
+      const mergedInstruction = issues
+        .map((issue, idx) => {
+          const loc = issue.actNumber ? `【第 ${issue.actNumber} 幕】` : '';
+          return `${idx + 1}. ${loc}[${issue.category}] ${issue.fixInstruction}`;
+        })
+        .join('\n');
+
+      const task = await onRunTool('planner.screenplay_writer', {
+        instruction: `请严格根据以下剧本质量审查问题逐一执行精准局部修复，未涉及的情节与台词保持不变：\n${mergedInstruction}`,
+      });
+
+      if (task?.taskId) {
+        pendingFixTaskIdRef.current = task.taskId;
+      }
+    } catch (err: any) {
+      setIsFixingIssues(false);
+      setReviewActionError(err?.message || '发起修复任务失败');
+    }
+  };
+
   const handleCopySliced = async () => {
     const content = storyMarkdown || (clips.length > 0 ? clips.map(c => `## ${c.id}｜${c.title}\n\n${c.narrativeText || ''}`).join('\n\n') : '');
     if (!content) return;
@@ -213,24 +317,24 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
       {/* 右侧：PRD / Story 双顶级页签工坊 */}
       <div className="flex-1 w-full lg:w-7/12 flex flex-col h-full overflow-hidden">
         <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-sm flex flex-col h-full overflow-hidden">
-          {/* 顶栏：顶级切页器与右侧操作 */}
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3.5 border-b border-slate-100 flex-shrink-0">
-            {/* 核心顶级双页签：Story 故事剧本 (左) 与 PRD 策划案 (右) */}
-            <div className="flex items-center p-1 bg-slate-100/80 rounded-xl border border-slate-200/70 space-x-1 shadow-2xs">
+          {/* 顶栏：顶级切页器与右侧操作 (强制 flex-nowrap 单行不折行) */}
+          <div className="flex items-center justify-between gap-2 mb-3 pb-3 border-b border-slate-100 flex-nowrap flex-shrink-0 min-w-0 overflow-x-auto no-scrollbar">
+            {/* 核心顶级双页签：故事剧本 (左) 与 PRD 策划案 (右) */}
+            <div className="flex items-center p-0.5 bg-slate-100/80 rounded-xl border border-slate-200/70 space-x-0.5 shadow-2xs flex-shrink-0">
               <button
                 type="button"
                 onClick={() => setActiveMainTab('story')}
-                className={`flex items-center space-x-1.5 px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`flex items-center space-x-1 px-3 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
                   activeMainTab === 'story'
                     ? 'bg-white text-indigo-600 shadow-xs border border-slate-200/60'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <span>📜</span>
-                <span>Story 故事剧本</span>
+                <span>故事剧本</span>
                 {screenplayMarkdown && (
                   <span className="font-mono text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200/70 text-slate-600 font-medium">
-                    {screenplayMarkdown.length} 字
+                    {screenplayMarkdown.length}字
                   </span>
                 )}
               </button>
@@ -238,7 +342,7 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveMainTab('prd')}
-                className={`flex items-center space-x-1.5 px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`flex items-center space-x-1 px-3 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
                   activeMainTab === 'prd'
                     ? 'bg-white text-indigo-600 shadow-xs border border-slate-200/60'
                     : 'text-slate-600 hover:text-slate-900'
@@ -248,7 +352,7 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
                 <span>PRD 策划案</span>
                 {clips.length > 0 && (
                   <span className="font-mono text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-50 text-indigo-600 font-semibold">
-                    {clips.length} 幕
+                    {clips.length}幕
                   </span>
                 )}
                 {projectData?.staleMap?.prd && (
@@ -262,13 +366,13 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
               </button>
             </div>
 
-            {/* 顶栏右侧：根据激活页签呈现对应工具与指示 */}
-            <div className="flex items-center space-x-2">
+            {/* 顶栏右侧：根据激活页签呈现对应工具与指示 (严格单行对齐) */}
+            <div className="flex items-center space-x-1.5 flex-nowrap flex-shrink-0">
               {activeMainTab === 'prd' ? (
                 <>
                   {/* PRD 双视图切换：拓扑图 / 文档全文 */}
                   {prd && (
-                    <div className="flex items-center bg-slate-50 border border-slate-200/80 rounded-lg p-0.5 space-x-0.5 text-[11px] font-medium mr-1">
+                    <div className="flex items-center bg-slate-50 border border-slate-200/80 rounded-lg p-0.5 space-x-0.5 text-[11px] font-medium mr-1 flex-shrink-0">
                       <button
                         type="button"
                         onClick={() => setPrdSubMode('topology')}
@@ -295,7 +399,7 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
                   )}
 
                   <span
-                    className={`text-xs px-2.5 py-1 rounded-full font-mono font-medium ${
+                    className={`text-xs px-2.5 py-1 rounded-full font-mono font-medium whitespace-nowrap flex-shrink-0 ${
                       prd
                         ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
                         : 'bg-slate-100 text-slate-500 border border-slate-200'
@@ -308,21 +412,21 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
                 </>
               ) : (
                 <>
-                  {/* Story 顶栏二级分段导航：故事原文 (Tool 1) vs 故事分幕切片 (Tool 2) */}
-                  <div className="flex items-center bg-slate-100/90 border border-slate-200 rounded-lg p-0.5 space-x-0.5 text-xs font-semibold mr-1">
+                  {/* Story 顶栏二级分段导航：故事原文 vs 分幕切片 */}
+                  <div className="flex items-center bg-slate-100/90 border border-slate-200 rounded-lg p-0.5 space-x-0.5 text-xs font-semibold flex-shrink-0">
                     <button
                       type="button"
                       onClick={() => setStoryTabType('original')}
-                      className={`flex items-center space-x-1 px-3 py-1 rounded-md transition ${
+                      className={`flex items-center space-x-1 px-3 py-1 rounded-md transition whitespace-nowrap ${
                         storyTabType === 'original'
                           ? 'bg-white text-indigo-700 shadow-2xs'
                           : 'text-slate-500 hover:text-slate-800'
                       }`}
                     >
                       <span>📖</span>
-                      <span>故事原文 (Tool 1)</span>
+                      <span>故事原文</span>
                       {screenplayMarkdown && (
-                        <span className="text-[10px] text-indigo-600 font-mono">
+                        <span className="text-[10px] text-indigo-600 font-mono font-normal">
                           {screenplayMarkdown.length}字
                         </span>
                       )}
@@ -331,14 +435,14 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
                     <button
                       type="button"
                       onClick={() => setStoryTabType('sliced')}
-                      className={`flex items-center space-x-1 px-3 py-1 rounded-md transition ${
+                      className={`flex items-center space-x-1 px-3 py-1 rounded-md transition whitespace-nowrap ${
                         storyTabType === 'sliced'
                           ? 'bg-white text-indigo-700 shadow-2xs'
                           : 'text-slate-500 hover:text-slate-800'
                       }`}
                     >
                       <span>🎬</span>
-                      <span>故事分幕切片 (Tool 2)</span>
+                      <span>分幕切片</span>
                       {clips.length > 0 && (
                         <span className="text-[10px] text-emerald-600 font-mono font-bold">
                           {clips.length}幕
@@ -347,83 +451,17 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
                     </button>
                   </div>
 
-                  {/* 故事原文子操作 */}
-                  {storyTabType === 'original' && screenplayMarkdown && (
-                    <div className="flex items-center space-x-1.5">
-                      <div className="flex items-center bg-slate-50 border border-slate-200/80 rounded-lg p-0.5 space-x-0.5 text-[11px] font-medium">
-                        <button
-                          type="button"
-                          onClick={() => setOriginalMode('reading')}
-                          className={`px-2 py-0.5 rounded-md transition ${
-                            originalMode === 'reading'
-                              ? 'bg-white text-indigo-700 shadow-2xs font-semibold'
-                              : 'text-slate-500 hover:text-slate-800'
-                          }`}
-                        >
-                          阅读
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setOriginalMode('editing')}
-                          className={`px-2 py-0.5 rounded-md transition ${
-                            originalMode === 'editing'
-                              ? 'bg-white text-indigo-700 shadow-2xs font-semibold'
-                              : 'text-slate-500 hover:text-slate-800'
-                          }`}
-                        >
-                          编辑
-                        </button>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={handleManualGeneratePrd}
-                        disabled={isBusy}
-                        className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-lg border border-indigo-200 shadow-2xs transition active:scale-95 disabled:opacity-40"
-                        title="将故事原文切片并解析为 PRD"
-                      >
-                        📐 解析为 PRD
-                      </button>
-                    </div>
-                  )}
-
-                  {/* 故事切片子操作 */}
-                  {storyTabType === 'sliced' && (clips.length > 0 || storyMarkdown) && (
-                    <div className="flex items-center space-x-1.5">
-                      <div className="flex items-center bg-slate-50 border border-slate-200/80 rounded-lg p-0.5 space-x-0.5 text-[11px] font-medium">
-                        <button
-                          type="button"
-                          onClick={() => setSlicedMode('cards')}
-                          className={`px-2 py-0.5 rounded-md transition ${
-                            slicedMode === 'cards'
-                              ? 'bg-white text-indigo-700 shadow-2xs font-semibold'
-                              : 'text-slate-500 hover:text-slate-800'
-                          }`}
-                        >
-                          分幕卡片
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSlicedMode('markdown')}
-                          className={`px-2 py-0.5 rounded-md transition ${
-                            slicedMode === 'markdown'
-                              ? 'bg-white text-indigo-700 shadow-2xs font-semibold'
-                              : 'text-slate-500 hover:text-slate-800'
-                          }`}
-                        >
-                          Markdown 全文
-                        </button>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={handleCopySliced}
-                        className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 shadow-2xs transition active:scale-95"
-                        title="复制故事分幕切片"
-                      >
-                        {copiedSliced ? '✅ 已复制' : '📋 复制切片'}
-                      </button>
-                    </div>
+                  {/* 全局操作：解析为 PRD */}
+                  {screenplayMarkdown && (
+                    <button
+                      type="button"
+                      onClick={handleManualGeneratePrd}
+                      disabled={isBusy}
+                      className="px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-lg border border-indigo-200 shadow-2xs transition active:scale-95 disabled:opacity-40 whitespace-nowrap flex-shrink-0"
+                      title="将故事原文切片并解析为 PRD"
+                    >
+                      📐 解析为 PRD
+                    </button>
                   )}
                 </>
               )}
@@ -512,24 +550,80 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
                 {/* 视图 1：故事原文 (Tool 1 产物) */}
                 {storyTabType === 'original' && (
                   <div className="flex-1 flex flex-col h-full min-h-0 space-y-2">
-                    <div className="text-[11px] text-slate-400 flex items-center justify-between flex-shrink-0">
-                      <span className="font-medium text-slate-600 flex items-center gap-1">
+                    {/* 故事原文专属头部操作栏 (审查一键修复与编辑操作归位于此，仅本页显示) */}
+                    <div className="flex items-center justify-between flex-shrink-0 pb-1.5 border-b border-slate-100">
+                      <span className="font-medium text-slate-600 flex items-center gap-1.5 text-xs">
                         <span>📖</span>
                         <span>
                           {originalMode === 'reading'
-                            ? '第一个 Tool (编剧) 产物：未切分的文学全景剧本与故事长文'
-                            : '故事剧本在线微调编辑'}
+                            ? '故事原文 · 未切分的文学全景剧本与故事长文'
+                            : '故事剧本 · 在线微调编辑'}
                         </span>
+                        {screenplayMarkdown && (
+                          <span className="font-mono text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.2 rounded font-semibold">
+                            {screenplayMarkdown.length} 字
+                          </span>
+                        )}
                       </span>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        修改满意后，点击右上角「📐 解析为 PRD」即可执行第二个 Tool 进行切片抽取
-                      </span>
+
+                      {/* 右侧专属操作区：审核修复按钮 + 阅读/编辑切换 + 保存按钮 */}
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {screenplayMarkdown && (
+                          <ScreenplayReviewActionButton
+                            review={screenplayReview}
+                            isReviewing={screenplayReview?.status === 'reviewing' || isTriggeringReview}
+                            isFixing={isScreenplayRunning}
+                            fixError={reviewActionError}
+                            onFixAll={handleFixAllIssues}
+                            onTriggerReview={handleTriggerReview}
+                          />
+                        )}
+
+                        <div className="flex items-center bg-slate-100 border border-slate-200/80 rounded-lg p-0.5 space-x-0.5 text-[11px] font-medium">
+                          <button
+                            type="button"
+                            onClick={() => setOriginalMode('reading')}
+                            className={`px-2.5 py-0.5 rounded-md transition whitespace-nowrap ${
+                              originalMode === 'reading'
+                                ? 'bg-white text-indigo-700 shadow-2xs font-semibold'
+                                : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                          >
+                            阅读
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setOriginalMode('editing')}
+                            className={`px-2.5 py-0.5 rounded-md transition whitespace-nowrap ${
+                              originalMode === 'editing'
+                                ? 'bg-white text-indigo-700 shadow-2xs font-semibold'
+                                : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                          >
+                            编辑
+                          </button>
+                        </div>
+
+                        {originalMode === 'editing' && (
+                          <button
+                            type="button"
+                            onClick={handleSaveEditedScreenplay}
+                            disabled={isSavingScript || isBusy}
+                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-2xs transition active:scale-95 disabled:opacity-40 whitespace-nowrap"
+                          >
+                            {isSavingScript ? '保存中...' : '💾 保存'}
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {originalMode === 'reading' ? (
                       /* 故事原文高保真文章阅读器 */
                       <div className="flex-1 overflow-y-auto p-5 bg-slate-50/90 rounded-2xl border border-slate-200 text-xs font-mono text-slate-800 leading-relaxed shadow-2xs">
-                        <ScreenplayReader markdown={screenplayMarkdown || '当前项目暂无故事剧本原文。请在左侧与故事总监对话构思剧情，或切换到「编辑」模式直接粘贴正文。'} />
+                        <pre className="whitespace-pre-wrap font-sans text-xs text-slate-800 leading-relaxed">
+                          {screenplayMarkdown ||
+                            '当前项目暂无故事剧本原文。请在左侧与故事总监对话构思剧情，或切换到「编辑」模式直接粘贴正文。'}
+                        </pre>
                       </div>
                     ) : (
                       /* 剧本在线微调编辑输入框 */
@@ -546,14 +640,56 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
                 {/* 视图 2：故事分幕切片 (Tool 2 产物) */}
                 {storyTabType === 'sliced' && (
                   <div className="flex-1 flex flex-col h-full min-h-0 space-y-2">
-                    <div className="text-[11px] text-slate-400 flex items-center justify-between flex-shrink-0">
-                      <span className="font-medium text-slate-600 flex items-center gap-1">
+                    {/* 故事分幕切片专属头部操作栏 */}
+                    <div className="flex items-center justify-between flex-shrink-0 pb-1.5 border-b border-slate-100">
+                      <span className="font-medium text-slate-600 flex items-center gap-1.5 text-xs">
                         <span>🎬</span>
-                        <span>第二个 Tool (工程解析) 产物：S1~Sn 故事分幕切片与分支走向 (story.md)</span>
+                        <span>故事分幕切片 · S1~Sn 切片正文与分支走向</span>
+                        {clips.length > 0 && (
+                          <span className="font-mono text-[10px] text-emerald-600 bg-emerald-50 px-1.5 py-0.2 rounded font-bold">
+                            {clips.length} 幕
+                          </span>
+                        )}
                       </span>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        严格 1:1 对齐 PRD clips 节点与后续视听工序
-                      </span>
+
+                      {/* 故事切片专属操作：卡片/Markdown 切换 + 复制切片 */}
+                      {(clips.length > 0 || storyMarkdown) && (
+                        <div className="flex items-center space-x-1.5 flex-shrink-0">
+                          <div className="flex items-center bg-slate-100 border border-slate-200/80 rounded-lg p-0.5 space-x-0.5 text-[11px] font-medium">
+                            <button
+                              type="button"
+                              onClick={() => setSlicedMode('cards')}
+                              className={`px-2.5 py-0.5 rounded-md transition whitespace-nowrap ${
+                                slicedMode === 'cards'
+                                  ? 'bg-white text-indigo-700 shadow-2xs font-semibold'
+                                  : 'text-slate-500 hover:text-slate-800'
+                              }`}
+                            >
+                              分幕卡片
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSlicedMode('markdown')}
+                              className={`px-2.5 py-0.5 rounded-md transition whitespace-nowrap ${
+                                slicedMode === 'markdown'
+                                  ? 'bg-white text-indigo-700 shadow-2xs font-semibold'
+                                  : 'text-slate-500 hover:text-slate-800'
+                              }`}
+                            >
+                              Markdown 全文
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={handleCopySliced}
+                            className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 shadow-2xs transition active:scale-95 whitespace-nowrap"
+                            title="复制故事分幕切片"
+                          >
+                            {copiedSliced ? '✅ 已复制' : '📋 复制切片'}
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {clips.length === 0 && !storyMarkdown ? (

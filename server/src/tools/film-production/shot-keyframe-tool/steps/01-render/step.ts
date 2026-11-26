@@ -23,169 +23,8 @@ import {
   type ShotKeyframeStepInput,
   type ShotKeyframeStepOutput,
 } from './schema.js';
-import {
-  buildShotKeyframePrompt,
-  KEYFRAME_IMAGE_SIZE,
-  type KeyframeReferenceEntry,
-} from './prompt.js';
+import { KEYFRAME_IMAGE_SIZE } from './prompt.js';
 import { CINEMATIC_KEYFRAME_NEGATIVE_PROMPT } from '../../../shared/cinematography-grammar.js';
-
-function cleanUrl(url?: string): string {
-  if (!url) return '';
-  return url.split('?')[0].trim();
-}
-
-function appendUniqueReference(
-  list: KeyframeReferenceEntry[],
-  seenUrls: Set<string>,
-  entry: KeyframeReferenceEntry
-): void {
-  const normalized = cleanUrl(entry.url);
-  if (!normalized || seenUrls.has(normalized)) return;
-  seenUrls.add(normalized);
-  list.push({ ...entry, url: normalized });
-}
-
-function resolveShotReferenceEntries(
-  targetClip: any,
-  targetShot: any,
-  entities: GlobalEntities | null | undefined,
-  customReferenceUrls?: string[],
-  customRole: 'custom' | 'base_frame' = 'custom',
-  previousShot?: any,
-  currentIdx?: number
-): KeyframeReferenceEntry[] {
-  const entries: KeyframeReferenceEntry[] = [];
-  const seen = new Set<string>();
-
-  // 1. 创作者手动指定的垫图参考
-  for (const url of customReferenceUrls || []) {
-    appendUniqueReference(entries, seen, { role: customRole, url });
-  }
-
-  // 2. 前序镜头连续性末帧参考（影视级时空视听连续性 SSOT）
-  const continuityMode = targetShot.continuityMode || 'auto';
-  const isSameScene =
-    !targetShot.location ||
-    !previousShot?.location ||
-    targetShot.location === previousShot.location;
-  const shouldInheritPreceding =
-    continuityMode === 'linked' ||
-    (continuityMode === 'auto' && previousShot && isSameScene);
-
-  if (shouldInheritPreceding && previousShot) {
-    const prevTailUrl = cleanUrl(
-      previousShot.lastFrameImageUrl ||
-      previousShot.firstFrameImageUrl ||
-      previousShot.keyframeUrl ||
-      previousShot.imageUrl
-    );
-    if (prevTailUrl) {
-      appendUniqueReference(entries, seen, {
-        role: 'preceding_frame',
-        url: prevTailUrl,
-        name: previousShot.title || `前序镜头 ${String((currentIdx || 1)).padStart(2, '0')}`,
-      });
-    }
-  }
-
-  // 3. 出场角色三视图（优先作为主角视觉锚点基准 <image1>，支持显式 @角色 智能注入与扫描）
-  const activeCharKeys = new Set<string>([
-    ...(Array.isArray(targetShot.characters) ? targetShot.characters : []),
-    ...(Array.isArray(targetShot.characterIds) ? targetShot.characterIds : []),
-  ]);
-  const shotText = `${targetShot.title || ''} ${targetShot.sceneSubject || ''} ${targetShot.firstFramePrompt || ''} ${targetShot.poseDirective?.label || ''} ${targetShot.poseDirective?.instruction || ''}`;
-  if (Array.isArray(entities?.characters) && entities.characters.length > 0) {
-    for (const ch of entities.characters) {
-      if (ch.name && (shotText.includes(`@${ch.name}`) || shotText.includes(ch.name))) {
-        activeCharKeys.add(ch.characterId || ch.name);
-      }
-    }
-  }
-
-  if (entities?.characters?.length && activeCharKeys.size > 0) {
-    const freshCharUrls: string[] = [];
-    for (const cid of activeCharKeys) {
-      const matchedChar = entities.characters.find(
-        (c: any) => c.characterId === cid || c.name === cid
-      );
-      const charImg = cleanUrl(matchedChar?.imageUrl || matchedChar?.referenceImageUrl);
-      if (charImg) {
-        freshCharUrls.push(charImg);
-        appendUniqueReference(entries, seen, {
-          role: 'character',
-          url: charImg,
-          name: matchedChar?.name,
-          identity: matchedChar?.identity,
-        });
-      }
-    }
-    if (freshCharUrls.length > 0) {
-      targetShot.characterReferenceImageUrls = freshCharUrls;
-    }
-  } else if (Array.isArray(targetShot.characterReferenceImageUrls)) {
-    for (const url of targetShot.characterReferenceImageUrls) {
-      appendUniqueReference(entries, seen, { role: 'character', url });
-    }
-  }
-
-  // 4. 场景母本图（优先匹配 @场景名称，作为材质肌理与光影色调参考）
-  let matchedLoc: any;
-  if (entities?.locations?.length) {
-    // 优先检测提示词中显式 @ 的场景
-    matchedLoc = entities.locations.find(
-      (l: any) => l.name && (shotText.includes(`@${l.name}`) || shotText.includes(l.name))
-    );
-    if (!matchedLoc) {
-      matchedLoc =
-        entities.locations.find(
-          (l: any) =>
-            l.sceneIds?.includes(targetClip.clipId) ||
-            l.locationId === targetClip.clipId ||
-            l.locationId.includes(targetClip.clipId)
-        ) || entities.locations[0];
-    }
-    const locImg = cleanUrl(matchedLoc?.imageUrl || matchedLoc?.referenceImageUrl);
-    if (locImg) {
-      targetShot.backgroundImageUrl = locImg;
-    }
-  }
-  if (targetShot.backgroundImageUrl) {
-    appendUniqueReference(entries, seen, {
-      role: 'location',
-      url: targetShot.backgroundImageUrl,
-      name: matchedLoc?.name,
-    });
-  }
-
-  // 5. 关键剧情道具特写图（支持 targetShot.items、targetShot.itemIds 以及显式 @道具 智能扫描）
-  const declaredItemIds = new Set<string>([
-    ...(Array.isArray(targetShot.items) ? targetShot.items : []),
-    ...(Array.isArray(targetShot.itemIds) ? targetShot.itemIds : []),
-  ]);
-  if (Array.isArray(entities?.items) && entities.items.length > 0) {
-    for (const it of entities.items) {
-      if (it.name && (shotText.includes(`@${it.name}`) || shotText.includes(it.name))) {
-        declaredItemIds.add(it.itemId || it.name);
-      }
-    }
-    for (const iid of declaredItemIds) {
-      const matchedItem = entities.items.find(
-        (it: any) => it.itemId === iid || it.name === iid
-      );
-      const itemImg = cleanUrl(matchedItem?.imageUrl || matchedItem?.referenceImageUrl);
-      if (itemImg) {
-        appendUniqueReference(entries, seen, {
-          role: 'item',
-          url: itemImg,
-          name: matchedItem?.name,
-        });
-      }
-    }
-  }
-
-  return entries;
-}
 
 export const shotKeyframeStep = createStep({
   id: 'render-shot-keyframe',
@@ -220,7 +59,7 @@ export const shotKeyframeStep = createStep({
     const projectDir = store.getProjectDir(projectId);
     const entities = store.getArtifact<GlobalEntities>(projectId, 'lookdev_entities');
 
-    // 单镜头执行闭包
+    // 单镜头执行闭包 (内部委托底层 media 算力自动编译图文注意力与多图引用)
     const renderSingleShot = async (targetClip: any, targetShot: any): Promise<boolean> => {
       const isCustomRedo = Boolean(customPrompt?.trim() || referenceImageUrls?.length);
       const renderFirst = frame !== 'last';
@@ -238,15 +77,6 @@ export const shotKeyframeStep = createStep({
       );
       const previousShot = currentIdx > 0 ? shotList[currentIdx - 1] : undefined;
 
-      const baseReferences = resolveShotReferenceEntries(
-        targetClip,
-        targetShot,
-        entities,
-        referenceImageUrls,
-        refineInstruction ? 'base_frame' : 'custom',
-        previousShot,
-        currentIdx
-      );
       const negativePrompt = customNegativePrompt || CINEMATIC_KEYFRAME_NEGATIVE_PROMPT;
 
       // 1. 生成首帧
@@ -259,21 +89,20 @@ export const shotKeyframeStep = createStep({
         const firstPoseDir = targetShot.firstFramePoseDirective || targetShot.poseDirective;
         const visualTag = firstCameraDir?.presetId || firstCameraDir?.label || 'close';
 
-        // 单次单版本执行（尊重镜头独立机位与指定连续性，彻底根除自动双轨造成多镜版本混淆）
-        const effectiveCont = continuityMode || targetShot.continuityMode || 'detached';
-        const finalRefs =
-          effectiveCont === 'linked'
-            ? baseReferences
-            : baseReferences.filter((r) => r.role !== 'preceding_frame');
+        // 单次单版本执行（尊重镜头独立机位与指定连续性，前序同场景默认 auto 智能连贯）
+        const isSameScene =
+          !targetShot.location ||
+          !previousShot?.location ||
+          targetShot.location === previousShot.location;
+        const effectiveCont = continuityMode || targetShot.continuityMode || (previousShot && isSameScene ? 'auto' : 'detached');
+        const shouldInheritPreceding =
+          effectiveCont === 'linked' ||
+          (effectiveCont === 'auto' && previousShot && isSameScene);
 
-        if (isRefining && !referenceImageUrls?.length) {
-          finalRefs.unshift({
-            role: 'base_frame',
-            url: targetShot.firstFrameImageUrl,
-          });
-        }
-        const refUrls = finalRefs.map((r) => r.url);
-        const prompt = buildShotKeyframePrompt(targetShot, finalRefs, effectiveFirstPrompt, refineInstruction);
+        const precedingFrameUrl = (shouldInheritPreceding && previousShot)
+          ? (previousShot.videoLastFrameUrl || previousShot.lastFrameImageUrl || previousShot.firstFrameImageUrl || previousShot.keyframeUrl || previousShot.imageUrl)
+          : undefined;
+
         const effectiveDenoise = explicitDenoise ?? (isRefining ? 0.50 : 1.0);
         const { fileName } = buildShotMediaFileName({
           shotId: targetShot.shotId,
@@ -287,10 +116,14 @@ export const shotKeyframeStep = createStep({
           const res: any = await (imageGenerateTool.execute as any)({
             context: {
               projectId,
-              prompt,
+              prompt: effectiveFirstPrompt,
               negativePrompt,
-              mode: refUrls.length > 0 ? 'character_ref2i' : 'character_t2i',
-              referenceImageUrls: refUrls.length > 0 ? refUrls : undefined,
+              entities,
+              precedingFrameUrl,
+              customReferenceUrls: referenceImageUrls,
+              baseFrameUrl: isRefining ? targetShot.firstFrameImageUrl : undefined,
+              instruction: refineInstruction,
+              poseDirective: firstPoseDir,
               denoise: effectiveDenoise,
               maskImageUrl,
               size: KEYFRAME_IMAGE_SIZE,
@@ -306,6 +139,7 @@ export const shotKeyframeStep = createStep({
           if (customPrompt?.trim()) {
             targetShot.firstFramePrompt = customPrompt.trim();
           }
+          targetShot.continuityMode = effectiveCont;
           appendFrameVersion(targetShot, 'first', {
             imageUrl: mediaUrl,
             fileName,
@@ -326,8 +160,6 @@ export const shotKeyframeStep = createStep({
       // 2. 生成尾帧（首尾帧模式或单点指定 frame: 'last'）
       if (renderLast && (targetShot.lastFramePrompt || customPrompt?.trim())) {
         const isLastRefining = Boolean(frame === 'last' && refineInstruction && targetShot.lastFrameImageUrl);
-        const lastReferences: KeyframeReferenceEntry[] = [...baseReferences];
-        const seenLast = new Set(lastReferences.map((r) => r.url));
         const lastExistingVersions = readFrameVersions(targetShot, 'last');
         const lastSeq = lastExistingVersions.length + 1;
         const lastCameraDir = targetShot.lastFrameCameraDirective || targetShot.cameraDirective;
@@ -335,25 +167,6 @@ export const shotKeyframeStep = createStep({
         const lastPoseDir = targetShot.lastFramePoseDirective || targetShot.poseDirective;
         const lastVisualTag = lastCameraDir?.presetId || lastCameraDir?.label || 'close';
 
-        if (isLastRefining && !referenceImageUrls?.length) {
-          lastReferences.unshift({
-            role: 'base_frame',
-            url: targetShot.lastFrameImageUrl,
-          });
-        } else if (targetShot.firstFrameImageUrl) {
-          appendUniqueReference(lastReferences, seenLast, {
-            role: 'first_frame',
-            url: targetShot.firstFrameImageUrl,
-          });
-        }
-
-        const lastRefUrls = lastReferences.map((r) => r.url);
-        const lastPrompt = buildShotKeyframePrompt(
-          targetShot,
-          lastReferences,
-          effectiveLastPrompt,
-          frame === 'last' ? refineInstruction : undefined
-        );
         const effectiveLastDenoise = explicitDenoise ?? (isLastRefining ? 0.50 : 1.0);
         const { fileName: lastFileName } = buildShotMediaFileName({
           shotId: targetShot.shotId,
@@ -363,14 +176,22 @@ export const shotKeyframeStep = createStep({
           versionSeq: lastSeq,
         });
 
+        // 尾帧以微调基准或首帧为基准
+        const baseFrame = isLastRefining
+          ? targetShot.lastFrameImageUrl
+          : (targetShot.firstFrameImageUrl || undefined);
+
         try {
           const lastRes: any = await (imageGenerateTool.execute as any)({
             context: {
               projectId,
-              prompt: lastPrompt,
+              prompt: effectiveLastPrompt,
               negativePrompt,
-              mode: lastRefUrls.length > 0 ? 'character_ref2i' : 'character_t2i',
-              referenceImageUrls: lastRefUrls.length > 0 ? lastRefUrls : undefined,
+              entities,
+              customReferenceUrls: referenceImageUrls,
+              baseFrameUrl: baseFrame,
+              instruction: frame === 'last' ? refineInstruction : undefined,
+              poseDirective: lastPoseDir,
               denoise: effectiveLastDenoise,
               maskImageUrl,
               size: KEYFRAME_IMAGE_SIZE,
@@ -433,6 +254,7 @@ export const shotKeyframeStep = createStep({
       // 全量落盘与同步
       store.setArtifact(projectId, 'film_spec', filmSpec);
       store.setArtifact(projectId, 'storyboards', filmSpec.clips);
+      atomicWriteJsonSync(path.join(projectDir, 'film_spec.json'), filmSpec);
       atomicWriteJsonSync(path.join(projectDir, 'storyboards.json'), filmSpec.clips);
 
       return {
@@ -467,6 +289,7 @@ export const shotKeyframeStep = createStep({
     // 单体落盘与同步
     store.setArtifact(projectId, 'film_spec', filmSpec);
     store.setArtifact(projectId, 'storyboards', filmSpec.clips);
+    atomicWriteJsonSync(path.join(projectDir, 'film_spec.json'), filmSpec);
     atomicWriteJsonSync(path.join(projectDir, 'storyboards.json'), filmSpec.clips);
 
     return {

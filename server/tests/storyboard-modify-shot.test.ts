@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ProjectStore } from '../src/project-store/ProjectStore.js';
 import { shootingScriptModifierStep } from '../src/tools/film-production/shooting-script-tool/index.js';
-import { shotPromptModifierStep } from '../src/tools/film-production/shot-prompt-tool/index.js';
+import { shotPromptModifierStep } from '../src/tools/film-production/shot-frame-prompt-tool/index.js';
 import type { FilmAdapterArtifact } from '../src/project-store/contracts/film-production/film-spec.js';
 
 test('🎬 验证分镜解耦三工具定向微调模式 (ShootingScript/Prompt/Motion Modifier)', async (t) => {

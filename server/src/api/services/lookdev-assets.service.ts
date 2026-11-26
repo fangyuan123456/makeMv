@@ -222,13 +222,10 @@ export const selectEntityVersion = (req: Request, res: Response) => {
       return sendError(res, 404, `未在实体历史版本中找到版本 [${versionId}]`);
     }
 
-    // 激活该版本 (只切换立绘与提示词，绝不篡改实体的全局基准底图 target.referenceImageUrl)
+    // 激活该版本 (只切换立绘版本与状态，保留当前最新 promptZh，绝不篡改 target.referenceImageUrl)
     target.selectedVersionId = matchedVersion.versionId;
     target.imageUrl = matchedVersion.imageUrl;
     if (matchedVersion.reviewStatus === 'pending') matchedVersion.reviewStatus = 'accepted';
-    if (matchedVersion.promptZh) {
-      target.promptZh = matchedVersion.promptZh;
-    }
     if (matchedVersion.poseConstraint) target.poseConstraint = matchedVersion.poseConstraint;
 
     store.setArtifact(projectId, 'lookdev_entities', entities);

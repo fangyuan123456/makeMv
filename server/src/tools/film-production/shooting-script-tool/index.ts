@@ -45,18 +45,17 @@ export class ShootingScriptTool extends BaseTaskTool<
   }
 
   /**
-   * 双轨正交解耦路由分发：
-   * 1. 当入参包含 mode === 'modify'、导演指令 instruction、指定节拍 targetBeatId、显式 environmentLock 或 modifications 时，走微调手术轨；
-   * 2. 否则默认执行从 0 到 1 的初次故事剧本升级演绎剧本流水线。
+   * 双轨正交解耦路由分发（基于契约字段，零硬编码猜测）：
+   * 1. 显式指定 mode === 'modify' 或指定靶向操作（targetBeatId / modifications）时，执行微调手术轨；
+   * 2. 否则按摄制台本标准契约执行全量镜头规划流水线（可包含导演细化 instruction 要求）。
    */
   protected buildWorkflow(input?: any) {
-    if (
+    const isModifierMode =
       input?.mode === 'modify' ||
-      (input?.instruction && input.instruction.trim()) ||
-      input?.targetBeatId ||
-      input?.environmentLock ||
-      (Array.isArray(input?.modifications) && input.modifications.length > 0)
-    ) {
+      Boolean(input?.targetBeatId) ||
+      (Array.isArray(input?.modifications) && input.modifications.length > 0);
+
+    if (isModifierMode) {
       return createShootingScriptModifierWorkflow();
     }
     return createShootingScriptWorkflow();

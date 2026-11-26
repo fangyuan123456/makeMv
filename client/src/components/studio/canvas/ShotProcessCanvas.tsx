@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useState, useRef } from 'react';
 import type { CanvasShotNode, ShotFrameVersion, ShotVideoVersion, TaskRecord } from '../../../types/index.js';
 import type { MediaLightboxItem } from '../stages/visual/MediaLightboxModal.js';
 import { useReportFocus } from '../../../hooks/StudioFocusContext.js';
-import { selectShotVersion, updateShotPrompt, updateShotContinuity } from '../../../lib/api.js';
+import { selectShotVersion, updateShotPrompt, updateShotContinuity, runTask, fetchTaskRecord } from '../../../lib/api.js';
 import { DirectorDropdownBar, type DirectorDirectives } from './DirectorDropdownBar.js';
 import { DirectorVideoDropdownBar } from './DirectorVideoDropdownBar.js';
 import { SubCanvasSwitcher, type SubCanvasOption } from './SubCanvasSwitcher.js';
+import { TiptapMentionEditor } from './TiptapMentionEditor.js';
 import {
   extractStructuredVisuals,
   extractStructuredVideoDirectives,
@@ -15,7 +16,6 @@ import {
   reconstructVideoPrompt,
   type VideoDirectives,
 } from './presets/promptDeconstructor.js';
-import { PromptMentionEditor } from './PromptMentionEditor.js';
 
 interface ShotProcessCanvasProps {
   node: CanvasShotNode;
@@ -126,17 +126,130 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
   const [continuityMode, setContinuityMode] = useState<'auto' | 'linked' | 'detached'>(
     node.continuityMode || 'auto'
   );
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
+
+  // 提取前序镜头接戏数据 SSOT（优先从 film_spec 查找，降级从 allNodes 查找）
+  const previousShotData = useMemo(() => {
+    if (!node.shotId) return undefined;
+    const filmSpec = projectData?.artifacts?.film_spec;
+    const clipId = node.clipId || node.shotId.split('-')[0];
+    const clip = filmSpec?.clips?.find((c: any) => c.clipId === clipId);
+    if (clip && Array.isArray(clip.shots)) {
+      const idx = clip.shots.findIndex((s: any) => s.shotId === node.shotId);
+      if (idx > 0) return clip.shots[idx - 1];
+    }
+    if (allNodes && allNodes.length > 0) {
+      const idx = allNodes.findIndex((n) => n.shotId === node.shotId || n.id === node.id);
+      if (idx > 0) return allNodes[idx - 1];
+    }
+    return undefined;
+  }, [projectData, node.shotId, node.clipId, node.id, allNodes]);
+
+  // 为编辑器注入 @link(前序尾帧) 虚拟链接实体（支持胶囊高亮与悬停看前序尾帧图）
+  const editorEntities = useMemo(() => {
+    if (!previousShotData) return lookdevEntities;
+    const prevImg =
+      previousShotData.videoLastFrameUrl ||
+      previousShotData.lastFrameImageUrl ||
+      previousShotData.lastFrameUrl ||
+      previousShotData.firstFrameImageUrl ||
+      previousShotData.keyframeUrl;
+    const base = lookdevEntities || {};
+    return {
+      ...base,
+      locations: [
+        ...(base.locations || []),
+        {
+          locationId: 'preceding_frame_link',
+          name: 'link(前序尾帧)',
+          imageUrl: prevImg,
+          role: '前序镜头接戏尾帧参考',
+        },
+      ],
+    };
+  }, [lookdevEntities, previousShotData]);
 
   const toggleContinuityMode = async () => {
-    if (!node.shotId) return;
-    const nextMode: 'auto' | 'linked' | 'detached' =
-      continuityMode === 'auto' ? 'linked' : continuityMode === 'linked' ? 'detached' : 'auto';
+    if (!node.shotId || isGeneratingPrompt) return;
+    const nextMode: 'linked' | 'detached' =
+      continuityMode === 'detached' ? 'linked' : 'detached';
     setContinuityMode(nextMode);
+
+    // 检查是否有对应模式的缓存提示词
+    const continuityPrompts = (node as any).continuityPrompts || {};
+    const cachedPrompt = nextMode === 'detached' ? continuityPrompts.detached : continuityPrompts.linked;
+
+    if (cachedPrompt && cachedPrompt.trim()) {
+      setDraftPrompt(cachedPrompt);
+      setSavedPrompt(cachedPrompt);
+      try {
+        await updateShotContinuity(projectId, node.shotId, nextMode, cachedPrompt);
+        onRefreshProject?.();
+      } catch (err: any) {
+        console.warn('切换连续性模式失败:', err);
+      }
+      return;
+    }
+
+    // 若无对应模式提示词，触发动态自愈推演
+    setIsGeneratingPrompt(true);
     try {
-      await updateShotContinuity(projectId, node.shotId, nextMode);
+      const clipId = node.clipId || node.shotId.split('-')[0];
+      const task = await runTask(projectId, 'film.shot_frame_prompt', {
+        projectId,
+        clipId,
+        shotId: node.shotId,
+        continuityMode: nextMode,
+      });
+
+      let generatedPrompt = '';
+      if (task?.taskId) {
+        const startTime = Date.now();
+        while (Date.now() - startTime < 12000) {
+          await new Promise((r) => setTimeout(r, 800));
+          try {
+            const currentTask = await fetchTaskRecord(task.taskId);
+            if (currentTask.status === 'completed') {
+              generatedPrompt = currentTask.output?.firstFramePrompt || '';
+              break;
+            } else if (currentTask.status === 'failed' || currentTask.status === 'cancelled') {
+              break;
+            }
+          } catch {}
+        }
+      }
+
+      if (generatedPrompt && generatedPrompt.trim()) {
+        setDraftPrompt(generatedPrompt);
+        setSavedPrompt(generatedPrompt);
+        if (!(node as any).continuityPrompts) (node as any).continuityPrompts = {};
+        if (nextMode === 'detached') {
+          (node as any).continuityPrompts.detached = generatedPrompt;
+        } else {
+          (node as any).continuityPrompts.linked = generatedPrompt;
+        }
+        await updateShotContinuity(projectId, node.shotId, nextMode, generatedPrompt);
+      } else {
+        // 兜底补齐：承接模式下注入声明式 @link(前序尾帧)；独立模式下剔除 @link
+        let fallbackPrompt = draftPrompt || node.firstFramePrompt || '';
+        if (nextMode === 'linked') {
+          if (!fallbackPrompt.includes('@link')) {
+            fallbackPrompt = `@link(前序尾帧) 继承前序时空光色。${fallbackPrompt}`;
+          }
+        } else {
+          fallbackPrompt = fallbackPrompt.replace(/[@＠]link(?:\([^)]*\))?\s*/g, '').trim();
+        }
+        setDraftPrompt(fallbackPrompt);
+        setSavedPrompt(fallbackPrompt);
+        await updateShotContinuity(projectId, node.shotId, nextMode, fallbackPrompt);
+      }
       onRefreshProject?.();
     } catch (err: any) {
-      console.warn('切换连续性模式失败:', err);
+      console.warn('动态生成连续性提示词失败:', err);
+      await updateShotContinuity(projectId, node.shotId, nextMode);
+      onRefreshProject?.();
+    } finally {
+      setIsGeneratingPrompt(false);
     }
   };
 
@@ -149,11 +262,12 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
           ...node,
           videoPrompt: rawVideo,
         });
+        const displayAction = extractedAction;
         setVideoDirectives(defaultVideoDir);
         setSavedVideoDirectives(defaultVideoDir);
-        setPureAction(extractedAction);
-        setDraftPrompt(extractedAction);
-        setSavedPrompt(extractedAction);
+        setPureAction(displayAction);
+        setDraftPrompt(displayAction);
+        setSavedPrompt(displayAction);
       } else if (targetKind === 'last') {
         const rawP = (node.lastFramePrompt || '').trim();
         const lastDirs: DirectorDirectives = {
@@ -168,11 +282,12 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
           poseDirective: lastDirs.pose,
           firstFramePrompt: rawP,
         });
+        const displaySubject = extractedSubject;
         setDirectives(defaultDirectives);
         setSavedImageDirectives(defaultDirectives);
-        setPureSubject(extractedSubject);
-        setDraftPrompt(extractedSubject);
-        setSavedPrompt(extractedSubject);
+        setPureSubject(displaySubject);
+        setDraftPrompt(displaySubject);
+        setSavedPrompt(displaySubject);
       } else {
         const rawP = (node.firstFramePrompt || node.prompt || '').trim();
         const firstDirs: DirectorDirectives = {
@@ -187,11 +302,12 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
           poseDirective: firstDirs.pose,
           firstFramePrompt: rawP,
         });
+        const displaySubject = extractedSubject;
         setDirectives(defaultDirectives);
         setSavedImageDirectives(defaultDirectives);
-        setPureSubject(extractedSubject);
-        setDraftPrompt(extractedSubject);
-        setSavedPrompt(extractedSubject);
+        setPureSubject(displaySubject);
+        setDraftPrompt(displaySubject);
+        setSavedPrompt(displaySubject);
       }
     },
     [
@@ -213,6 +329,7 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
       node.lastFramePrompt,
       node.videoPrompt,
       node.prompt,
+      lookdevEntities,
     ]
   );
 
@@ -221,6 +338,18 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
   }, [selected, loadStepData]);
   const [savingPrompt, setSavingPrompt] = useState(false);
   const [selectingVersion, setSelectingVersion] = useState<string | null>(null);
+  const [optimisticVersionIds, setOptimisticVersionIds] = useState<Partial<Record<ProcessNode, string>>>({});
+  useEffect(() => {
+    setOptimisticVersionIds({});
+  }, [
+    node.shotId,
+    node.selectedFirstFrameVersionId,
+    node.selectedLastFrameVersionId,
+    node.selectedVideoVersionId,
+    node.firstFrameVersions?.length,
+    node.lastFrameVersions?.length,
+    node.videoVersions?.length,
+  ]);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const dragStart = React.useRef({ x: 0, y: 0, panX: 0, panY: 0 });
@@ -252,71 +381,63 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
     });
   };
 
-  // 监听针对当前镜头的首关键帧生图提示词推演任务 (film.shot_prompt SSOT)
-  const activeShotPromptTask = useMemo(() => {
+  // 监听针对当前镜头的首帧生图词推演任务 (film.shot_frame_prompt)
+  const activeFramePromptTask = useMemo(() => {
     return tasks.find((t) => {
       if (t.status !== 'running' && t.status !== 'pending') return false;
-      if (t.toolName !== 'film.shot_prompt') return false;
+      if (t.toolName !== 'film.shot_frame_prompt' && t.toolName !== 'film.shot_prompt') return false;
       return t.input?.shotId === node.shotId;
     });
   }, [tasks, node.shotId]);
-  const isPromptExtracting = Boolean(activeShotPromptTask);
 
-  // 监听针对当前镜头的视频运镜提示词推演任务 (film.shot_motion SSOT)
-  const activeShotMotionTask = useMemo(() => {
+  // 监听针对当前镜头的视频动态运镜词推演任务 (film.shot_motion_prompt)
+  const activeMotionPromptTask = useMemo(() => {
     return tasks.find((t) => {
       if (t.status !== 'running' && t.status !== 'pending') return false;
-      if (t.toolName !== 'film.shot_motion') return false;
+      if (t.toolName !== 'film.shot_motion_prompt') return false;
       return t.input?.shotId === node.shotId;
     });
   }, [tasks, node.shotId]);
-  const isMotionExtracting = Boolean(activeShotMotionTask);
+
+  const isPromptExtracting = Boolean(activeFramePromptTask);
+  const isMotionExtracting = Boolean(activeMotionPromptTask);
 
   // 当前步骤是否正在推演提示词
-  const isSelectedPromptExtracting =
-    (selected === 'video' && isMotionExtracting) ||
-    (selected !== 'video' && isPromptExtracting);
+  const isSelectedPromptExtracting = isPromptExtracting || isMotionExtracting;
 
-  const autoExtractedShotRef = useRef<{ prompt?: string; motion?: string }>({});
+  const autoExtractedShotRef = useRef<string | null>(null);
 
-  // 点进单镜详情或切换镜头时：若首帧提示词为空则自动推演首帧词，若视频提示词为空则自动推演视频词
+  // 点进单镜详情或切换镜头时：按需自动补齐缺失的首帧生图词或视频运镜词
   useEffect(() => {
     if (!projectId || !node.shotId || !node.clipId) return;
 
-    // 1. 首帧生图词自动推演
     if (
-      !node.firstFramePrompt &&
+      (!node.firstFramePrompt || !node.videoPrompt) &&
       !isPromptExtracting &&
-      autoExtractedShotRef.current.prompt !== node.shotId
-    ) {
-      autoExtractedShotRef.current.prompt = node.shotId;
-      console.log(`[ShotProcessCanvas] 镜头 [${node.shotId}] 缺失首帧生图词，自动触发 film.shot_prompt...`);
-      onRunTool('film.shot_prompt', {
-        projectId,
-        clipId: node.clipId,
-        shotId: node.shotId,
-        __idempotencyKey: `shot-prompt:auto:${projectId}:${node.shotId}`,
-      })
-        .then(() => onRefreshProject?.())
-        .catch((err) => console.warn(`[ShotProcessCanvas] 自动推演镜头 [${node.shotId}] 首帧词失败:`, err));
-    }
-
-    // 2. 视频运镜词自动推演
-    if (
-      !node.videoPrompt &&
       !isMotionExtracting &&
-      autoExtractedShotRef.current.motion !== node.shotId
+      autoExtractedShotRef.current !== node.shotId
     ) {
-      autoExtractedShotRef.current.motion = node.shotId;
-      console.log(`[ShotProcessCanvas] 镜头 [${node.shotId}] 缺失视频运镜词，自动触发 film.shot_motion...`);
-      onRunTool('film.shot_motion', {
-        projectId,
-        clipId: node.clipId,
-        shotId: node.shotId,
-        __idempotencyKey: `shot-motion:auto:${projectId}:${node.shotId}`,
-      })
-        .then(() => onRefreshProject?.())
-        .catch((err) => console.warn(`[ShotProcessCanvas] 自动推演镜头 [${node.shotId}] 运镜词失败:`, err));
+      autoExtractedShotRef.current = node.shotId;
+      if (!node.firstFramePrompt) {
+        onRunTool('film.shot_frame_prompt', {
+          projectId,
+          clipId: node.clipId,
+          shotId: node.shotId,
+          __idempotencyKey: `shot-frame-prompt:auto:${projectId}:${node.shotId}`,
+        })
+          .then(() => onRefreshProject?.())
+          .catch((err) => console.warn(`[ShotProcessCanvas] 自动推演镜头 [${node.shotId}] 首帧词失败:`, err));
+      }
+      if (!node.videoPrompt) {
+        onRunTool('film.shot_motion_prompt', {
+          projectId,
+          clipId: node.clipId,
+          shotId: node.shotId,
+          __idempotencyKey: `shot-motion-prompt:auto:${projectId}:${node.shotId}`,
+        })
+          .then(() => onRefreshProject?.())
+          .catch((err) => console.warn(`[ShotProcessCanvas] 自动推演镜头 [${node.shotId}] 视频运镜词失败:`, err));
+      }
     }
   }, [projectId, node.shotId, node.clipId, node.firstFramePrompt, node.videoPrompt, isPromptExtracting, isMotionExtracting]);
 
@@ -324,11 +445,11 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
   const handleExtractShotPrompt = async () => {
     if (!node.shotId || !node.clipId || isPromptExtracting) return;
     try {
-      await onRunTool('film.shot_prompt', {
+      await onRunTool('film.shot_frame_prompt', {
         projectId,
         clipId: node.clipId,
         shotId: node.shotId,
-        __idempotencyKey: `shot-prompt:manual:${projectId}:${node.shotId}:${Date.now()}`,
+        __idempotencyKey: `shot-frame-prompt:manual:${projectId}:${node.shotId}:${Date.now()}`,
       });
       onRefreshProject?.();
     } catch (err: any) {
@@ -340,11 +461,11 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
   const handleExtractShotMotion = async () => {
     if (!node.shotId || !node.clipId || isMotionExtracting) return;
     try {
-      await onRunTool('film.shot_motion', {
+      await onRunTool('film.shot_motion_prompt', {
         projectId,
         clipId: node.clipId,
         shotId: node.shotId,
-        __idempotencyKey: `shot-motion:manual:${projectId}:${node.shotId}:${Date.now()}`,
+        __idempotencyKey: `shot-motion-prompt:manual:${projectId}:${node.shotId}:${Date.now()}`,
       });
       onRefreshProject?.();
     } catch (err: any) {
@@ -382,54 +503,30 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
 
   const cleanMedia = (url?: string) => (url ? url.split('?')[0] : '');
   const activeMedia = cleanMedia(mediaUrl(selected));
-  const activeVersion = currentVersions.find((v: any) => cleanMedia(v.imageUrl || v.videoUrl) === activeMedia);
+  const explicitSelectedVersionId =
+    optimisticVersionIds[selected] ||
+    (selected === 'video'
+      ? (node as any).selectedVideoVersionId
+      : selected === 'last'
+      ? (node as any).selectedLastFrameVersionId
+      : (node as any).selectedFirstFrameVersionId);
+  const activeVersion =
+    (explicitSelectedVersionId
+      ? currentVersions.find((v: any) => v.versionId === explicitSelectedVersionId)
+      : undefined) ||
+    currentVersions.find((v: any) => cleanMedia(v.imageUrl || v.videoUrl) === activeMedia);
   const activeVersionId = activeVersion?.versionId;
   const activeImageUrl = selected === 'video' ? undefined : activeMedia;
   const frameKey = selected as 'first' | 'last';
 
-  // 选用历史版本（全参数快照自动回弹恢复）
+  // 选用历史版本（仅切换媒体版本，保留当前最新提示词）
   const handleSelectVersion = async (targetVer: ShotFrameVersion | ShotVideoVersion) => {
     const versionId = targetVer.versionId;
     if (!node.shotId || selectingVersion || isSelectedRunning || versionId === activeVersionId) return;
     setSelectingVersion(versionId);
     try {
       await selectShotVersion(projectId, node.shotId, selected, versionId);
-
-      // ====== 全参数快照自动回弹 (Auto-Rebound Snapshot) ======
-      if (selected === 'video') {
-        const v = targetVer as ShotVideoVersion;
-        if (v.continuityMode) setContinuityMode(v.continuityMode);
-        const reboundDirectives: VideoDirectives = {
-          motion: v.motionDirective,
-          dynamic: v.dynamicDirective,
-          focus: v.focusDirective,
-        };
-        setVideoDirectives(reboundDirectives);
-        setSavedVideoDirectives(reboundDirectives);
-        if (v.prompt) {
-          const pureP = purifyActionPrompt(v.prompt, reboundDirectives);
-          setPureAction(pureP);
-          setDraftPrompt(pureP);
-          setSavedPrompt(pureP);
-        }
-      } else {
-        const v = targetVer as ShotFrameVersion;
-        if (v.continuityMode) setContinuityMode(v.continuityMode);
-        const reboundDirectives: DirectorDirectives = {
-          camera: v.cameraDirective,
-          color: v.colorDirective,
-          pose: v.poseDirective,
-        };
-        setDirectives(reboundDirectives);
-        setSavedImageDirectives(reboundDirectives);
-        if (v.prompt) {
-          const pureP = purifySubjectPrompt(v.prompt, reboundDirectives);
-          setPureSubject(pureP);
-          setDraftPrompt(pureP);
-          setSavedPrompt(pureP);
-        }
-      }
-
+      setOptimisticVersionIds((prev) => ({ ...prev, [selected]: versionId }));
       onRefreshProject?.();
     } catch (err: any) {
       alert(`切换版本失败: ${err?.message || String(err)}`);
@@ -454,7 +551,8 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
               colorDirective: directives.color,
               poseDirective: directives.pose,
             };
-      await updateShotPrompt(projectId, node.shotId, selected, draftPrompt, directivePayload);
+      const storagePrompt = draftPrompt.trim();
+      await updateShotPrompt(projectId, node.shotId, selected, storagePrompt, directivePayload);
       if (selected === 'video') {
         setSavedVideoDirectives({ ...videoDirectives });
       } else {
@@ -596,7 +694,7 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
 
   const processFocus = useMemo(
     () => ({
-      location: `单镜头处理页 · ${labels[selected]}处理`,
+      location: `演绎片段处理页 · ${labels[selected]}处理`,
       target: {
         kind: 'shot',
         id: node.shotId || node.id,
@@ -695,7 +793,8 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
     setSubmittingAction({ step, mode: 'generate' });
     try {
       if (step === 'video') {
-        const purePrompt = (draftPrompt || prompt('video') || '').trim();
+        const rawDraft = (draftPrompt || prompt('video') || '').trim();
+        const purePrompt = rawDraft;
         // 持久化纯净剧情提示词与挂载标签，正交存储，绝不污染提示词正文
         try {
           await updateShotPrompt(projectId, node.shotId, 'video', purePrompt, {
@@ -704,8 +803,11 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
             focusDirective: videoDirectives.focus,
           });
         } catch {}
-        // 底层工具执行：若有运镜标签，动态装配供物理生成使用
-        const toolPrompt = reconstructVideoPrompt(purePrompt, videoDirectives, videoInstruction);
+        // 底层工具执行：仅当用户主动调整了运镜标签或补充了微调指令时才拼接，避免重复覆盖纯净提示词
+        const toolPrompt =
+          isVideoDirectivesChanged || videoInstruction.trim()
+            ? reconstructVideoPrompt(purePrompt, videoDirectives, videoInstruction)
+            : purePrompt;
         await onRunTool('film.shot_video', {
           shotId: node.shotId,
           clipId: node.clipId,
@@ -713,9 +815,10 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
           force: true,
         });
         setSavedVideoDirectives({ ...videoDirectives });
-        setSavedPrompt(purePrompt);
+        setSavedPrompt(rawDraft);
       } else {
-        const purePrompt = (draftPrompt || prompt(step) || '').trim();
+        const rawDraft = (draftPrompt || prompt(step) || '').trim();
+        const purePrompt = rawDraft;
         // 持久化纯净剧情提示词与挂载标签，正交存储，绝不污染提示词正文
         try {
           await updateShotPrompt(projectId, node.shotId, step, purePrompt, {
@@ -724,8 +827,10 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
             poseDirective: directives.pose,
           });
         } catch {}
-        // 底层工具执行：若有视听标签，动态装配供物理生成使用
-        const toolPrompt = reconstructShotPrompt(purePrompt, directives);
+        // 底层工具执行：仅当用户主动调整了视听标签时才拼接，避免无故往尾巴塞入旧指令
+        const toolPrompt = isImageDirectivesChanged
+          ? reconstructShotPrompt(purePrompt, directives)
+          : purePrompt;
         await onRunTool('film.shot_keyframe', {
           shotId: node.shotId,
           frame: step,
@@ -734,7 +839,7 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
           force: true,
         });
         setSavedImageDirectives({ ...directives });
-        setSavedPrompt(purePrompt);
+        setSavedPrompt(rawDraft);
       }
     } finally {
       setSubmittingAction((prev) => (prev?.step === step ? null : prev));
@@ -792,10 +897,10 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
           type="button"
           onClick={onClose}
           className="px-2.5 py-1.5 rounded-xl border border-slate-200/90 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 hover:text-indigo-600 flex items-center space-x-1 transition shadow-2xs active:scale-95 cursor-pointer"
-          title="返回分镜头台本无限画布"
+          title="返回演绎片段画布"
         >
           <span>←</span>
-          <span>返回分镜头画布</span>
+          <span>返回演绎片段画布</span>
         </button>
 
         <span className="h-4 w-px bg-slate-200" />
@@ -860,9 +965,9 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
           {shotDropdownOpen && allNodes && allNodes.length > 0 && (
             <div className="absolute top-full left-0 mt-1.5 w-72 bg-white border border-slate-200 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.25)] ring-1 ring-slate-900/10 z-[100] py-2 max-h-80 overflow-y-auto font-sans animate-in fade-in zoom-in-95 duration-100">
               <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3 py-1 flex items-center justify-between border-b border-slate-100 pb-1 mb-1">
-                <span>本幕所有分镜头</span>
+                <span>本幕所有演绎片段</span>
                 <span className="font-mono text-slate-500 font-normal">
-                  共 {allNodes.length} 镜
+                  共 {allNodes.length} 段
                 </span>
               </div>
               {allNodes.map((s, idx) => {
@@ -921,6 +1026,12 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
           )}
         </div>
 
+        {node.location && (
+          <span className="text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60 hidden md:inline-flex items-center gap-1">
+            <span>📍</span>
+            <span>{node.location}</span>
+          </span>
+        )}
         <span className="text-[11px] text-slate-400 hidden md:inline">镜头分步制作架构</span>
       </div>
 
@@ -1061,8 +1172,8 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
                       </span>
                     )}
 
-                    {/* 提示词/运镜推演中局部毛玻璃遮罩 */}
-                    {!running && ((kind === 'first' && isPromptExtracting) || (kind === 'video' && isMotionExtracting)) && (
+                    {/* 视听一体化提示词/运镜推演中局部毛玻璃遮罩 */}
+                    {!running && isPromptExtracting && (
                       <div className="absolute inset-0 bg-slate-950/75 backdrop-blur-xs flex flex-col items-center justify-center text-white px-3 text-center z-10 animate-in fade-in duration-200">
                         <div className="relative w-8 h-8 mb-2 flex items-center justify-center">
                           <svg
@@ -1348,29 +1459,38 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
 
         {/* 首帧时空因果决策：是否承接上镜尾帧 */}
         {selected === 'first' && (
-          <div className="mt-3 flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 shadow-2xs">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-xs font-bold text-slate-800 flex items-center gap-1">
-                <span>{continuityMode === 'detached' ? '✂️' : '🔗'}</span>
-                <span>{continuityMode === 'detached' ? '独立新机位起幅' : '继承承接上镜尾帧'}</span>
-              </span>
-              <span className="text-[10px] text-slate-400 truncate">
-                {continuityMode === 'detached' ? '独立起幅重新构图' : '绑定上镜尾帧保证连贯'}
-              </span>
+          <div className="mt-3 space-y-2">
+            <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 shadow-2xs">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                  <span>{continuityMode === 'detached' ? '✂️' : '🔗'}</span>
+                  <span>{continuityMode === 'detached' ? '独立新机位起幅' : '继承承接上镜尾帧'}</span>
+                </span>
+                <span className="text-[10px] text-slate-400 truncate">
+                  {continuityMode === 'detached' ? '独立起幅重新构图' : '绑定上镜尾帧保证连贯'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={toggleContinuityMode}
+                disabled={isSelectedRunning || isGeneratingPrompt}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                  continuityMode === 'detached'
+                    ? 'bg-slate-200 text-slate-700 border-slate-300 hover:bg-slate-300'
+                    : 'bg-emerald-600 text-white border-emerald-500 shadow-2xs hover:bg-emerald-700'
+                }`}
+                title="点击切换：继承上镜尾帧 ⇄ 独立机位起幅"
+              >
+                {isGeneratingPrompt ? (
+                  <>
+                    <span className="w-3 h-3 border-2 border-white/60 border-t-white rounded-full animate-spin" />
+                    <span>推演中...</span>
+                  </>
+                ) : (
+                  <span>{continuityMode === 'detached' ? '切换为承接' : '切换为独立'}</span>
+                )}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={toggleContinuityMode}
-              disabled={isSelectedRunning}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer flex items-center gap-1 shrink-0 ${
-                continuityMode === 'detached'
-                  ? 'bg-slate-200 text-slate-700 border-slate-300 hover:bg-slate-300'
-                  : 'bg-emerald-600 text-white border-emerald-500 shadow-2xs hover:bg-emerald-700'
-              }`}
-              title="点击切换：继承上镜尾帧 ⇄ 独立机位起幅"
-            >
-              <span>{continuityMode === 'detached' ? '已设为独立' : '已设为承接'}</span>
-            </button>
           </div>
         )}
 
@@ -1497,22 +1617,17 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
             </div>
           </div>
         ) : (
-          <div className="mt-2">
-            <PromptMentionEditor
+          <div className={`mt-2 ${isSelectedRunning ? 'pointer-events-none opacity-70' : ''}`}>
+            <TiptapMentionEditor
               value={draftPrompt}
-              onChange={(next) => setDraftPrompt(next)}
-              disabled={isSelectedRunning}
-              rows={6}
-              entities={lookdevEntities}
-              className={
-                isPromptChanged
-                  ? 'border-amber-300 ring-1 ring-amber-300/40'
-                  : 'border-slate-200/90 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400'
-              }
+              entities={editorEntities}
+              onChange={(val) => setDraftPrompt(val)}
+              isModified={isPromptChanged}
+              minRows={5}
               placeholder={
                 selected === 'video'
-                  ? '输入视频运镜动作流，输入 @ 快速引用相关角色或道具...'
-                  : '输入首帧画面提示词，输入 @ 快速绑定定妆角色、场景或道具...'
+                  ? '输入视听动态运镜与物理动作描述（输入 @ 快速选择定妆资产）...'
+                  : '输入画面分镜构图与光影人物描述（输入 @ 快速选择定妆资产）...'
               }
             />
           </div>

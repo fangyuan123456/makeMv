@@ -280,6 +280,52 @@ export class ComfyUITopologyInjector {
     const qwenEntry = Object.entries(workflow).find(
       ([, n]) => n?.class_type === 'TextEncodeQwenImage21' && n.inputs
     );
+    const h3RefEntry = Object.entries(workflow).find(
+      ([, n]) => n?.class_type === 'MiniMaxH3ReferenceToVideo' && n.inputs
+    );
+
+    if (h3RefEntry) {
+      const capped = list.slice(0, 9);
+      let maxNumericId = Object.keys(workflow).reduce((max, k) => {
+        const n = /^\d+$/.test(k) ? parseInt(k, 10) : 0;
+        return Math.max(max, n);
+      }, 0);
+
+      // 清理原有 ref_images.ref_image_* 槽位，按实际传入图片数精确重绑
+      for (const key of Object.keys(h3RefEntry[1].inputs)) {
+        if (key.startsWith('ref_images.ref_image_')) {
+          delete h3RefEntry[1].inputs[key];
+        }
+      }
+
+      const usedLoadIds = new Set<string>();
+      for (let i = 0; i < capped.length; i++) {
+        let loadNodeId: string;
+        if (i < loadEntries.length) {
+          loadNodeId = loadEntries[i][0];
+          loadEntries[i][1].inputs.image = capped[i];
+        } else {
+          maxNumericId += 1;
+          loadNodeId = String(maxNumericId);
+          workflow[loadNodeId] = {
+            class_type: 'LoadImage',
+            inputs: {
+              image: capped[i],
+            },
+          };
+        }
+        usedLoadIds.add(loadNodeId);
+        h3RefEntry[1].inputs[`ref_images.ref_image_${i}`] = [loadNodeId, 0];
+      }
+
+      // 移除多余未使用的 LoadImage 节点，避免模板默认占位文件名触发 ComfyUI 校验报错
+      for (const [nodeId] of loadEntries) {
+        if (!usedLoadIds.has(nodeId)) {
+          delete workflow[nodeId];
+        }
+      }
+      return;
+    }
 
     if (list.length === 1) {
       for (const [, node] of loadEntries) {
@@ -459,24 +505,39 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
   }
 
   /**
-   * 通用图生视频 (遵循行业标准首帧锚定与自适应首尾帧插值，贯通画幅与时序 SSOT)
+   * 通用生视频 (支持 MiniMax H3 首帧/首尾帧 I2V，以及多图全能参考直出 Ref2V，时长最高支持 15s)
    */
   public async generateVideo(prompt: string, options?: VideoGenerationOptions): Promise<string> {
-    const templatePath = this.resolveTemplatePath('comfyui_h3_first_last_8step.json');
+    const useRef2V =
+      options?.mode === 'ref2v' ||
+      (!options?.referenceImageUrl && Array.isArray(options?.referenceImageUrls) && options.referenceImageUrls.length > 0);
+
+    const templateName = useRef2V ? 'comfyui_h3_ref2v_6step.json' : 'comfyui_h3_first_last_8step.json';
+    const templatePath = this.resolveTemplatePath(templateName);
     if (!fs.existsSync(templatePath)) {
-      throw new Error(`[ComfyUIMediaProvider] 未找到通用生视频工作流模板: ${templatePath}`);
+      throw new Error(`[ComfyUIMediaProvider] 未找到生视频工作流模板: ${templatePath}`);
     }
 
     const templateRaw = fs.readFileSync(templatePath, 'utf-8');
     const workflow = ensureApiPromptFormat(JSON.parse(templateRaw));
 
-    const refImageUrl = options?.referenceImageUrl;
-    if (!refImageUrl) {
-      throw new Error('[ComfyUIMediaProvider] 图生视频缺少首帧关键帧参考图 (referenceImageUrl)，禁止无底图脱节生成');
+    let referenceImages: string[] = [];
+    if (useRef2V) {
+      referenceImages = (options?.referenceImageUrls || []).filter((u) => typeof u === 'string' && u.trim().length > 0);
+      if (referenceImages.length === 0 && options?.referenceImageUrl) {
+        referenceImages = [options.referenceImageUrl];
+      }
+      if (referenceImages.length === 0) {
+        throw new Error('[ComfyUIMediaProvider] 多图参考直出视频缺少参考图 (referenceImageUrls)');
+      }
+    } else {
+      const refImageUrl = options?.referenceImageUrl;
+      if (!refImageUrl) {
+        throw new Error('[ComfyUIMediaProvider] 图生视频缺少首帧关键帧参考图 (referenceImageUrl)，禁止无底图脱节生成');
+      }
+      const lastImageUrl = options?.lastFrameImageUrl;
+      referenceImages = lastImageUrl ? [refImageUrl, lastImageUrl] : [refImageUrl];
     }
-
-    const lastImageUrl = options?.lastFrameImageUrl;
-    const referenceImages = lastImageUrl ? [refImageUrl, lastImageUrl] : [refImageUrl];
 
     // 1. 全剧画幅 SSOT 动态注入（DiT 空间下采样与 BlockSparseAttention 算子硬性要求画幅为 32 整数倍，如 1280x704）
     const baseWidth = config.frame.width || 1280;
@@ -484,31 +545,39 @@ export class ComfyUIMediaProvider implements IImageProvider, IVideoProvider {
     const targetWidth = Math.max(32, Math.floor(baseWidth / 32) * 32);
     const targetHeight = Math.max(32, Math.floor(baseHeight / 32) * 32);
 
-    // 2. 镜头目标时长与帧数动态对齐 (时间潜空间对齐为 4 帧整数倍，彻底杜绝慢动作与潜空间维度失配)
+    // 2. 镜头目标时长与帧数动态对齐 (MiniMax H3 训练支持 124~362 帧 @24fps，即约 5s~15s)
     const durationSec = typeof options?.duration === 'number' && options.duration > 0
-      ? options.duration
-      : 4;
+      ? Math.min(15, Math.max(2, options.duration))
+      : 5;
     const fps = 24;
     const rawFrames = Math.round(durationSec * fps);
-    const targetLength = Math.min(124, Math.max(48, Math.round(rawFrames / 4) * 4));
+    const i2vLength = Math.min(362, Math.max(48, Math.round(rawFrames / 4) * 4));
+    // MiniMaxH3ReferenceToVideo 步长 step=17 (124, 141, ..., 362)
+    const ref2vLength = Math.min(362, Math.max(124, 124 + Math.round((rawFrames - 124) / 17) * 17));
 
     // 3. 动态配置工作流节点
     for (const node of Object.values(workflow)) {
       if (node?.class_type === 'MiniMaxH3ImageToVideo' && node?.inputs) {
         node.inputs.width = targetWidth;
         node.inputs.height = targetHeight;
-        node.inputs.length = targetLength;
+        node.inputs.length = i2vLength;
         // 若无尾帧（单首帧模式），断开 last_frame 约束，让镜头自然运镜展开
-        if (!lastImageUrl && 'last_frame' in node.inputs) {
+        if (!options?.lastFrameImageUrl && 'last_frame' in node.inputs) {
           delete node.inputs.last_frame;
         }
+      }
+      if (node?.class_type === 'MiniMaxH3ReferenceToVideo' && node?.inputs) {
+        node.inputs.width = targetWidth;
+        node.inputs.height = targetHeight;
+        node.inputs.length = ref2vLength;
       }
       if (node?.class_type === 'CreateVideo' && node?.inputs) {
         node.inputs.fps = fps;
       }
     }
 
-    console.log(`[ComfyUIMediaProvider] 图生视频拓扑注入完成: 画幅=${targetWidth}x${targetHeight}, 时长=${durationSec}s, 帧数=${targetLength}@${fps}fps, 尾帧=${Boolean(lastImageUrl)}`);
+    const effectiveFrames = useRef2V ? ref2vLength : i2vLength;
+    console.log(`[ComfyUIMediaProvider] 视频拓扑注入完成 (${useRef2V ? 'H3-Ref2V直出' : 'H3-I2V'}): 画幅=${targetWidth}x${targetHeight}, 时长=${durationSec}s, 帧数=${effectiveFrames}@${fps}fps, 参考图数=${referenceImages.length}`);
 
     return this.executeWorkflow(workflow, 'video', {
       prompt: prompt || '电影镜头自然推进，人物动作连贯，写实物理速率，高质量运镜',

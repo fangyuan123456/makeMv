@@ -11,28 +11,17 @@ import {
   type ScreenplayCharacter,
 } from '../01-premise/schema.js';
 
-export const ScreenplayOutputSchema = z.object({
-  title: z.string().describe('互动影游中文标题'),
-  genre: z.string().describe('确立的题材类型'),
-  logline: z.string().describe('一句话核心故事梗概 (Logline)'),
-  characters: z.array(ScreenplayCharacterSchema).describe('登场的核心角色设定清单'),
+export const ScreenplayOutputSchema = PremiseOutputSchema.extend({
   scriptMarkdown: z.string().describe('完整的 Markdown 格式互动影游全景剧本 (含分幕、台词、抉择选项与分支终局)'),
 });
 
 export type ScreenplayOutput = z.infer<typeof ScreenplayOutputSchema>;
 
 export const FullScriptTextOutputSchema = z.object({
-  nodes: z.array(z.object({
-    id: z.string().describe('严格对应大纲节点 ID'),
-    narrativeText: z.string().min(1).describe('本节点可拍摄的场景、行动与对白；不含选项、连接或终局标记'),
-  })).min(1),
+  scriptMarkdown: z.string().describe('完整的 Markdown 互动影游剧本正文'),
 });
 
 export type FullScriptTextOutput = z.infer<typeof FullScriptTextOutputSchema>;
-
-export const NodeScriptOutputSchema = z.object({
-  narrativeText: z.string().min(1).describe('当前唯一路径节点的场景、行动和对白，不输出其他节点或流程标记'),
-});
 
 export const ScreenplayStepInputSchema = PremiseOutputSchema.extend({
   _context: z.any().optional(),

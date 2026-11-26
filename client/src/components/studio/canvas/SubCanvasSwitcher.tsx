@@ -194,7 +194,7 @@ export const SubCanvasSwitcher: React.FC<SubCanvasSwitcherProps> = ({
           {/* 各幕视听分镜台本 */}
           <div className="p-1.5 max-h-72 overflow-y-auto">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2.5 py-1 flex items-center justify-between">
-              <span>各幕分镜台本</span>
+              <span>各幕演绎片段</span>
               <span className="font-mono text-slate-500 font-normal">
                 {clipOptions.length} 幕
               </span>

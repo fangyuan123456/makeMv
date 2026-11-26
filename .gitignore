@@ -62,3 +62,9 @@ client/.next/
 
 # Temporary screenshots
 shot*.png
+
+# Temporary Scratch & Test Dumps
+server/scratch/
+scratch/
+models.json
+test_*.json

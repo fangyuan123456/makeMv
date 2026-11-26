@@ -68,7 +68,7 @@ export const LocationSpecSchema = z.object({
   appearanceSummary: z.string().describe('场景空间物理外观概况'),
   spatialLayout: SpatialLayoutSchema.optional(),
   promptZh: z.string().describe('场景空间纯净视觉质感（严格100~130汉字，一段纯中文连贯自然语言）：建筑风貌形制、核心视觉地标置景、真实PBR物理材质（老木开裂/夯土斑驳/石板漫水光）、主导冷暖光影色彩与阴翳层次。严禁包含任何“面向某物时左侧/右侧/后方/原点”等空间几何结构坐标（此类信息归属 spatialLayout）、严禁包含相机焦段等下游渲染外壳、严禁输出结构小标题或标号。'),
-  subScenes: z.array(z.string()).optional().default([]).describe('该母场景涵盖的剧本场次子机位/偏房角落列表（如：["灵堂主堂", "东偏房/侧间"]）'),
+  subScenes: z.array(z.string()).optional().default([]).describe('该母场景涵盖的剧本场次子机位/偏房角落列表（如：["主大堂/会客区", "侧廊/内室"]）'),
   sceneIds: z.array(z.string()).default([]),
   referenceImageUrl: z.string().optional(),
   imageUrl: z.string().optional(),

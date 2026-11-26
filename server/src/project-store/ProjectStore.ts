@@ -158,14 +158,20 @@ export class ProjectStore {
   public mutateArtifact<T = any>(
     projectId: string,
     artifactKey: string,
-    mutator: (current: T) => T | void
+    mutator: (current: T) => T | void,
+    initialValue?: T
   ): T {
     let current = this.getArtifact<T>(projectId, artifactKey);
-    if (!current) {
+    if (current === null || current === undefined) {
+      if (initialValue !== undefined) {
+        current = initialValue;
+      }
+    }
+    const result = mutator(current as T);
+    const updated = result !== undefined ? result : current;
+    if (updated === null || updated === undefined) {
       throw new Error(`无法更新不存在的产物: ${artifactKey}`);
     }
-    const result = mutator(current);
-    const updated = result !== undefined ? result : current;
 
     this.setArtifact(projectId, artifactKey, updated);
 
@@ -193,26 +199,53 @@ export class ProjectStore {
     const inMemory = project.artifacts[artifactKey] as T | undefined;
     if (inMemory !== undefined && inMemory !== null) return inMemory;
 
-    // 优先从磁盘 film_spec.json 读取；若缺失才尝试从 storyboards.json 水合
+    // 优先从磁盘 film_spec.json 读取；若缺失才尝试从 storyboards.json 水合；并与最新 storyboards 深度合流
     if (artifactKey === 'film_spec') {
-      const specPath = path.join(this.getProjectDir(projectId), 'film_spec.json');
-      if (fs.existsSync(specPath)) {
-        const parsed = safeReadJsonSync<any>(specPath);
-        if (parsed) {
-          project.artifacts.film_spec = parsed;
-          return parsed as unknown as T;
-        }
-      }
-      const clips = this.getArtifact<any[]>(projectId, 'storyboards');
-      if (Array.isArray(clips) && clips.length > 0) {
-        const hydrated = {
+      const projectDir = this.getProjectDir(projectId);
+      const specPath = path.join(projectDir, 'film_spec.json');
+      const sbPath = path.join(projectDir, 'storyboards.json');
+      let specObj = fs.existsSync(specPath) ? safeReadJsonSync<any>(specPath) : null;
+      const sbClips = fs.existsSync(sbPath) ? safeReadJsonSync<any[]>(sbPath) : null;
+
+      if (!specObj && Array.isArray(sbClips) && sbClips.length > 0) {
+        specObj = {
           projectId,
           schemaVersion: '1.0.0',
           projectTitle: project.meta.title || '',
-          clips,
+          clips: sbClips,
         };
-        project.artifacts.film_spec = hydrated;
-        return hydrated as unknown as T;
+      } else if (specObj && Array.isArray(sbClips)) {
+        // SSOT 自动合流：将 storyboards 中实时演进的镜头媒体与版本同步到 film_spec.clips
+        for (const sbClip of sbClips) {
+          const targetClip = specObj.clips?.find((c: any) => c.clipId === sbClip.clipId);
+          if (!targetClip) continue;
+          if (Array.isArray(sbClip.shots) && Array.isArray(targetClip.shots)) {
+            for (const sbShot of sbClip.shots) {
+              const targetShot = targetClip.shots.find((s: any) => s.shotId === sbShot.shotId);
+              if (!targetShot) continue;
+              if (Array.isArray(sbShot.firstFrameVersions) && sbShot.firstFrameVersions.length > 0) {
+                targetShot.firstFrameVersions = sbShot.firstFrameVersions;
+              }
+              if (Array.isArray(sbShot.lastFrameVersions) && sbShot.lastFrameVersions.length > 0) {
+                targetShot.lastFrameVersions = sbShot.lastFrameVersions;
+              }
+              if (Array.isArray(sbShot.videoVersions) && sbShot.videoVersions.length > 0) {
+                targetShot.videoVersions = sbShot.videoVersions;
+              }
+              if (sbShot.firstFrameImageUrl) targetShot.firstFrameImageUrl = sbShot.firstFrameImageUrl;
+              if (sbShot.lastFrameImageUrl) targetShot.lastFrameImageUrl = sbShot.lastFrameImageUrl;
+              if (sbShot.keyframeUrl) targetShot.keyframeUrl = sbShot.keyframeUrl;
+              if (sbShot.videoUrl) targetShot.videoUrl = sbShot.videoUrl;
+              if (sbShot.firstFramePrompt) targetShot.firstFramePrompt = sbShot.firstFramePrompt;
+              if (sbShot.videoPrompt) targetShot.videoPrompt = sbShot.videoPrompt;
+            }
+          }
+        }
+      }
+
+      if (specObj) {
+        project.artifacts.film_spec = specObj;
+        return specObj as unknown as T;
       }
       return null;
     }

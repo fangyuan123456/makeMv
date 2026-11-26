@@ -44,7 +44,7 @@ export const LookdevRootCanvasCard: React.FC<LookdevRootCanvasCardProps> = ({
       <div
         id={`port-out-${node.id}`}
         className="absolute -right-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white border-2 border-amber-400 hover:border-amber-600 transition shadow-xs z-20 flex items-center justify-center pointer-events-auto"
-        title="视觉定妆输出 (供给全剧分镜)"
+        title="视觉定妆输出 (供给全剧演绎片段)"
       >
         <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
       </div>

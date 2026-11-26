@@ -22,6 +22,7 @@ import {
   type ShotVideoStepOutput,
 } from './schema.js';
 import { formatVideoMotionPrompt } from './prompt.js';
+import { extractVideoLastFrame } from '../../../../../media/video-frame-extractor.js';
 
 export const shotVideoStep = createStep({
   id: 'render-shot-video',
@@ -38,6 +39,8 @@ export const shotVideoStep = createStep({
       force = false,
       customPrompt,
       referenceImageUrl,
+      mode,
+      durationSec,
     } = input;
 
     const store = ProjectStore.getInstance();
@@ -60,16 +63,12 @@ export const shotVideoStep = createStep({
         return true;
       }
 
-      // 底图确定性源头：优先使用显式参考图；若未显式指定，优先选用首帧版本库中最新超分高清图，杜绝低清底图污染
+      // 底图确定性源头：优先使用显式参考图或首帧图 (I2V)；若无首帧图或指定 ref2v，则自动收集角色/场景/道具定妆图走 H3 全能参考直出
       let effectiveImage = referenceImageUrl;
-      if (!effectiveImage) {
+      if (!effectiveImage && mode !== 'ref2v' && targetShot.generationMode !== 'ref2v') {
         const firstVersions = Array.isArray(targetShot.firstFrameVersions) ? targetShot.firstFrameVersions : [];
         const latestUpscale = [...firstVersions].reverse().find((v: any) => v.source === 'upscale' && v.imageUrl);
         effectiveImage = latestUpscale?.imageUrl || targetShot.firstFrameImageUrl || targetShot.keyframeUrl;
-      }
-      if (!effectiveImage) {
-        console.warn(`[ShotVideoTool] 镜头 [${targetShot.shotId}] 缺少前序关键帧底图，跳过视频渲染`);
-        return false;
       }
 
       const effectiveLastFrame = targetShot.lastFrameImageUrl || targetShot.lastFrameUrl || undefined;
@@ -82,11 +81,72 @@ export const shotVideoStep = createStep({
         targetShot.videoPrompt ||
         `${targetShot.cameraMovement || '中速稳健运镜'}, 电影级平滑物理运镜，人物动作流畅写实，自然物理速率`;
 
+      // 收集 Ref2V 多图参考资产（当无首帧图或明确选用 ref2v 时启用）
+      const ref2vUrls: string[] = [];
+      const ref2vLegend: string[] = [];
+      if (!effectiveImage) {
+        const entities = store.getArtifact<any>(projectId, 'lookdev_entities');
+        const seenRef = new Set<string>();
+        const pushRef = (url: string | undefined, label: string) => {
+          const clean = url?.split('?')[0].trim();
+          if (!clean || seenRef.has(clean) || ref2vUrls.length >= 9) return;
+          seenRef.add(clean);
+          ref2vUrls.push(clean);
+          ref2vLegend.push(`<Picture ${ref2vUrls.length}> ${label}`);
+        };
+
+        const charList = Array.isArray(entities?.characters) ? entities.characters : [];
+        const targetCharIds = Array.isArray(targetShot.characters) ? targetShot.characters : [];
+        for (const cid of targetCharIds) {
+          const ch = charList.find((c: any) => c.characterId === cid || c.name === cid);
+          if (ch) pushRef(ch.imageUrl || ch.referenceImageUrl, `为角色[${ch.name}]外观与服装基准`);
+        }
+
+        const locList = Array.isArray(entities?.locations) ? entities.locations : [];
+        const matchedLoc = locList.find(
+          (l: any) =>
+            (targetShot.locationId && l.locationId === targetShot.locationId) ||
+            (targetShot.location && l.name === targetShot.location)
+        );
+        if (matchedLoc) {
+          pushRef(
+            matchedLoc.imageUrl || matchedLoc.referenceImageUrl,
+            `为场景[${matchedLoc.name}]空间美术参考（参考图不是成品构图，需按本镜机位重新构筑视角与比例）`
+          );
+        }
+
+        const itemList = Array.isArray(entities?.items) ? entities.items : [];
+        const targetItemIds = Array.isArray(targetShot.items) ? targetShot.items : [];
+        for (const iid of targetItemIds) {
+          const it = itemList.find((i: any) => i.itemId === iid || i.name === iid);
+          if (it) pushRef(it.imageUrl || it.referenceImageUrl, `为道具[${it.name}]实物外观基准`);
+        }
+
+        // 若同场景前一段已生成末帧，自动带入作为上一段尾帧延续站位与光色
+        const shotList = Array.isArray(targetClip.shots) ? targetClip.shots : [];
+        const currIdx = shotList.findIndex((s: any) => (s.shotId || s.id) === (targetShot.shotId || targetShot.id));
+        const prevShot = currIdx > 0 ? shotList[currIdx - 1] : undefined;
+        const isSameScene = !targetShot.locationId || !prevShot?.locationId || targetShot.locationId === prevShot.locationId;
+        if (prevShot?.videoLastFrameUrl && isSameScene && targetShot.continuityMode !== 'detached') {
+          pushRef(prevShot.videoLastFrameUrl, '为上一段尾帧参考（延续前序站位与光色）');
+        }
+
+        if (ref2vUrls.length === 0) {
+          console.warn(`[ShotVideoTool] 镜头 [${targetShot.shotId}] 既缺少首帧底图，也未匹配到定妆参考图，跳过视频渲染`);
+          return false;
+        }
+      }
+
+      const useRef2V = !effectiveImage && ref2vUrls.length > 0;
+
       // 底层算力硬件提示词（动态装配，仅内存态传给视频生成工具，绝不写回 targetShot 业务实体）
-      const hardwarePrompt = formatVideoMotionPrompt(rawMotion, Boolean(effectiveLastFrame));
+      const baseHardwarePrompt = formatVideoMotionPrompt(rawMotion, Boolean(effectiveLastFrame), undefined, useRef2V);
+      const hardwarePrompt = useRef2V
+        ? `${ref2vLegend.join('；')}。\n${baseHardwarePrompt}`
+        : baseHardwarePrompt;
       const audioPrompt = targetShot.audioPrompt || targetShot.ambience || '电影级写实环境声与质感氛围';
 
-      const targetDuration = Math.min(10, Math.max(2, Math.round(targetShot.durationSec || 4)));
+      const targetDuration = Math.min(15, Math.max(2, Math.round(durationSec ?? targetShot.durationSec ?? targetShot.estimatedSeconds ?? 5)));
 
       const existingVersions = readVideoVersions(targetShot);
       const nextSeq = existingVersions.length + 1;
@@ -106,7 +166,9 @@ export const shotVideoStep = createStep({
             projectId,
             prompt: hardwarePrompt,
             audioPrompt,
+            mode: useRef2V ? 'ref2v' : 'i2v',
             referenceImageUrl: effectiveImage,
+            referenceImageUrls: useRef2V ? ref2vUrls : undefined,
             lastFrameImageUrl: effectiveLastFrame,
             duration: targetDuration,
             subfolder: 'videos',
@@ -120,6 +182,18 @@ export const shotVideoStep = createStep({
         }
 
         targetShot.videoUrl = mediaUrl;
+
+        // 自动抽取视频末帧，作为后序镜头承接接戏母本图
+        try {
+          const localVideoPath = path.join(projectDir, 'videos', fileName);
+          const lastFrameFileName = `${targetShot.shotId}_video_last_frame.png`;
+          const localLastFramePath = path.join(projectDir, 'keyframes', lastFrameFileName);
+          if (extractVideoLastFrame({ videoPath: localVideoPath, outputImagePath: localLastFramePath })) {
+            targetShot.videoLastFrameUrl = `/media/${projectId}/keyframes/${lastFrameFileName}`;
+          }
+        } catch (frameErr) {
+          console.warn('[ShotVideoTool] 视频末帧抽取非阻塞警告:', frameErr);
+        }
         appendVideoVersion(targetShot, {
           videoUrl: mediaUrl,
           fileName,
@@ -138,6 +212,7 @@ export const shotVideoStep = createStep({
           for (const node of Object.values<any>(canvas.nodes)) {
             if (node.shotId !== targetShot.shotId && node.id !== `node_${targetShot.shotId}`) continue;
             node.videoUrl = mediaUrl;
+            if (targetShot.videoLastFrameUrl) node.videoLastFrameUrl = targetShot.videoLastFrameUrl;
             node.videoVersions = targetShot.videoVersions;
             if (targetShot.motionDirective !== undefined) node.motionDirective = targetShot.motionDirective;
             if (targetShot.dynamicDirective !== undefined) node.dynamicDirective = targetShot.dynamicDirective;
@@ -178,6 +253,7 @@ export const shotVideoStep = createStep({
       // 全量落盘与同步
       store.setArtifact(projectId, 'film_spec', filmSpec);
       store.setArtifact(projectId, 'storyboards', filmSpec.clips);
+      atomicWriteJsonSync(path.join(projectDir, 'film_spec.json'), filmSpec);
       atomicWriteJsonSync(path.join(projectDir, 'storyboards.json'), filmSpec.clips);
 
       return {
@@ -212,6 +288,7 @@ export const shotVideoStep = createStep({
     // 单体落盘与同步
     store.setArtifact(projectId, 'film_spec', filmSpec);
     store.setArtifact(projectId, 'storyboards', filmSpec.clips);
+    atomicWriteJsonSync(path.join(projectDir, 'film_spec.json'), filmSpec);
     atomicWriteJsonSync(path.join(projectDir, 'storyboards.json'), filmSpec.clips);
 
     return {

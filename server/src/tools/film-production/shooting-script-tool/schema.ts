@@ -24,7 +24,7 @@ export const ShootingScriptOutputSchema = z.object({
   clipId: z.string().describe('分幕唯一标识'),
   clipTitle: z.string().describe('分幕标题'),
   environmentLock: ShootingScriptEnvironmentLockSchema.describe('本幕场景时空与光影环境锁'),
-  actionBeats: z.array(ShootingScriptActionBeatSchema).min(6).describe('按空间分段、按镜头级摄制单元组织的纯物理动作节拍序列（通常 8~16 镜）'),
+  actionBeats: z.array(ShootingScriptActionBeatSchema).min(1).describe('按完整戏剧段落组织的摄制单元序列（段落级直出通常 3~6 段、每段 6~15 秒，段内可含多机位时间轴）'),
 });
 
 export type ShootingScriptOutput = z.infer<typeof ShootingScriptOutputSchema>;

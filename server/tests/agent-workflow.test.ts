@@ -528,6 +528,40 @@ test('ProjectStore hydrates film_spec from storyboards.json after memory cache r
   }
 });
 
+test('ProjectStore.mutateArtifact supports initial creation and disk flush when artifact does not pre-exist', () => {
+  const projectId = `test_mutate_init_${Date.now()}`;
+  const store = ProjectStore.getInstance();
+  const projectDir = getProjectDir(projectId);
+  try {
+    store.getProject(projectId);
+
+    // 1. 验证初次创建 film_spec：当产物不存在时，mutator 返回新对象成功落盘
+    const mutatedSpec = store.mutateArtifact(projectId, 'film_spec', (current) => {
+      const spec = current || { clips: [] };
+      spec.clips.push({ clipId: 'c1', title: '测试分幕' });
+      return spec;
+    });
+
+    assert.ok(mutatedSpec);
+    assert.equal(mutatedSpec.clips.length, 1);
+    assert.equal(mutatedSpec.clips[0].clipId, 'c1');
+
+    // 磁盘验证
+    const diskFile = `${projectDir}/film_spec.json`;
+    assert.ok(fs.existsSync(diskFile), 'film_spec.json 应成功写盘');
+    const parsed = JSON.parse(fs.readFileSync(diskFile, 'utf-8'));
+    assert.equal(parsed.clips[0].clipId, 'c1');
+
+    // 2. 验证 mutator 返回空且无 initialValue 时仍保持异常防护
+    assert.throws(
+      () => store.mutateArtifact(projectId, 'non_existent_key', () => {}),
+      /无法更新不存在的产物: non_existent_key/
+    );
+  } finally {
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
 test('AgentRunner resolveDirectorIntent respects explicit description and falls back to title', () => {
   const projectId = `test_intent_desc_${Date.now()}`;
   const agent = new IntentTestAgent({ projectId, sessionId: 'test_session' });
@@ -612,7 +646,7 @@ test('character pose contract applies feet_together constraint gracefully', () =
   assert.match(prompt.negative, /双脚分开/);
 });
 
-test('visual edits create a review candidate without replacing the selected image', async () => {
+test('visual edits update the selected image directly and record version history', async () => {
   const projectId = `test_visual_candidate_${Date.now()}`;
   const store = ProjectStore.getInstance();
   const originalUrl = `/media/${projectId}/assets/entities/original.png`;
@@ -636,11 +670,11 @@ test('visual edits create a review candidate without replacing the selected imag
     const output = await renderLookdevTarget({ projectId, targetKind: 'character', targetId: 'char_1',
       customPrompt: '换成黑色外套', force: true }, projectId, { reportProgress: () => {} } as any);
     const entity = store.getArtifact<any>(projectId, 'lookdev_entities').characters[0];
-    assert.equal(output.reviewStatus, 'pending');
-    assert.equal(entity.imageUrl, originalUrl);
-    assert.equal(entity.selectedVersionId, 'v_original');
-    assert.equal(entity.promptZh, '原设定');
-    assert.equal(entity.versions.at(-1).reviewStatus, 'pending');
+    assert.equal(output.reviewStatus, 'accepted');
+    assert.equal(entity.imageUrl, output.mediaUrl);
+    assert.equal(entity.selectedVersionId, output.versionId);
+    assert.equal(entity.promptZh, '换成黑色外套');
+    assert.equal(entity.versions.at(-1).reviewStatus, 'accepted');
     assert.equal(entity.versions.at(-1).promptZh, '换成黑色外套');
   } finally {
     fs.rmSync(getProjectDir(projectId), { recursive: true, force: true });

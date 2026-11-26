@@ -31,17 +31,19 @@ export type ShootingScriptEnvironmentLock = z.infer<typeof ShootingScriptEnviron
 /** 纯物理动作节拍契约 (Action Beat SSOT，按空间划分、镜头级单任务视听摄制单元) */
 export const ShootingScriptActionBeatSchema = z.object({
   beatId: z.string().describe('节拍编号，如 b1, b2 或 s1_01'),
-  beatTitle: z.string().describe('节拍标题，如 镜头 01（远景定场 · 归乡入画 · 5s）'),
-  space: z.string().optional().describe('所属空间场景段落，如 空间一：外景 · 村口石碑前 · 黄昏薄雾'),
+  beatTitle: z.string().describe('节拍标题，如 镜头 01（远景定场 · 归乡入画 · 2s）'),
+  space: z.string().optional().describe('所属空间场景纯净名称，提取自场景空间构造蓝图'),
+  location: z.string().optional().describe('所属场景中文全名'),
+  locationId: z.string().optional().describe('所属场景资产 ID，如 loc_xxx'),
   shotNumber: z.number().int().positive().optional().describe('对应镜头序号，如 1, 2, ...'),
   shotType: z.string().optional().describe('景别与机位，如 远景定场 / 中景跟拍 / 微距特写'),
   actionDescription: z.string().describe('画面纯粹的物理动作与表演时序（角色走位、视线、手势与道具交互细节）'),
-  cinematicIntent: z.string().describe('视听机位建议与运镜设计（如：远景低角度仰拍，突出石碑压迫感与人物渺小感）'),
+  cinematicIntent: z.string().describe('视听机位与运镜设计（选择固定机位或推拉摇移等运镜；可复合如先摇后推，但固定与移动运镜互斥）'),
   characterIds: z.array(z.string()).default([]).describe('入画角色 ID 清单'),
   itemIds: z.array(z.string()).default([]).describe('交互道具 ID 清单'),
   dialogue: z.string().optional().describe('角色对白或台词（严格保留原剧情台词）'),
-  audioAmbience: z.string().optional().describe('现场拟音与动作音效（如脚步沙沙声、录音机咔嗒声）'),
-  estimatedSeconds: z.number().positive().default(3).describe('预估拍摄时长（秒）'),
+  audioAmbience: z.string().optional().describe('环境底噪与画面中实际发生动作的物理拟音（静止镜头仅写环境底噪）'),
+  estimatedSeconds: z.number().positive().default(8).describe('预估拍摄时长（秒；段落级全能参考直出通常为 6~15 秒，纯单镜特写/转场为 3~5 秒）'),
 });
 
 export type ShootingScriptActionBeat = z.infer<typeof ShootingScriptActionBeatSchema>;
@@ -64,7 +66,9 @@ export const CinematicShotOrderSchema = z.object({
   durationSec: z.number().positive().describe('镜头目标时长（秒）'),
   shotType: z.string().describe('景别与机位，如 CLOSE_UP / MEDIUM_SHOT / WIDE_SHOT'),
   cameraMovement: z.string().describe('拍摄方式与运镜，如 locked-off / dolly in / tracking'),
-  generationMode: z.enum(['first_frame', 'first_last_frame']).describe('关键帧生成模式'),
+  generationMode: z.enum(['first_frame', 'first_last_frame', 'ref2v']).describe('关键帧/视频生成模式（ref2v 为跳过首帧全能参考直出）'),
+  location: z.string().optional().describe('本镜头所属场景名称'),
+  locationId: z.string().optional().describe('本镜头所属场景清单资产 ID'),
   characters: z.array(z.string()).default([]).describe('本镜头出场角色 ID'),
   items: z.array(z.string()).default([]).describe('本镜头使用道具 ID'),
   // 视听工业级开放元数据体系 (SSOT，开放无边界，拒绝客户端静态枚举绑架 AI)
@@ -100,6 +104,17 @@ export const CinematicShotOrderSchema = z.object({
     })
     .optional()
     .describe('末帧 SeedVR2 高清超分记录'),
+  continuityMode: z.enum(['auto', 'linked', 'detached']).default('auto').describe('镜头连续性模式（auto 智能决策 | linked 强制连贯 | detached 独立机位）'),
+  continuityPrompts: z
+    .object({
+      linked: z.string().optional(),
+      detached: z.string().optional(),
+    })
+    .optional()
+    .describe('不同连续性模式下的首帧提示词缓存'),
+  videoLastFrameUrl: z.string().optional().describe('本镜头视频生成的物理最后一帧图片 URL，用于后一镜头接戏承接'),
+  videoVersions: z.array(z.any()).optional().describe('多版本视频记录'),
+  firstFrameVersions: z.array(z.any()).optional().describe('多版本首帧记录'),
   videoUrl: z.string().optional().describe('生成后的镜头视频 URL'),
   dialogue: z.string().default('').describe('本镜头对白或旁白'),
   ambience: z.string().default('').describe('本镜头环境声与氛围音'),

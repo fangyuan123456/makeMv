@@ -121,18 +121,46 @@ ${taskHealth?.promptSummary || ''}
 工序【${title || '视听摄制台本与分镜切片'}】已顺利执行完毕并物理落盘。
 本幕场景时空环境锁已成功建立，分镜头单与画布镜头序列（shots）已一步到位生成并具备纯物理动作、精准角色对白与现场拟音！
 
-【本工序导演标准执行顺序（SOP）】：
-1. **工业级视听分镜摄制台本** (film.shooting_script) ◀◀ (刚才已落盘，时空环境锁与全量镜头清单已一步到位)
-2. **单镜视听一体化推演** (film.shot_prompt) —— 推演具体镜头的首帧起幅生图词与同相动态运镜词
-3. **首帧关键帧渲染** (film.shot_keyframe) ➔ **高清超分** (film.image_upscale)
-4. **镜头动态视频渲染** (film.shot_video)
-
-【工序接力与推演要求】：
-1. **[成果复盘]**：汇报摄制台本中提炼出的时空环境锁与镜头切分事实（镜头总数、关键对白落地）；
-2. **[接力推演]**：对照上述 SOP 顺位，紧邻推进下一步【单镜视听一体化推演 (film.shot_prompt)】（默认聚焦首个未推演镜头如 c1-01），调用 propose 提出推演方案，并在发言中声明“方案卡片已生成，请审阅授权”。`;
+【工序复盘与引导要求】：
+1. **[成果复盘]**：汇报摄制台本中提炼出的时空环境锁与全量镜头切分概览（镜头总数、景别节奏、动作与对白事实）；
+2. **[创作者自主探索]**：严禁自动出卡捆绑下游算力任务。使用 chat_only 礼貌告知创作者：“分镜切片已全部就位并同步至画布，您可以随时在画布中查看镜头、微调提示词或对指定镜头进行出图渲染”。`;
     }
 
     return super.getPostTaskPrompt(task, title);
+  }
+
+  /**
+   * 多步计划（如批量推演视听词）执行完毕后的汇总复盘
+   * 坚决贯彻镜头解锁顺序与承接纪律，杜绝擅自全量跨镜头提案出图
+   */
+  public override getPostPlanPrompt(
+    planTitle: string,
+    steps: Array<{ title: string; tool: string; status: string; durationMs?: number; error?: string }>
+  ): string {
+    const succeeded = steps.filter((s) => s.status === 'completed');
+    const failed = steps.filter((s) => s.status === 'failed');
+    const cancelled = steps.filter((s) => s.status === 'cancelled');
+    const lines = steps.map((s, i) => {
+      const sec = s.durationMs ? ` (${(s.durationMs / 1000).toFixed(1)}s)` : '';
+      const statusText =
+        s.status === 'completed'
+          ? `完成${sec}`
+          : s.status === 'failed'
+          ? `失败: ${s.error || '未知错误'}`
+          : s.status === 'cancelled'
+          ? '已取消'
+          : s.status;
+      return `${i + 1}. ${s.title} [${statusText}]`;
+    });
+
+    return `【制片计划执行完毕】多步计划【${planTitle}】已全部结束（成功 ${succeeded.length}/${steps.length}，失败 ${failed.length}，取消 ${cancelled.length}）：
+${lines.join('\n')}
+请核对当前最新项目资产，用简练清晰的中文向创作者做整体汇总复盘。
+
+【分镜镜头解锁顺序与承接纪律（严禁全量并发提案出图）】：
+1. 关键帧渲染存在严格的镜头解锁顺序与视听承接方式（continuityMode：linked/auto 依赖前序镜头尾帧实拍成图；detached 独立机位）；
+2. 严禁在此处跨镜头擅自打包全幕（如镜01–${steps.length}）批量出图提案！未获得前序镜头成图基准的受控镜头尚处于锁定状态；
+3. 本轮以自然语言（chat_only）总结已落盘的视听推演成果，提示创作者可先从第 1 个已解锁镜头（或视口聚焦镜头）开始逐镜审阅与发起关键帧渲染。`;
   }
 
   private findFocusedShot(focus: AgentFocusContext): any | undefined {

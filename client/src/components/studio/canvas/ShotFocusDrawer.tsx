@@ -11,7 +11,7 @@
  * 3. 兼容全剧定妆母体节点 (Lookdev Root) 的全局定妆总览。
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import type { CanvasShotNode, TaskRecord, ProjectData } from '../../../types/index.js';
 import { fetchTasks } from '../../../lib/api.js';
 
@@ -43,10 +43,15 @@ export const ShotFocusDrawer: React.FC<ShotFocusDrawerProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const videoPlayerRef = useRef<HTMLVideoElement>(null);
 
+  const lookdevEntities = useMemo(() => {
+    return projectData?.entities || projectData?.artifacts?.lookdev_entities || null;
+  }, [projectData]);
+
   // 初始化与节点变化同步
   useEffect(() => {
     if (node) {
-      setCustomPrompt(node.videoPrompt || node.prompt || '');
+      const rawPrompt = node.videoPrompt || node.prompt || '';
+      setCustomPrompt(rawPrompt);
       setSelectedTaskId(node.activeTaskId || (node.candidateTaskIds && node.candidateTaskIds[0]) || null);
       if (node.type === 'lookdev_root') {
         setActiveStep('keyframe');
@@ -58,7 +63,7 @@ export const ShotFocusDrawer: React.FC<ShotFocusDrawerProps> = ({
         setActiveStep('candidates');
       }
     }
-  }, [node]);
+  }, [node, lookdevEntities]);
 
   // 加载项目任务历史用于匹配候选版本
   useEffect(() => {
@@ -92,7 +97,8 @@ export const ShotFocusDrawer: React.FC<ShotFocusDrawerProps> = ({
 
   const handleTriggerReRender = async () => {
     if (!node) return;
-    await onRenderVideo(node, customPrompt);
+    const storagePrompt = customPrompt.trim();
+    await onRenderVideo(node, storagePrompt);
   };
 
   return (
@@ -308,7 +314,7 @@ export const ShotFocusDrawer: React.FC<ShotFocusDrawerProps> = ({
                   <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-2">
                     <span className="text-xs font-bold text-slate-700">首帧视觉描述：</span>
                     <p className="text-xs text-slate-600 leading-relaxed">
-                      {node.prompt || '暂无详细描述'}
+                      {node.prompt || node.firstFramePrompt || '暂无详细描述'}
                     </p>
                   </div>
                 </div>
@@ -338,7 +344,9 @@ export const ShotFocusDrawer: React.FC<ShotFocusDrawerProps> = ({
                       </label>
                       <button
                         type="button"
-                        onClick={() => setCustomPrompt(node.videoPrompt || node.prompt || '')}
+                        onClick={() =>
+                          setCustomPrompt(node.videoPrompt || node.prompt || '')
+                        }
                         className="text-[10px] text-slate-400 hover:text-slate-600"
                       >
                         重置默认

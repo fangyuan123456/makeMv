@@ -1634,7 +1634,7 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
                             [locId]: e.target.value,
                           }))
                         }
-                        placeholder="客观相对拓扑事实底座：以核心主地标为空间原点，交代正面出入通道、面向地标时左右翼立面/开窗/通道，以及顶空挑高与主导光源入射方向（纯客观物理事实，严禁东南西北罗盘词）..."
+                        placeholder="标准五段式收束：【入场路径】... 【核心地标】... 【画左立面】... 【画右立面】... 【背景阻隔】..."
                         rows={4}
                         className={`w-full min-h-20 max-h-64 overflow-y-auto [field-sizing:content] text-xs text-slate-800 rounded-xl p-2.5 focus:outline-none leading-relaxed resize-y font-sans transition-colors ${
                           isSpatialChanged

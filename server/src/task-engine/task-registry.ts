@@ -9,7 +9,9 @@ import {
   assetManifestTool,
   entitySpecTool,
   shootingScriptTool,
+  shotFramePromptTool,
   shotPromptTool,
+  shotMotionPromptTool,
   lookdevTool,
   shotKeyframeTool,
   shotVideoTool,
@@ -46,7 +48,8 @@ export class TaskToolRegistry {
       assetManifestTool,
       entitySpecTool,
       shootingScriptTool,
-      shotPromptTool,
+      shotFramePromptTool,
+      shotMotionPromptTool,
       lookdevTool,
       shotKeyframeTool,
       shotVideoTool,
@@ -58,6 +61,10 @@ export class TaskToolRegistry {
     for (const tool of list) {
       this.register(tool);
     }
+
+    // 历史别名兼容防守（允许历史任务记录通过旧名称定位工具实例）
+    this.tools.set('film.shot_prompt', shotFramePromptTool);
+    this.tools.set('film_shot_prompt', shotFramePromptTool);
   }
 
   public register(tool: BaseTaskTool<any, any>): void {
@@ -85,6 +92,13 @@ export class TaskToolRegistry {
           description: tool.description,
         });
       }
+    }
+    // 兼容历史老名称 film.shot_prompt 查询
+    if (seen.has('film.shot_frame_prompt') && !seen.has('film.shot_prompt')) {
+      result.push({
+        toolName: 'film.shot_prompt',
+        description: '单镜首帧视觉推演与微调工具 (兼容别名)',
+      });
     }
     return result;
   }

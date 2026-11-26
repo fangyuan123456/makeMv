@@ -76,18 +76,22 @@ export const screenplayModifierStep = createStep({
       abortSignal,
     })) as ScreenplayModifierOutput;
 
-    if (!result?.patchedScriptMarkdown) {
-      throw new Error('[ScreenplayModifier] 大模型未返回有效的 Patch 剧本正文');
+    const finalScript = (result?.scriptMarkdown || result?.patchedScriptMarkdown || '').trim();
+
+    if (!finalScript) {
+      throw new Error('[ScreenplayModifier] 大模型未返回有效的 Patch 剧本正文 (scriptMarkdown 字段为空)');
     }
 
     // 原子同步写回 ProjectStore 与本地磁盘 screenplay.md
-    store.setArtifact(projectId, 'screenplay', result.patchedScriptMarkdown);
+    store.setArtifact(projectId, 'screenplay', finalScript);
     const screenplayFile = path.join(store.getProjectDir(projectId), 'screenplay.md');
-    fs.writeFileSync(screenplayFile, result.patchedScriptMarkdown, 'utf-8');
+    fs.writeFileSync(screenplayFile, finalScript, 'utf-8');
 
     return {
-      ...result,
-      scriptMarkdown: result.patchedScriptMarkdown,
+      success: true,
+      summaryOfChanges: result.summaryOfChanges || '已完成局部文本外科手术修复',
+      scriptMarkdown: finalScript,
+      patchedScriptMarkdown: finalScript,
     };
   },
 });

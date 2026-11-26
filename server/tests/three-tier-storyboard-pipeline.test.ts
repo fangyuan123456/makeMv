@@ -12,10 +12,16 @@ import {
   buildShootingScriptModifyPrompt,
 } from '../src/tools/film-production/shooting-script-tool/index.js';
 import {
+  ShotFramePromptTool,
   ShotPromptTool,
   buildShotPromptPrompt,
   buildShotPromptModifyPrompt,
-} from '../src/tools/film-production/shot-prompt-tool/index.js';
+} from '../src/tools/film-production/shot-frame-prompt-tool/index.js';
+import {
+  ShotMotionPromptTool,
+  buildShotMotionPromptPrompt,
+  buildShotMotionModifierPrompt,
+} from '../src/tools/film-production/shot-motion-prompt-tool/index.js';
 
 describe('Storyboard Pipeline SSOT (Shooting Script & Shot Prompt)', () => {
   it('1. ShootingScriptTool 一步到位生成时空环境锁与全量原子镜头台本', () => {
@@ -37,23 +43,43 @@ describe('Storyboard Pipeline SSOT (Shooting Script & Shot Prompt)', () => {
     assert.ok(beatShape.audioAmbience);
   });
 
-  it('2. ShotPromptTool 执行单镜视听一体化推演，挂载独立并发键，包含首帧生图词与同相动态运镜词', () => {
-    const tool = new ShotPromptTool();
-    assert.equal(tool.toolName, 'film.shot_prompt');
-    const concurrencyKey = tool.resolveConcurrencyKey('proj_1', { clipId: 'c1', shotId: 'c1-01' });
-    assert.equal(concurrencyKey, 'proj_1:c1:c1-01');
+  it('2. ShotFramePromptTool 与 ShotMotionPromptTool 正交解耦，挂载独立并发键', () => {
+    // 2.1 首帧推演工具验证
+    const frameTool = new ShotFramePromptTool();
+    assert.equal(frameTool.toolName, 'film.shot_frame_prompt');
+    const frameKey = frameTool.resolveConcurrencyKey('proj_1', { clipId: 'c1', shotId: 'c1-01' });
+    assert.equal(frameKey, 'proj_1:c1:c1-01');
 
-    const outputShape = tool.outputSchema.shape;
-    assert.ok(outputShape.firstFramePrompt);
-    assert.ok(outputShape.videoPrompt);
+    const frameOutputShape = frameTool.outputSchema.shape;
+    assert.ok(frameOutputShape.firstFramePrompt);
 
-    const prompt = buildShotPromptPrompt({
+    const framePrompt = buildShotPromptPrompt({
       shot: { shotId: 'c1-01', title: '门前定场', sceneSubject: '独身一人在门前' },
       clipTitle: '夜归老宅',
     });
-    assert.ok(prompt.includes('100% 纯正向肯定句'));
-    assert.ok(prompt.includes('五层公理体系'));
-    assert.ok(!prompt.includes('严禁慢放'));
+    assert.ok(framePrompt.includes('100% 纯正向肯定句'));
+    assert.ok(framePrompt.includes('五层体系'));
+
+    // 2.2 视频时序动态推演工具验证
+    const motionTool = new ShotMotionPromptTool();
+    assert.equal(motionTool.toolName, 'film.shot_motion_prompt');
+    const motionKey = motionTool.resolveConcurrencyKey('proj_1', { clipId: 'c1', shotId: 'c1-01' });
+    assert.equal(motionKey, 'proj_1:c1:c1-01');
+
+    const motionOutputShape = motionTool.outputSchema.shape;
+    assert.ok(motionOutputShape.videoPrompt);
+
+    const motionPrompt = buildShotMotionPromptPrompt({
+      shot: {
+        shotId: 'c1-01',
+        title: '门前定场',
+        sceneSubject: '独身一人在门前',
+        firstFramePrompt: '中景侧拍，主体立于门前...',
+      },
+      clipTitle: '夜归老宅',
+    });
+    assert.ok(motionPrompt.includes('首帧起幅状态'));
+    assert.ok(motionPrompt.includes('生理微动态'));
   });
 
   it('3. 各分镜工具的 modifier 均具备独立的微调提示词与结构化/增量继承机制', () => {
@@ -79,7 +105,7 @@ describe('Storyboard Pipeline SSOT (Shooting Script & Shot Prompt)', () => {
     assert.ok(scriptModPrompt.includes('当前已有场景时空与光影环境锁'));
     assert.ok(scriptModPrompt.includes('黄昏薄雾'));
     assert.ok(scriptModPrompt.includes('将天气改为暴雨夜'));
-    assert.ok(scriptModPrompt.includes('锁死保留未受影响内容'));
+    assert.ok(scriptModPrompt.includes('锁定保留未受影响内容'));
 
     // 3.2 shot prompt modifier prompt
     const shotPromptMod = buildShotPromptModifyPrompt({
@@ -87,14 +113,29 @@ describe('Storyboard Pipeline SSOT (Shooting Script & Shot Prompt)', () => {
         shotId: 'c1-01',
         title: '镜01',
         sceneSubject: '推门',
-        firstFramePrompt: '五层公理原有生图词',
+        firstFramePrompt: '五层体系原有生图词',
       },
       clipTitle: '第一幕',
       instruction: '将色温调整为青冷调',
     });
     assert.ok(shotPromptMod.includes('基准底稿'));
-    assert.ok(shotPromptMod.includes('五层公理原有生图词'));
+    assert.ok(shotPromptMod.includes('五层体系原有生图词'));
     assert.ok(shotPromptMod.includes('将色温调整为青冷调'));
+
+    // 3.3 shot motion modifier prompt
+    const motionModPrompt = buildShotMotionModifierPrompt({
+      shot: {
+        shotId: 'c1-01',
+        title: '镜01',
+        videoPrompt: '原有视频动作流...',
+        firstFramePrompt: '原有首帧起幅...',
+      },
+      instruction: '让主角手部动作放慢一倍，配角视线同步下移',
+    });
+    assert.ok(motionModPrompt.includes('既有视频动态基底'));
+    assert.ok(motionModPrompt.includes('原有视频动作流'));
+    assert.ok(motionModPrompt.includes('配角视线同步下移'));
+    assert.ok(motionModPrompt.includes('生理微动态'));
   });
 
   it('4. 全剧故事因果与前后镜头接戏 (Continuity) 上下文正确注入各级提示词与契约', () => {
@@ -124,7 +165,7 @@ describe('Storyboard Pipeline SSOT (Shooting Script & Shot Prompt)', () => {
     });
     assert.ok(shotPrompt.includes('上一镜头接戏基准'));
     assert.ok(shotPrompt.includes('c1-01 · 远景定场'));
-    assert.ok(shotPrompt.includes('上一镜首帧不代表末态'));
+    assert.ok(shotPrompt.includes('空间视锥独立换算'));
   });
 
   it('5. ShootingScriptTool 专门深化纯物理动作表演流与时空环境锁', () => {
@@ -139,8 +180,8 @@ describe('Storyboard Pipeline SSOT (Shooting Script & Shot Prompt)', () => {
       narrativeText: '黄昏来到封门村村口，薄雾弥漫...',
     });
     assert.ok(shootingPrompt.includes('时空与光影环境锁'));
-    assert.ok(shootingPrompt.includes('严禁文学心理与抒情修辞'));
-    assert.ok(shootingPrompt.includes('专注纯粹物理表演与肢体细节'));
+    assert.ok(shootingPrompt.includes('专业电影文学语言与法定标准名称'));
+    assert.ok(shootingPrompt.includes('专注客观可视的物理表演与场面调度'));
 
     // 验证推演工具成功接收 weatherDirective
     const shotPromptWithWeather = buildShotPromptPrompt({
@@ -154,6 +195,6 @@ describe('Storyboard Pipeline SSOT (Shooting Script & Shot Prompt)', () => {
     });
     assert.ok(shotPromptWithWeather.includes('既定天气与环境光影硬约束'));
     assert.ok(shotPromptWithWeather.includes('黄昏薄雾'));
-    assert.ok(shotPromptWithWeather.includes('杜绝白昼漂移'));
+    assert.ok(shotPromptWithWeather.includes('环境与天气光影首位定调'));
   });
 });

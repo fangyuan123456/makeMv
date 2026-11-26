@@ -24,6 +24,7 @@ import {
   refineShotImage,
   updateShootingScript,
 } from '../services/shot-assets.service.js';
+import { saveScreenplay, triggerScreenplayReview } from '../services/planner-assets.service.js';
 import { sendError } from '../helpers.js';
 
 export const projectsRouter = Router();
@@ -144,3 +145,9 @@ projectsRouter.post('/:id/shots/update-prompt', updateShotPrompt);
 projectsRouter.post('/:id/shots/update-continuity', updateShotContinuity);
 projectsRouter.post('/:id/shots/refine', refineShotImage);
 projectsRouter.post('/:id/shooting-script/update', updateShootingScript);
+
+/**
+ * 剧本正文保存与手动触发质量审查
+ */
+projectsRouter.put('/:id/screenplay', saveScreenplay);
+projectsRouter.post('/:id/screenplay/review', triggerScreenplayReview);

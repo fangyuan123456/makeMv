@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Agent } from '@mastra/core/agent';
 import { generateObject, type LanguageModelV1 } from 'ai';
-import type { ZodTypeAny, infer as ZodInfer } from 'zod';
+import { z, type ZodTypeAny, infer as ZodInfer } from 'zod';
 import { getArtifactDir, STAGE } from '../project-store/artifact-fs.js';
 import { LLMProvider } from '../llm/index.js';
 import {
@@ -26,6 +26,12 @@ import {
   isAbortError,
   RunAbortedError,
 } from '../workflow-engine/run-context.js';
+import {
+  isTruncationFailure,
+  rescueCompletedPrefix,
+  buildContinuationPrompt,
+  type ContinuationConfig,
+} from './continuation-stitcher.js';
 
 export interface StructuredCallContext {
   /** 产物阶段目录，如 STAGE.planner / STAGE.textGame */
@@ -115,7 +121,7 @@ export function dumpStructuredFailure(
     hints.push('模型输出被 maxTokens 截断（JSON 没写完）');
   }
   if (finishReason === 'content-filter') hints.push('被内容安全策略拦截');
-  if (!rawOutput && (typeof e.text === 'string' || e.name === 'AI_NoObjectGeneratedError')) hints.push('模型完全没有返回文本');
+  if (!rawOutput) hints.push('模型完全没有返回文本');
   if (rawOutput && !issues.length) hints.push('返回的是文本但不是合法 JSON');
 
   const head = issues.length
@@ -201,16 +207,17 @@ export async function generateStructured<S extends ZodTypeAny>(params: {
   label: string;
   projectId?: string;
   abortSignal?: AbortSignal;
-  retryEmptyResponse?: boolean;
+  maxTokens?: number;
+  continuationOptions?: ContinuationConfig;
 }): Promise<ZodInfer<S>> {
-  const { agent, prompt, schema, abortSignal, ...rest } = params;
+  const { agent, prompt, schema, abortSignal, maxTokens, continuationOptions, ...rest } = params;
 
   // 1. 预检 Abort 信号
   if (abortSignal?.aborted) {
     throw new RunAbortedError(`【${params.label}】任务已被取消`);
   }
 
-  const effectiveModel = params.model || (agent?.model as LanguageModelV1) || agent?.llm?.getModel() || LLMProvider.getModel();
+  const effectiveModel = params.model || (agent?.model as LanguageModelV1) || LLMProvider.getModel();
   const effectiveSystem = params.system || agent?.instructions;
 
   try {
@@ -219,6 +226,7 @@ export async function generateStructured<S extends ZodTypeAny>(params: {
       system: effectiveSystem || undefined,
       prompt,
       schema: schema as any,
+      maxTokens: maxTokens || 8192,
       abortSignal,
     });
 
@@ -230,17 +238,120 @@ export async function generateStructured<S extends ZodTypeAny>(params: {
     if (isAbortError(err) || abortSignal?.aborted) {
       throw err instanceof RunAbortedError ? err : new RunAbortedError(`【${params.label}】任务已被取消`);
     }
-    if (params.retryEmptyResponse && typeof err?.text === 'string' && !err.text.trim()) {
-      console.warn(`[llm-diagnostics] ${params.label} 返回空内容，仅重试本次请求一次`);
-      return generateStructured({...params,retryEmptyResponse:false});
+
+    // ─────────────────────────────────────────────────────────────
+    // 🛡️ 通用长列表截断自动接力续写机制 (Continuation Stitching)
+    // ─────────────────────────────────────────────────────────────
+    if (continuationOptions && isTruncationFailure(err)) {
+      const { arrayKey, maxContinuations = 2, itemSchema } = continuationOptions;
+      const initialRescue = rescueCompletedPrefix(err, arrayKey, itemSchema);
+
+      if (initialRescue.success && initialRescue.completedItems.length > 0) {
+        console.warn(
+          `[generateStructured] 🚨 检测到【${params.label}】长列表 "${arrayKey}" 在第 ${initialRescue.completedItems.length} 项达到上限截断，启动自动接力续写机制...`
+        );
+
+        let allItems = [...initialRescue.completedItems];
+        let lastAnchor = initialRescue.lastItemAnchor;
+        let continuationRound = 0;
+        let isComplete = false;
+
+        while (continuationRound < maxContinuations && !isComplete) {
+          if (abortSignal?.aborted) {
+            throw new RunAbortedError(`【${params.label}】任务已被取消`);
+          }
+
+          continuationRound++;
+          console.log(
+            `[generateStructured] 🔄【${params.label}】正在执行第 ${continuationRound}/${maxContinuations} 轮接力续写 (锚点: ${lastAnchor?.id || allItems.length})...`
+          );
+
+          const continuationPrompt = buildContinuationPrompt({
+            originalPrompt: prompt,
+            arrayKey,
+            completedCount: allItems.length,
+            completedItems: allItems,
+            headerFields: initialRescue.headerFields,
+            lastAnchor,
+            customPromptBuilder: continuationOptions.buildContinuationPrompt,
+            customDirective: continuationOptions.continuationDirective,
+          });
+
+          // 接力专用 Schema：仅需要返回后续数组项
+          const continuationSchema = z.object({
+            [arrayKey]: z.array(itemSchema || z.any()),
+          });
+
+          try {
+            const continuationResponse = await generateObject({
+              model: effectiveModel,
+              system: effectiveSystem || undefined,
+              prompt: continuationPrompt,
+              schema: continuationSchema as any,
+              maxTokens: maxTokens || 8192,
+              abortSignal,
+            });
+
+            const newItems = (continuationResponse.object as any)?.[arrayKey];
+            if (Array.isArray(newItems) && newItems.length > 0) {
+              allItems.push(...newItems);
+              const last = newItems[newItems.length - 1];
+              lastAnchor = {
+                id: last?.beatId || last?.shotNumber || last?.id || `项 ${allItems.length}`,
+                title: last?.beatTitle || last?.title || last?.name || '',
+                summary: last?.actionDescription || last?.cinematicIntent || last?.description || '',
+              };
+            }
+
+            // 若本轮未截断，说明全部输出完毕
+            if (continuationResponse.finishReason !== 'length') {
+              isComplete = true;
+            }
+          } catch (contErr: any) {
+            if (isAbortError(contErr) || abortSignal?.aborted) {
+              throw contErr instanceof RunAbortedError ? contErr : new RunAbortedError(`【${params.label}】任务已被取消`);
+            }
+
+            // 续写本身也发生截断，尝试再次救援新生成的项
+            const subRescue = rescueCompletedPrefix(contErr, arrayKey, itemSchema);
+            if (subRescue.success && subRescue.completedItems.length > 0) {
+              allItems.push(...subRescue.completedItems);
+              lastAnchor = subRescue.lastItemAnchor;
+            } else {
+              console.warn(`[generateStructured] 第 ${continuationRound} 轮续写未能提取更多项:`, contErr?.message);
+              break;
+            }
+          }
+        }
+
+        // 内存中无缝组装全量对象
+        const stitchedObject = {
+          ...initialRescue.headerFields,
+          [arrayKey]: allItems,
+        };
+
+        // 针对原始全局 Schema 做最终端到端终检
+        const finalParseResult = schema.safeParse(stitchedObject);
+        if (finalParseResult.success) {
+          console.log(
+            `[generateStructured] 🎉【${params.label}】自动接力续写缝合成功！总计输出 ${allItems.length} 项，通过 Schema 终检。`
+          );
+          return finalParseResult.data as ZodInfer<S>;
+        }
+
+        console.warn(
+          `[generateStructured] 接力缝合后未完全通过原始 Schema，退回常规诊断落盘:`,
+          finalParseResult.error.message
+        );
+      }
     }
+
     const digest = dumpStructuredFailure(rest, err, prompt);
     const suffix = digest.dumpDir ? `（原始输出与提示词已落盘：${digest.dumpDir}）` : '';
     const structuredErr = new Error(`${digest.summary}${suffix}`);
     (structuredErr as any).failureType = 'llm_contract_error';
-    (structuredErr as any).cause = err;
     throw structuredErr;
   }
 }
 
-export { STAGE };
+export { STAGE, type ContinuationConfig };

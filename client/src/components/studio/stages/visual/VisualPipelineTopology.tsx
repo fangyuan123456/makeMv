@@ -117,7 +117,7 @@ const SequentialClipVideoPlayer: React.FC<SequentialClipVideoPlayerProps> = ({
           <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-xs text-[9px] font-mono text-white flex items-center gap-1 shadow-2xs border border-white/20 z-20 pointer-events-none">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <span>
-              分镜 {safeIndex + 1}/{videoUrls.length}
+              片段 {safeIndex + 1}/{videoUrls.length}
             </span>
           </div>
         )}
@@ -335,56 +335,174 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
       h: LOOKDEV_H,
     });
 
-    // B. 分析互动节点关系与互斥分支集合 (Siblings)
+    // B. 穿透 wiring 构建纯净完整的镜头与结局因果拓扑图
+    // 1) 收集互动跳板节点的父级来源: interactionParentMap[I_id] = fromClipId
     const interactionParentMap = new Map<string, string>();
-    const interactionBranchesMap = new Map<string, Array<{ branchClipId: string; outcomeKey: string; label: string }>>();
-    const siblingBranchSet = new Set<string>();
-
     wiring.forEach((w: any) => {
       if (w.to && w.to.startsWith('I_') && !w.from.startsWith('I_')) {
         interactionParentMap.set(w.to, w.from);
       }
     });
 
-    wiring.forEach((w: any) => {
-      if (w.from && w.from.startsWith('I_')) {
-        const interId = w.from;
-        const inter = interactions.find((i: any) => i.id === interId);
-        const outcome = inter?.outcomes?.find((o: any) => o.key === w.onOutcome);
-        const label = outcome?.label ? `${w.onOutcome}·${outcome.label.slice(0, 8)}…` : `分支 ${w.onOutcome}`;
+    // 2) 构建直接因果连线与子节点映射: directEdges: { from, to, label }
+    interface DirectEdgeDef {
+      from: string;
+      to: string;
+      label?: string;
+      isChoice?: boolean;
+    }
+    const directEdges: DirectEdgeDef[] = [];
+    const childrenMap = new Map<string, string[]>();
+    const parentsMap = new Map<string, string[]>();
 
-        const list = interactionBranchesMap.get(interId) || [];
-        list.push({ branchClipId: w.to, outcomeKey: w.onOutcome, label });
-        interactionBranchesMap.set(interId, list);
-        siblingBranchSet.add(w.to);
+    const addDirectEdge = (from: string, to: string, label?: string, isChoice?: boolean) => {
+      directEdges.push({ from, to, label, isChoice });
+      const cList = childrenMap.get(from) || [];
+      if (!cList.includes(to)) cList.push(to);
+      childrenMap.set(from, cList);
+
+      const pList = parentsMap.get(to) || [];
+      if (!pList.includes(from)) pList.push(from);
+      parentsMap.set(to, pList);
+    };
+
+    wiring.forEach((w: any) => {
+      // 场景 1: 从交互跳板引出分支选项 (I_xx -> clip 或 ending)
+      if (w.from && w.from.startsWith('I_') && w.to) {
+        const interId = w.from;
+        const realParent = interactionParentMap.get(interId);
+        if (realParent) {
+          const inter = interactions.find((i: any) => i.id === interId);
+          const outcome = inter?.outcomes?.find((o: any) => o.key === w.onOutcome);
+          const rawLabel = outcome?.label || w.onOutcome;
+          const label = rawLabel
+            ? `${w.onOutcome} · ${rawLabel.slice(0, 10)}${rawLabel.length > 10 ? '…' : ''}`
+            : `选项 ${w.onOutcome}`;
+          addDirectEdge(realParent, w.to, label, true);
+        }
+      }
+      // 场景 2: 常规镜头之间顺向推进 (c1 -> c2 等，不经过 I_)
+      else if (w.from && !w.from.startsWith('I_') && w.to && !w.to.startsWith('I_')) {
+        addDirectEdge(w.from, w.to, '顺向推进', false);
       }
     });
 
-    // C. 因果树分层排版算法 (Act & Parallel Branch Layering)
-    const clipNodeMap = new Map<string, TopoNode>();
-    let currentY = ROOT_Y + LOOKDEV_H + ROW_GAP;
+    // 3) 收集所有需要展示的图节点 ID: clips + 所有 endings (确保结局全量入图)
+    const allNodeIds: string[] = [];
+    rawClips.forEach((c: any) => {
+      if (!allNodeIds.includes(c.id)) allNodeIds.push(c.id);
+    });
+    rawEndings.forEach((e: any) => {
+      if (!allNodeIds.includes(e.id)) allNodeIds.push(e.id);
+    });
 
-    const evaluateClipStatus = (clipId: string, isRoot: boolean, parentClipId?: string) => {
+    // 4) BFS 计算每个节点的拓扑分层深度 (Layer Depth)
+    const startNodeId = prd?.startNodeId || rawClips[0]?.id || 'c1';
+    const depthMap = new Map<string, number>();
+    depthMap.set(startNodeId, 1);
+
+    const queue: string[] = [startNodeId];
+    const visited = new Set<string>([startNodeId]);
+
+    while (queue.length > 0) {
+      const curr = queue.shift()!;
+      const currDepth = depthMap.get(curr) || 1;
+      const children = childrenMap.get(curr) || [];
+      for (const child of children) {
+        const nextDepth = Math.max(depthMap.get(child) || 0, currDepth + 1);
+        depthMap.set(child, nextDepth);
+        if (!visited.has(child)) {
+          visited.add(child);
+          queue.push(child);
+        }
+      }
+    }
+
+    // 针对未被有向连线遍历到的孤立节点做兜底深度计算
+    let maxAssignedDepth = 1;
+    depthMap.forEach((d) => {
+      if (d > maxAssignedDepth) maxAssignedDepth = d;
+    });
+    allNodeIds.forEach((id) => {
+      if (!depthMap.has(id)) {
+        depthMap.set(id, maxAssignedDepth + 1);
+      }
+    });
+
+    // 5) 按深度将节点分层归类 (Layers)
+    const layerMap = new Map<number, string[]>();
+    allNodeIds.forEach((id) => {
+      const d = depthMap.get(id) || 1;
+      const l = layerMap.get(d) || [];
+      l.push(id);
+      layerMap.set(d, l);
+    });
+
+    const sortedDepths = Array.from(layerMap.keys()).sort((a, b) => a - b);
+
+    // 6) 状态判定函数（支持常规 Clip 与 Ending 节点）
+    const evaluateNodeStatus = (nodeId: string, isEnding: boolean, isRoot: boolean, parentIds: string[]) => {
       let isUnlocked = false;
       let status: 'locked' | 'pending' | 'in_progress' | 'completed' = 'locked';
       let badge = '🔒 待解锁';
       let badgeColor = 'bg-slate-100 text-slate-400 border-slate-200';
 
-      const isGeneratingThis = isClipGenerating(clipId);
-      const hasStoryboard = isClipStoryboardPlanned(clipId);
-      const { totalShots, completedVideos, isAllVideosCompleted } = getClipVideoProgress(clipId);
+      const isGeneratingThis = isClipGenerating(nodeId);
+      const hasStoryboard = isClipStoryboardPlanned(nodeId);
+      const { totalShots, completedVideos, isAllVideosCompleted } = getClipVideoProgress(nodeId);
 
-      // 本幕状态判定
+      if (isEnding) {
+        const ending = rawEndings.find((e: any) => e.id === nodeId);
+        const endingType = ending?.endingType || 'NE';
+        const typeBadge = endingType === 'HE' ? '🏆 HE 通关' : endingType === 'BE' ? '💀 BE 终局' : '🎬 完结';
+        const typeColor = endingType === 'HE'
+          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+          : endingType === 'BE'
+          ? 'bg-rose-50 text-rose-700 border-rose-200'
+          : 'bg-indigo-50 text-indigo-700 border-indigo-200';
+
+        // 前驱判定：任一前驱节点完成即可解锁该结局
+        const parentAllDone = parentIds.length === 0 || parentIds.some((pId) => {
+          const p = getClipVideoProgress(pId);
+          return p.isAllVideosCompleted || isClipStoryboardPlanned(pId);
+        });
+
+        isUnlocked = hasLookdevReady && (parentAllDone || isAllVideosCompleted);
+        if (isAllVideosCompleted) {
+          status = 'completed';
+          badge = typeBadge;
+          badgeColor = typeColor;
+        } else if (isGeneratingThis) {
+          status = 'in_progress';
+          badge = '⏳ 推演中';
+          badgeColor = 'bg-indigo-50 text-indigo-700 border-indigo-200';
+        } else if (hasStoryboard) {
+          status = 'pending';
+          badge = typeBadge;
+          badgeColor = typeColor;
+        } else if (isUnlocked) {
+          status = 'pending';
+          badge = typeBadge;
+          badgeColor = typeColor;
+        } else {
+          status = 'locked';
+          badge = '🔒 待分支达成';
+          badgeColor = 'bg-slate-100 text-slate-400 border-slate-200';
+        }
+
+        return { isUnlocked, status, badge, badgeColor, totalShots, completedVideos };
+      }
+
+      // 普通 clip 判定
       if (isGeneratingThis) {
         status = 'in_progress';
         badge = '⏳ 推演中';
         badgeColor = 'bg-indigo-50 text-indigo-700 border-indigo-200';
       } else if (!hasStoryboard) {
         status = 'pending';
-        badge = '🎬 待规划分镜';
+        badge = '🎬 待拆分片段';
         badgeColor = 'bg-slate-100 text-slate-600 border-slate-200';
       } else if (isAllVideosCompleted) {
-        // 【核心铁律】：只有每个分镜镜头都有已生成的有效视频，才算 completed！
         status = 'completed';
         badge = `✅ 全片就绪 (${totalShots}/${totalShots})`;
         badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
@@ -393,15 +511,12 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
         badge = `🎬 视频成片中 (${completedVideos}/${totalShots})`;
         badgeColor = 'bg-amber-50 text-amber-700 border-amber-200';
       } else {
-        // 规划了分镜，但尚未生成任何分镜视频
         status = 'pending';
-        badge = `🎬 分镜就绪 (0/${totalShots} 视频)`;
+        badge = `🎬 片段就绪 (0/${totalShots} 视频)`;
         badgeColor = 'bg-indigo-50 text-indigo-700 border-indigo-200';
       }
 
-      // 下游解锁因果门禁判定
       if (isRoot) {
-        // 根节点（第 1 幕）：视觉定妆就绪即可解锁创作
         isUnlocked = hasLookdevReady;
         if (!isUnlocked) {
           status = 'locked';
@@ -409,16 +524,14 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
           badgeColor = 'bg-slate-100 text-slate-400 border-slate-200';
         }
       } else {
-        // 【核心铁律】：下游分支节点，只有前驱父节点已【全部完成视频】（每个分镜都有视频），才允许解锁！
-        const parentProgress = parentClipId ? getClipVideoProgress(parentClipId) : null;
-        const parentAllDone = parentProgress ? parentProgress.isAllVideosCompleted : false;
-
+        const parentAllDone = parentIds.length === 0 || parentIds.some((pId) => {
+          const p = getClipVideoProgress(pId);
+          return p.isAllVideosCompleted;
+        });
         isUnlocked = hasLookdevReady && (parentAllDone || isAllVideosCompleted);
         if (!isUnlocked) {
           status = 'locked';
-          badge = parentProgress && !parentProgress.isAllVideosCompleted
-            ? '🔒 需前驱各镜成片'
-            : '🔒 需前驱就绪';
+          badge = '🔒 需前驱就绪';
           badgeColor = 'bg-slate-100 text-slate-400 border-slate-200';
         }
       }
@@ -426,320 +539,125 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
       return { isUnlocked, status, badge, badgeColor, totalShots, completedVideos };
     };
 
-    const actClips = rawClips.filter((c) => !siblingBranchSet.has(c.id));
-    let previousActId: string | null = null;
-    let previousBranches: string[] = [];
+    // 7) 几何坐标排版与 TopoNode 构建 (真正树状分叉对称展开)
+    const clipNodeMap = new Map<string, TopoNode>();
 
-    actClips.forEach((act, actIdx) => {
-      const isFirst = actIdx === 0;
+    sortedDepths.forEach((d) => {
+      const nodeIdsInLayer = layerMap.get(d) || [];
+      const count = nodeIdsInLayer.length;
+      const y = ROOT_Y + LOOKDEV_H + ROW_GAP + (d - 1) * (CLIP_H + ROW_GAP);
+      const spreadX = count > 1 ? Math.max(340, 520 - (count - 2) * 60) : 0;
 
-      // 1. 如果前一幕有分支，排布前一幕的分支节点 (横向展开左右对称)
-      if (previousActId) {
-        const branchesForPrev: Array<{ branchClipId: string; label: string }> = [];
-        interactionBranchesMap.forEach((branches, interId) => {
-          if (interactionParentMap.get(interId) === previousActId) {
-            branchesForPrev.push(...branches);
-          }
-        });
+      nodeIdsInLayer.forEach((nodeId, idx) => {
+        const x = count === 1
+          ? CENTER_X - CLIP_W / 2
+          : CENTER_X + (idx - (count - 1) / 2) * spreadX - CLIP_W / 2;
 
-        if (branchesForPrev.length > 0) {
-          const count = branchesForPrev.length;
-          previousBranches = branchesForPrev.map((b) => b.branchClipId);
+        const isEnding = rawEndings.some((e: any) => e.id === nodeId);
+        const parentIds = parentsMap.get(nodeId) || [];
+        const isRoot = d === 1 && !isEnding;
 
-          branchesForPrev.forEach((bInfo, bIdx) => {
-            const branchClip = rawClips.find((c) => c.id === bInfo.branchClipId);
-            if (!branchClip) return;
+        const { isUnlocked, status, badge, badgeColor, totalShots, completedVideos } = evaluateNodeStatus(
+          nodeId,
+          isEnding,
+          isRoot,
+          parentIds
+        );
 
-            const bX = CENTER_X + (bIdx - (count - 1) / 2) * BRANCH_SPREAD_X - CLIP_W / 2;
-            const bY = currentY;
-
-            const { isUnlocked, status, badge, badgeColor, totalShots, completedVideos } = evaluateClipStatus(
-              branchClip.id,
-              false,
-              previousActId!
-            );
-            const keyframeUrl = getClipKeyframeUrl(branchClip.id);
-            const videoUrl = getClipVideoUrl(branchClip.id);
-            const videoUrls = getClipVideoList(branchClip.id);
-
-            const bNode: TopoNode = {
-              id: `node_${branchClip.id}`,
-              kind: 'clip',
-              clipId: branchClip.id,
-              title: branchClip.title || `分支 ${bIdx + 1}`,
-              badge,
-              badgeColor,
-              status,
-              isUnlocked,
-              keyframeUrl,
-              videoUrl,
-              videoUrls,
-              totalShots,
-              completedVideos,
-              durationSec: 15,
-              staleReason: getClipStaleReason(branchClip.id),
-              x: bX,
-              y: bY,
-              w: CLIP_W,
-              h: CLIP_H,
-            };
-
-            nodeList.push(bNode);
-            clipNodeMap.set(branchClip.id, bNode);
-
-            // 连线：从 previousActId 分叉连向分支
-            const prevActNode = clipNodeMap.get(previousActId!);
-            if (prevActNode) {
-              const fx = prevActNode.x + CLIP_W / 2;
-              const fy = prevActNode.y + CLIP_H;
-              const tx = bX + CLIP_W / 2;
-              const ty = bY;
-
-              edgeList.push({
-                id: `edge_${previousActId}_to_${branchClip.id}`,
-                fromId: prevActNode.id,
-                toId: bNode.id,
-                label: bInfo.label,
-                isUnlocked: prevActNode.isUnlocked && bNode.isUnlocked,
-                path: `M ${fx} ${fy} C ${fx} ${fy + 60}, ${tx} ${ty - 60}, ${tx} ${ty}`,
-                lx: (fx + tx) / 2,
-                ly: (fy + ty) / 2,
-              });
-            }
-          });
-
-          currentY += CLIP_H + ROW_GAP;
+        let title = nodeId;
+        let durationSec = 15;
+        if (isEnding) {
+          const ending = rawEndings.find((e: any) => e.id === nodeId);
+          title = ending?.title || '结局终局';
+          durationSec = 20;
+        } else {
+          const clip = rawClips.find((c: any) => c.id === nodeId);
+          title = clip?.title || `第 ${nodeId} 幕`;
+          durationSec = 20;
         }
-      }
 
-      // 2. 排布当前主干幕次节点 (居中对齐)
-      const actX = CENTER_X - CLIP_W / 2;
-      const actY = currentY;
+        const keyframeUrl = getClipKeyframeUrl(nodeId);
+        const videoUrl = getClipVideoUrl(nodeId);
+        const videoUrls = getClipVideoList(nodeId);
 
-      let parentForThisAct = previousActId || undefined;
-      const { isUnlocked, status, badge, badgeColor, totalShots, completedVideos } = evaluateClipStatus(
-        act.id,
-        isFirst,
-        previousBranches.length > 0 ? previousBranches[0] : parentForThisAct
-      );
-      const keyframeUrl = getClipKeyframeUrl(act.id);
-      const videoUrl = getClipVideoUrl(act.id);
-      const videoUrls = getClipVideoList(act.id);
+        const topoNode: TopoNode = {
+          id: `node_${nodeId}`,
+          kind: isEnding ? 'ending' : 'clip',
+          clipId: nodeId,
+          title,
+          badge,
+          badgeColor,
+          status,
+          isUnlocked,
+          keyframeUrl,
+          videoUrl,
+          videoUrls,
+          totalShots,
+          completedVideos,
+          durationSec,
+          staleReason: getClipStaleReason(nodeId),
+          x,
+          y,
+          w: CLIP_W,
+          h: CLIP_H,
+        };
 
-      const actNode: TopoNode = {
-        id: `node_${act.id}`,
-        kind: 'clip',
-        clipId: act.id,
-        title: act.title || `第 ${actIdx + 1} 幕`,
-        badge,
-        badgeColor,
-        status,
-        isUnlocked,
-        keyframeUrl,
-        videoUrl,
-        videoUrls,
-        totalShots,
-        completedVideos,
-        durationSec: 20,
-        staleReason: getClipStaleReason(act.id),
-        x: actX,
-        y: actY,
-        w: CLIP_W,
-        h: CLIP_H,
-      };
-
-      nodeList.push(actNode);
-      clipNodeMap.set(act.id, actNode);
-
-      // 连线：
-      if (isFirst) {
-        // 定妆母体连向第一幕
-        const rootNode = nodeList[0];
-        const fx = rootNode.x + LOOKDEV_W / 2;
-        const fy = rootNode.y + LOOKDEV_H;
-        const tx = actX + CLIP_W / 2;
-        const ty = actY;
-
-        edgeList.push({
-          id: 'edge_root_to_first',
-          fromId: rootNode.id,
-          toId: actNode.id,
-          label: '定妆就绪 ➔ 首幕推演',
-          isUnlocked: hasLookdevReady,
-          path: `M ${fx} ${fy} C ${fx} ${fy + 50}, ${tx} ${ty - 50}, ${tx} ${ty}`,
-          lx: (fx + tx) / 2,
-          ly: (fy + ty) / 2,
-        });
-      } else if (previousBranches.length > 0) {
-        // 从上一幕的各分支共同汇聚连向当前主干幕次
-        previousBranches.forEach((bId, bIdx) => {
-          const bNode = clipNodeMap.get(bId);
-          if (bNode) {
-            const fx = bNode.x + CLIP_W / 2;
-            const fy = bNode.y + CLIP_H;
-            const tx = actX + CLIP_W / 2;
-            const ty = actY;
-
-            edgeList.push({
-              id: `edge_branch_${bId}_to_${act.id}_${bIdx}`,
-              fromId: bNode.id,
-              toId: actNode.id,
-              label: '推进',
-              isUnlocked: bNode.isUnlocked && actNode.isUnlocked,
-              path: `M ${fx} ${fy} C ${fx} ${fy + 60}, ${tx} ${ty - 60}, ${tx} ${ty}`,
-              lx: (fx + tx) / 2,
-              ly: (fy + ty) / 2,
-            });
-          }
-        });
-        previousBranches = [];
-      } else if (previousActId) {
-        const prevNode = clipNodeMap.get(previousActId);
-        if (prevNode) {
-          const fx = prevNode.x + CLIP_W / 2;
-          const fy = prevNode.y + CLIP_H;
-          const tx = actX + CLIP_W / 2;
-          const ty = actY;
-
-          edgeList.push({
-            id: `edge_${previousActId}_to_${act.id}`,
-            fromId: prevNode.id,
-            toId: actNode.id,
-            label: '顺向推进',
-            isUnlocked: prevNode.isUnlocked && actNode.isUnlocked,
-            path: `M ${fx} ${fy} C ${fx} ${fy + 50}, ${tx} ${ty - 50}, ${tx} ${ty}`,
-            lx: (fx + tx) / 2,
-            ly: (fy + ty) / 2,
-          });
-        }
-      }
-
-      previousActId = act.id;
-      currentY += CLIP_H + ROW_GAP;
+        nodeList.push(topoNode);
+        clipNodeMap.set(nodeId, topoNode);
+      });
     });
 
-    // 3. 处理最后一幕的分支与结局
-    if (previousActId) {
-      const branchesForLast: Array<{ branchClipId: string; label: string }> = [];
-      interactionBranchesMap.forEach((branches, interId) => {
-        if (interactionParentMap.get(interId) === previousActId) {
-          branchesForLast.push(...branches);
-        }
+    // 8) 构建 TopoEdge 连线
+    // A. 根节点到第一幕
+    const startNode = clipNodeMap.get(startNodeId);
+    if (startNode) {
+      const rootNode = nodeList[0];
+      const fx = rootNode.x + LOOKDEV_W / 2;
+      const fy = rootNode.y + LOOKDEV_H;
+      const tx = startNode.x + CLIP_W / 2;
+      const ty = startNode.y;
+
+      edgeList.push({
+        id: 'edge_root_to_first',
+        fromId: rootNode.id,
+        toId: startNode.id,
+        label: '定妆就绪 ➔ 首幕推演',
+        isUnlocked: hasLookdevReady,
+        path: `M ${fx} ${fy} C ${fx} ${fy + 50}, ${tx} ${ty - 50}, ${tx} ${ty}`,
+        lx: (fx + tx) / 2,
+        ly: (fy + ty) / 2,
       });
-
-      if (branchesForLast.length > 0) {
-        const count = branchesForLast.length;
-        const lastBranches: string[] = [];
-
-        branchesForLast.forEach((bInfo, bIdx) => {
-          const branchClip = rawClips.find((c) => c.id === bInfo.branchClipId);
-          if (!branchClip) return;
-          lastBranches.push(branchClip.id);
-
-          const bX = CENTER_X + (bIdx - (count - 1) / 2) * BRANCH_SPREAD_X - CLIP_W / 2;
-          const bY = currentY;
-
-          const { isUnlocked, status, badge, badgeColor } = evaluateClipStatus(branchClip.id, false, previousActId!);
-          const keyframeUrl = getClipKeyframeUrl(branchClip.id);
-          const videoUrl = getClipVideoUrl(branchClip.id);
-
-          const bNode: TopoNode = {
-            id: `node_${branchClip.id}`,
-            kind: 'clip',
-            clipId: branchClip.id,
-            title: branchClip.title || `终局分支 ${bIdx + 1}`,
-            badge,
-            badgeColor,
-            status,
-            isUnlocked,
-            keyframeUrl,
-            videoUrl,
-            durationSec: 15,
-            staleReason: getClipStaleReason(branchClip.id),
-            x: bX,
-            y: bY,
-            w: CLIP_W,
-            h: CLIP_H,
-          };
-
-          nodeList.push(bNode);
-          clipNodeMap.set(branchClip.id, bNode);
-
-          const prevActNode = clipNodeMap.get(previousActId!);
-          if (prevActNode) {
-            const fx = prevActNode.x + CLIP_W / 2;
-            const fy = prevActNode.y + CLIP_H;
-            const tx = bX + CLIP_W / 2;
-            const ty = bY;
-
-            edgeList.push({
-              id: `edge_${previousActId}_to_${branchClip.id}`,
-              fromId: prevActNode.id,
-              toId: bNode.id,
-              label: bInfo.label,
-              isUnlocked: prevActNode.isUnlocked && bNode.isUnlocked,
-              path: `M ${fx} ${fy} C ${fx} ${fy + 60}, ${tx} ${ty - 60}, ${tx} ${ty}`,
-              lx: (fx + tx) / 2,
-              ly: (fy + ty) / 2,
-            });
-          }
-        });
-
-        currentY += CLIP_H + ROW_GAP;
-
-        // 通关结局节点
-        if (rawEndings.length > 0) {
-          const ending = rawEndings[0];
-          const isEndingUnlocked = lastBranches.some((bId) => isClipStoryboardPlanned(bId));
-          const endX = CENTER_X - CLIP_W / 2;
-          const endY = currentY;
-
-          const endNode: TopoNode = {
-            id: `node_${ending.id}`,
-            kind: 'ending',
-            title: ending.title || '通关结局',
-            badge: ending.isVictory ? '🏆 HE 通关' : '🎬 完结',
-            badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-            status: isEndingUnlocked ? 'completed' : 'locked',
-            isUnlocked: isEndingUnlocked,
-            durationSec: 25,
-            x: endX,
-            y: endY,
-            w: CLIP_W,
-            h: CLIP_H,
-          };
-
-          nodeList.push(endNode);
-
-          lastBranches.forEach((bId, bIdx) => {
-            const bNode = clipNodeMap.get(bId);
-            if (bNode) {
-              const fx = bNode.x + CLIP_W / 2;
-              const fy = bNode.y + CLIP_H;
-              const tx = endX + CLIP_W / 2;
-              const ty = endY;
-
-              edgeList.push({
-                id: `edge_branch_${bId}_to_ending_${bIdx}`,
-                fromId: bNode.id,
-                toId: endNode.id,
-                label: '结局收敛',
-                isUnlocked: bNode.isUnlocked && isEndingUnlocked,
-                path: `M ${fx} ${fy} C ${fx} ${fy + 60}, ${tx} ${ty - 60}, ${tx} ${ty}`,
-                lx: (fx + tx) / 2,
-                ly: (fy + ty) / 2,
-              });
-            }
-          });
-        }
-      }
     }
+
+    // B. 根据 directEdges 连线
+    directEdges.forEach((de, eIdx) => {
+      const fromNode = clipNodeMap.get(de.from);
+      const toNode = clipNodeMap.get(de.to);
+      if (!fromNode || !toNode) return;
+
+      const fx = fromNode.x + CLIP_W / 2;
+      const fy = fromNode.y + CLIP_H;
+      const tx = toNode.x + CLIP_W / 2;
+      const ty = toNode.y;
+
+      const edgeId = `edge_${de.from}_to_${de.to}_${eIdx}`;
+      edgeList.push({
+        id: edgeId,
+        fromId: fromNode.id,
+        toId: toNode.id,
+        label: de.label,
+        isUnlocked: fromNode.isUnlocked && toNode.isUnlocked,
+        path: `M ${fx} ${fy} C ${fx} ${fy + 60}, ${tx} ${ty - 60}, ${tx} ${ty}`,
+        lx: (fx + tx) / 2,
+        ly: (fy + ty) / 2,
+      });
+    });
 
     // 计算包围盒
     let minX = CENTER_X - 400;
     let maxX = CENTER_X + 400;
     let minY = ROOT_Y;
-    let maxY = currentY + 120;
+    let maxY = ROOT_Y + LOOKDEV_H + ROW_GAP;
 
     nodeList.forEach((n) => {
       if (n.x < minX) minX = n.x;
@@ -801,7 +719,7 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
     }
     if (node.kind === 'lookdev') {
       onEnterSubCanvas?.('lookdev');
-    } else if (node.kind === 'clip' && node.clipId) {
+    } else if ((node.kind === 'clip' || node.kind === 'ending') && node.clipId) {
       onEnterSubCanvas?.('clip', node.clipId, node.title);
     }
   };
@@ -1310,7 +1228,7 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
                       fontFamily="sans-serif"
                       className="animate-pulse"
                     >
-                      AI 视听分镜推演中...
+                      AI 演绎片段推演中...
                     </text>
                     <text
                       x="14"
@@ -1354,7 +1272,7 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
                       fontWeight="600"
                       fontFamily="sans-serif"
                     >
-                      待规划本幕视听分镜
+                      待拆分本幕演绎片段
                     </text>
                     <text
                       x="14"
@@ -1491,10 +1409,10 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
                             const clipData = node.clipId ? findClipData(node.clipId) : undefined;
                             const shots: any[] = Array.isArray(clipData?.shots) ? clipData.shots : [];
                             const gallery = shots.map((s, idx) => ({
-                              title: `${node.title} · 分镜 ${idx + 1}`,
+                              title: `${node.title} · 片段 ${idx + 1}`,
                               imageUrl: s.firstFrameImageUrl || s.keyframeUrl,
                               videoUrl: typeof s.videoUrl === 'string' && s.videoUrl.trim() ? s.videoUrl.trim() : undefined,
-                              subtitle: s.sceneSubject || s.title || `第 ${idx + 1} 镜头视听切片`,
+                              subtitle: s.sceneSubject || s.title || `第 ${idx + 1} 演绎片段`,
                             }));
                             onEnlargeClip?.({
                               title: node.title,

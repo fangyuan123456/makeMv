@@ -56,10 +56,15 @@ function locateShot(projectId: string, shotId: string): LocatedShot | null {
 }
 
 function persistClips(projectId: string, clips: any[]): void {
+  const projectDir = store.getProjectDir(projectId);
   const filmSpec = store.getArtifact<any>(projectId, 'film_spec');
-  if (filmSpec) store.setArtifact(projectId, 'film_spec', filmSpec);
+  if (filmSpec) {
+    filmSpec.clips = clips;
+    store.setArtifact(projectId, 'film_spec', filmSpec);
+    atomicWriteJsonSync(path.join(projectDir, 'film_spec.json'), filmSpec);
+  }
   store.setArtifact(projectId, 'storyboards', clips);
-  atomicWriteJsonSync(path.join(store.getProjectDir(projectId), 'storyboards.json'), clips);
+  atomicWriteJsonSync(path.join(projectDir, 'storyboards.json'), clips);
 }
 
 /** 版本切换后同步分镜画布节点，避免主画布仍显示旧图及旧参数 */
@@ -77,7 +82,7 @@ function syncCanvasNode(
     if (frame === 'video') {
       const v = version as ShotVideoVersion;
       node.videoUrl = v.videoUrl;
-      if (v.prompt) node.videoPrompt = v.prompt;
+      node.selectedVideoVersionId = v.versionId;
       if (v.continuityMode) node.continuityMode = v.continuityMode;
       if (v.motionDirective !== undefined) node.motionDirective = v.motionDirective;
       if (v.dynamicDirective !== undefined) node.dynamicDirective = v.dynamicDirective;
@@ -85,9 +90,9 @@ function syncCanvasNode(
     } else if (frame === 'last') {
       const v = version as ShotFrameVersion;
       node.lastFrameUrl = v.imageUrl;
+      node.selectedLastFrameVersionId = v.versionId;
       if (v.upscale) node.lastFrameUpscale = v.upscale;
       else delete node.lastFrameUpscale;
-      if (v.prompt) node.lastFramePrompt = v.prompt;
       if (v.continuityMode) node.lastFrameContinuityMode = v.continuityMode;
       if (v.cameraDirective !== undefined) node.lastFrameCameraDirective = v.cameraDirective;
       if (v.colorDirective !== undefined) node.lastFrameColorDirective = v.colorDirective;
@@ -95,9 +100,9 @@ function syncCanvasNode(
     } else {
       const v = version as ShotFrameVersion;
       node.keyframeUrl = v.imageUrl;
+      node.selectedFirstFrameVersionId = v.versionId;
       if (v.upscale) node.firstFrameUpscale = v.upscale;
       else delete node.firstFrameUpscale;
-      if (v.prompt) node.firstFramePrompt = v.prompt;
       if (v.continuityMode) node.continuityMode = v.continuityMode;
       if (v.cameraDirective !== undefined) {
         node.firstFrameCameraDirective = v.cameraDirective;
@@ -152,7 +157,6 @@ export const selectShotVersion = (req: Request, res: Response) => {
     applyFrameVersion(located.shot, frame, matched);
     persistClips(projectId, located.clips);
     syncCanvasNode(projectId, shotId, frame, matched);
-    recordShotKeyframeUpdated(projectId, shotId, frame);
 
     res.json({ success: true, shot: located.shot, activeVersion: matched });
   } catch (err: any) {
@@ -281,7 +285,7 @@ export const updateShotPrompt = (req: Request, res: Response) => {
 export const updateShotContinuity = (req: Request, res: Response) => {
   try {
     const projectId = req.params.id;
-    const { shotId, continuityMode } = req.body || {};
+    const { shotId, continuityMode, firstFramePrompt } = req.body || {};
     if (!shotId || !['auto', 'linked', 'detached'].includes(continuityMode)) {
       return sendError(res, 400, '缺少必要参数或非法模式: shotId, continuityMode (auto|linked|detached)');
     }
@@ -289,6 +293,17 @@ export const updateShotContinuity = (req: Request, res: Response) => {
     if (!located) return sendError(res, 404, `未在分镜中找到镜头 [${shotId}]`);
 
     located.shot.continuityMode = continuityMode;
+    if (firstFramePrompt) {
+      located.shot.firstFramePrompt = firstFramePrompt;
+      if (!located.shot.continuityPrompts) {
+        located.shot.continuityPrompts = {};
+      }
+      if (continuityMode === 'detached') {
+        located.shot.continuityPrompts.detached = firstFramePrompt;
+      } else {
+        located.shot.continuityPrompts.linked = firstFramePrompt;
+      }
+    }
     persistClips(projectId, located.clips);
 
     // 同步更新 storyboard_canvas
@@ -298,6 +313,15 @@ export const updateShotContinuity = (req: Request, res: Response) => {
       for (const node of Object.values<any>(canvas.nodes)) {
         if (node.shotId !== shotId && node.id !== `node_${shotId}`) continue;
         node.continuityMode = continuityMode;
+        if (firstFramePrompt) {
+          node.firstFramePrompt = firstFramePrompt;
+          if (!node.continuityPrompts) node.continuityPrompts = {};
+          if (continuityMode === 'detached') {
+            node.continuityPrompts.detached = firstFramePrompt;
+          } else {
+            node.continuityPrompts.linked = firstFramePrompt;
+          }
+        }
         canvasUpdated = true;
       }
       if (canvasUpdated) {
@@ -306,7 +330,13 @@ export const updateShotContinuity = (req: Request, res: Response) => {
       }
     }
 
-    res.json({ success: true, shotId, continuityMode });
+    res.json({
+      success: true,
+      shotId,
+      continuityMode,
+      firstFramePrompt: located.shot.firstFramePrompt,
+      continuityPrompts: located.shot.continuityPrompts,
+    });
   } catch (err: any) {
     sendError(res, 500, `更新镜头连续性模式失败: ${err.message}`);
   }

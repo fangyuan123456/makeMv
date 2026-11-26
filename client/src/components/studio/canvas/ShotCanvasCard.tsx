@@ -9,9 +9,11 @@
 
 import React, { useState, useRef } from 'react';
 import type { CanvasShotNode } from '../../../types/index.js';
+import { EntityMentionText } from './EntityMentionText.js';
 
 interface ShotCanvasCardProps {
   node: CanvasShotNode;
+  entities?: any;
   isSelected?: boolean;
   isExtractingPrompt?: boolean;
   onSelect?: () => void;
@@ -20,6 +22,7 @@ interface ShotCanvasCardProps {
 
 export const ShotCanvasCard: React.FC<ShotCanvasCardProps> = ({
   node,
+  entities,
   isSelected,
   isExtractingPrompt,
   onSelect,
@@ -109,6 +112,16 @@ export const ShotCanvasCard: React.FC<ShotCanvasCardProps> = ({
             📚 {Math.max(node.firstFrameVersions?.length || 0, node.videoVersions?.length || 0)} 版
           </div>
         )}
+        {/* 场景转换高亮角标 */}
+        {node.isSceneTransition && (
+          <div
+            className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-lg bg-amber-600/95 backdrop-blur-xs text-[9px] font-bold text-white shadow-xs border border-amber-300/40 flex items-center gap-1 animate-pulse"
+            title={`场景转换：进入「${node.location}」`}
+          >
+            <span>🔄</span>
+            <span>场景转换</span>
+          </div>
+        )}
         {/* 时空连贯继承角标 */}
         {node.continuityMode === 'linked' && (
           <div
@@ -136,13 +149,13 @@ export const ShotCanvasCard: React.FC<ShotCanvasCardProps> = ({
         ) : isExtractingPrompt ? (
           <div className="flex flex-col items-center justify-center space-y-1.5 text-indigo-600 p-3 text-center animate-pulse">
             <span className="w-5 h-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin mb-1" />
-            <span className="text-[11px] font-bold text-indigo-700">推演分镜词中...</span>
+            <span className="text-[11px] font-bold text-indigo-700">推演片段中...</span>
             <span className="text-[9px] text-slate-400">双击进入查看详情</span>
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center space-y-1.5 text-slate-400 p-3 text-center">
             <span className="text-2xl opacity-70">🎬</span>
-            <span className="text-[11px] font-semibold text-slate-500">待生成视听镜头</span>
+            <span className="text-[11px] font-semibold text-slate-500">待生成演绎片段</span>
             <span className="text-[9px] text-slate-400">双击卡片下钻制作</span>
           </div>
         )}
@@ -201,7 +214,7 @@ export const ShotCanvasCard: React.FC<ShotCanvasCardProps> = ({
           <div className="absolute inset-0 z-20 bg-slate-900/40 backdrop-blur-2xs flex items-center justify-center">
             <div className="px-3 py-1.5 rounded-full bg-white/95 border border-slate-200 text-[11px] font-semibold text-slate-700 shadow-md flex items-center gap-1.5">
               <span>🔒</span>
-              <span>等待前一镜头完成</span>
+              <span>等待前一片段完成</span>
             </div>
           </div>
         )}
@@ -209,8 +222,21 @@ export const ShotCanvasCard: React.FC<ShotCanvasCardProps> = ({
 
       {/* 底部：动作切片正文与视听机位/天气标签外显 */}
       <div className="px-3 py-2 bg-slate-50/90 border-t border-slate-100 flex flex-col gap-1.5">
-        {/* 视听标签栏：机位/景别、天气光影约束标签 */}
+        {/* 视听标签栏：场景位置、机位/景别、天气光影约束标签 */}
         <div className="flex items-center gap-1.5 flex-wrap">
+          {node.location && (
+            <span
+              className={`text-[9px] font-medium px-1.5 py-0.5 rounded border shrink-0 flex items-center gap-0.5 ${
+                node.isSceneTransition
+                  ? 'bg-amber-100/90 text-amber-800 border-amber-300/80 font-bold'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
+              }`}
+              title={`场景位置: ${node.location}${node.locationId ? ` (${node.locationId})` : ''}${node.isSceneTransition ? ' [跨场景转换镜头]' : ''}`}
+            >
+              <span>📍</span>
+              <span className="truncate max-w-[120px]">{node.location}</span>
+            </span>
+          )}
           {node.cameraDirective?.label && (
             <span
               className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200/60 shrink-0"
@@ -229,14 +255,14 @@ export const ShotCanvasCard: React.FC<ShotCanvasCardProps> = ({
           )}
         </div>
 
-        {/* 核心动作切片正文 (sliceSummary / sceneSubject) */}
+        {/* 核心动作切片正文 (sliceSummary / sceneSubject，支持 @ 实体高亮与 Hover 看定妆图) */}
         {(node.sliceSummary || node.sceneSubject) ? (
-          <p
-            className="text-[11px] leading-relaxed text-slate-600 line-clamp-2 select-text hover:text-slate-900 transition-colors"
-            title={node.sliceSummary || node.sceneSubject}
-          >
-            {node.sliceSummary || node.sceneSubject}
-          </p>
+          <div className="text-[11px] leading-relaxed text-slate-600 line-clamp-2 select-text hover:text-slate-900 transition-colors">
+            <EntityMentionText
+              text={node.sliceSummary || node.sceneSubject}
+              entities={entities}
+            />
+          </div>
         ) : (
           <p className="text-[10px] text-slate-400 italic">待切片演绎动作细节</p>
         )}

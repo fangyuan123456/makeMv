@@ -4,7 +4,7 @@ import { buildBranchContext } from '../src/project-store/story-context.js';
 import { buildShootingScriptPrompt } from '../src/tools/film-production/shooting-script-tool/prompt.js';
 import { buildCharacterPortraitPrompt } from '../src/tools/film-production/lookdev-tool/character/prompt.js';
 import { buildShotKeyframePrompt } from '../src/tools/film-production/shot-keyframe-tool/steps/01-render/prompt.js';
-import { buildShotPromptPrompt } from '../src/tools/film-production/shot-prompt-tool/steps/01-prompt/prompt.js';
+import { buildShotPromptPrompt } from '../src/tools/film-production/shot-frame-prompt-tool/steps/01-prompt/prompt.js';
 import { formatVideoMotionPrompt } from '../src/tools/film-production/shot-video-tool/steps/01-render/prompt.js';
 
 const graph = {

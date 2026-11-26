@@ -55,4 +55,5 @@ function gracefulShutdown(signal: string): void {
 }
 
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM')); // live reload
+

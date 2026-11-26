@@ -36,62 +36,47 @@ export const ScreenplayCharacterSchema = z.object({
 
 export type ScreenplayCharacter = z.infer<typeof ScreenplayCharacterSchema>;
 
-export const StoryBibleSchema = z.object({
-  causalBackground:z.string().optional(),
-  title: z.string(), genre: z.string(), logline: z.string(),
-  characters: z.array(ScreenplayCharacterSchema).min(1),
-  objectiveTruth: z.array(z.string()).min(1).describe('不可随路线改变的真相、责任人和原因'),
-  chronology: z.array(z.string()).min(1).describe('开场之前的客观事件时间线'),
-  rules: z.array(z.string()).min(1).describe('物理/超自然规则，所有路线一致'),
-  secrets: z.array(z.object({character:z.string(), truth:z.string(), initialBelief:z.string()})),
-  initialFacts: z.array(z.string()).min(1).describe('开场地点、在场人、知情范围、道具唯一归属'),
-  states: z.array(z.object({key:z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]*$/), meaning:z.string(), initial:z.boolean()})).max(6),
-  endings: z.array(z.object({
-    title:z.string(), endingType:z.enum(['HE','BE','NE']),
-    necessaryCause:z.string().describe('达成本结局必须发生的因果，不含未必获得的道具'),
-    outcome:z.string().describe('最终汇合之后的角色行动与命运；不提前写死中途的营救、取证或物品归属。固定可拍摄，不能写条件画面'),
-    when:z.array(z.record(z.boolean())).default([]).describe('满足任意一组键值即可进入；组内所有条件必须满足；各结局互斥且覆盖所有可达状态'),
-  })).min(2).max(3),
+export const PremiseChoiceSchema = z.object({
+  text: z.string().describe('选项文本描述'),
+  targetType: z.enum(['CONTINUE_MAINLINE', 'ENDING']).describe('走向类型：CONTINUE_MAINLINE（承担代价并继续推进主线剧情）或 ENDING（走向专有终局结算，彻底拒绝虚假合流）'),
+  approachAndCost: z.string().describe('本选项采取的具体手段、过程体验与代价'),
+  endingTitle: z.string().optional().describe('若走向 ENDING，注明确切的终局标题（如：【终局：沉默的守夜人】）'),
+  endingType: z.enum(['TE', 'HE', 'BE', 'NE', 'SE']).optional().describe('若走向 ENDING，注明确切的终局类型'),
 });
-export type StoryBible = z.infer<typeof StoryBibleSchema>;
+
+export type PremiseChoice = z.infer<typeof PremiseChoiceSchema>;
+
+export const PremiseBranchPointSchema = z.object({
+  pointIndex: z.number().int().min(1).max(2).describe('全剧实际选择节点序号，依出现顺序从 1 编号；全剧最多 2 个，不必写满'),
+  actNumber: z.number().int().describe('所属幕次序号'),
+  sceneContext: z.string().describe('抉择发生时的场景情境与当下危机'),
+  dilemma: z.string().describe('玩家面对的核心两难抉择'),
+  choiceA: PremiseChoiceSchema.describe('选项 A 规划'),
+  choiceB: PremiseChoiceSchema.describe('选项 B 规划'),
+});
+
+export type PremiseBranchPoint = z.infer<typeof PremiseBranchPointSchema>;
+
+export const ScreenplayActOutlineSchema = z.object({
+  actNumber: z.number().int().describe('幕次序号'),
+  title: z.string().describe('本幕标题（如《警报初鸣》、《深渊抉择》）'),
+  coreConflict: z.string().describe('本幕核心戏剧冲突矛盾'),
+  plotSummary: z.string().describe('【分幕故事脉络】：本幕的核心剧情展开、人物遭遇、关键危机交锋与事件演进脉络（详实且紧凑，约 100-200 字，交代具体事件与冲突推进，拒绝空话与无意义注水）'),
+  scenes: z.array(z.string()).describe('本幕包含的关键场景序列与环境视听规划（如：["重症冷冻舱：警报轰鸣中主角艰难破舱，发现仪器全毁与同伴求救信号", "中继回廊：遭遇管线破损漏电与未知生物残骸阻挡"]）'),
+  turningPoint: z.string().describe('本幕重大戏剧转折（推动走向互动抉择或引爆下一阶段危机的主导事件）'),
+  suspense: z.string().describe('本幕结尾留下的核心悬念或未解谜团'),
+});
+
+export type ScreenplayActOutline = z.infer<typeof ScreenplayActOutlineSchema>;
 
 export const PremiseOutputSchema = z.object({
   title: z.string().describe('互动影游中文标题'),
   genre: z.string().describe('题材分类'),
   logline: z.string().describe('一句话核心故事梗概'),
+  worldSetting: z.string().describe('世界观背景与既定历史真相（不可改变的客观事实，如灾难发生的原因、空间站物理法则、阵营敌友关系等）'),
   characters: z.array(ScreenplayCharacterSchema).describe('核心角色设定列表'),
-  sourcePrompt: z.string().optional().describe('原始创作者需求，由执行器透传'),
-  storyBible: StoryBibleSchema.optional(),
-  initialState: z.record(z.boolean()).optional(),
-  startNodeId: z.string().describe('故事入口节点 ID'),
-  storyNodes: z.array(z.object({
-    id: z.string().min(1).describe('稳定节点 ID，扩写时保留'),
-    actNumber: z.number().int().min(1),
-    kind: z.enum(['scene', 'ending']),
-    endingType: z.enum(['HE', 'BE', 'NE']).optional(),
-    contextRole: z.enum(['common','branch','ending']).optional(),
-    establishedEvents: z.array(z.string()).optional().describe('所有实际入路都发生过的动作记录，不包含互斥路线'),
-    fixedNarrative: z.string().optional().describe('代码生成的共用终局字幕，不交由模型再扩写'),
-    choiceIntent: z.object({gain:z.string(),cost:z.string(),payoff:z.string()}).optional(),
-    endingResolution: z.object({decisiveAction:z.string(),protagonistFate:z.string(),conflictOutcome:z.string(),finalImage:z.string()}).optional(),
-    causalContract: z.object({before:z.record(z.string()),after:z.record(z.string()),requires:z.record(z.string()),effects:z.record(z.string()),unavailableFacts:z.array(z.string())}).optional(),
-    mergeContract: z.array(z.string()).optional(),
-    nextRoutes: z.array(z.object({when:z.record(z.boolean()),targetNodeId:z.string()})).optional(),
-    continuationAction: z.string().optional().describe('自动续接时发生的行动'),
-    summary: z.string().describe('本节点确定发生的行动与后果'),
-    entryConditions: z.array(z.string()).describe('进入前必须成立的事实；合流时须在每条入路成立'),
-    exitConditions: z.array(z.string()).describe('离开时人物位置、知情程度、道具归属等事实'),
-    choices: z.array(z.object({ text: z.string(), targetNodeId: z.string(), stateChange:z.object({set:z.record(z.boolean())}).optional(), nextRoutes:z.array(z.object({when:z.record(z.boolean()),targetNodeId:z.string()})).optional() })),
-    nextNodeId: z.string().nullable().optional().describe('无选项节点的后继；选择节点及结局省略或为 null'),
-  })).min(1).describe('完整分支大纲，包含全部分叉、分支后果、合流和终局'),
-  actOutlines: z.array(
-    z.object({
-      actNumber: z.number().describe('幕次序号'),
-      title: z.string().describe('本幕标题'),
-      coreConflict: z.string().describe('核心戏剧冲突'),
-      suspense: z.string().describe('引发互动的悬念核心'),
-    })
-  ).describe('各幕大纲概要'),
+  actOutlines: z.array(ScreenplayActOutlineSchema).describe('结构严密、情节详实的分幕大纲清单'),
+  branchPoints: z.array(PremiseBranchPointSchema).max(2).describe('全剧最多 2 个实际供玩家选择的节点，不是每幕或每条路径各 2 个；按剧情需要设计，不为凑数强加选择'),
 });
 
 export type PremiseOutput = z.infer<typeof PremiseOutputSchema>;

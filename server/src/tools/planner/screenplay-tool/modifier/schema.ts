@@ -14,10 +14,10 @@ export const ScreenplayModifierInputSchema = z.object({
 export type ScreenplayModifierInput = z.infer<typeof ScreenplayModifierInputSchema>;
 
 export const ScreenplayModifierOutputSchema = z.object({
-  success: z.boolean().describe('修改是否成功'),
-  scriptMarkdown: z.string().describe('Patch 完成后的全景剧本正文 (兼容 asset-sync)'),
-  patchedScriptMarkdown: z.string().optional().describe('Patch 完成后的全景剧本正文'),
-  summaryOfChanges: z.string().describe('本次局部手术修改点简要说明'),
+  success: z.boolean().default(true).describe('修改是否成功'),
+  scriptMarkdown: z.string().describe('Patch 完成后的全景剧本正文 (完整 Markdown 文本)'),
+  patchedScriptMarkdown: z.string().optional().describe('Patch 完成后的全景剧本正文 (兼容字段)'),
+  summaryOfChanges: z.string().default('已完成局部精修').describe('本次局部手术修改点简要说明'),
 });
 
 export type ScreenplayModifierOutput = z.infer<typeof ScreenplayModifierOutputSchema>;

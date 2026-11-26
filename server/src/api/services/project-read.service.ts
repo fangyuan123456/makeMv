@@ -6,17 +6,20 @@ import { safeReadJsonSync } from '../../utils/atomicFile.js';
 import { hydrateEntitiesWithDiskAssets } from '../../project-store/entity-preservation.js';
 import { computeProjectStaleMap } from '../../project-store/freshness.js';
 import { parseStorySections } from '../../project-store/story-sections.js';
-import { readFrameVersions } from '../../project-store/shot-frame-versions.js';
+import { readFrameVersions, readVideoVersions } from '../../project-store/shot-frame-versions.js';
+import { getReviewWithFreshness } from '../../tools/review/shared/review-store.js';
+import { SCREENPLAY_REVIEW_KEY } from '../../tools/review/screenplay-review/index.js';
 import { sendError } from '../helpers.js';
 
 const store = ProjectStore.getInstance();
 
-/** 读出时补齐镜头首/末帧版本库，兼容「已有图但还没有版本记录」的旧项目 */
+/** 读出时补齐镜头首/末帧与视频版本库，兼容「已有媒体但还没有版本记录」的旧项目 */
 function withFrameVersions(shot: any): any {
   return {
     ...shot,
     firstFrameVersions: readFrameVersions(shot, 'first'),
     lastFrameVersions: readFrameVersions(shot, 'last'),
+    videoVersions: readVideoVersions(shot),
   };
 }
 
@@ -92,6 +95,7 @@ export const getProjectSnapshot = (req: Request, res: Response) => {
     // 6. 游戏站点是否已生成 & 上下游脏状态追踪表
     const hasStandaloneGame = fs.existsSync(path.join(projectDir, 'game-assembly', 'index.html'));
     const staleMap = computeProjectStaleMap(projectId);
+    const screenplayReview = getReviewWithFreshness(projectId, SCREENPLAY_REVIEW_KEY, screenplay || '');
 
     const storyboardsWithVersions = normalizeStoryboards(storyboards);
 
@@ -100,6 +104,7 @@ export const getProjectSnapshot = (req: Request, res: Response) => {
       prd,
       prdMarkdown,
       screenplay,
+      screenplayReview,
       story: story || screenplay,
       storySections,
       entities,

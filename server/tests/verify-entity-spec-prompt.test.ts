@@ -59,7 +59,7 @@ function testLocationSchemaValidation() {
     atmosphere: '冷月透窗，暖烛摇曳',
     appearanceSummary: '临街木构老铺面，前店后坊',
     promptZh: '临街木构老铺面，深长进深透视，高耸挑空梁架下悬挂数盏残破泛黄纸灯笼。中央横陈厚重黑漆大柜台，高大博古架堆叠半成品纸扎与惨白竹篾骨架，破损木格窗透入幽冷月光，洒在生苔湿润的磨损青石板路面。老木开裂，夯土斑驳，纸帛纤维漫反射。冷幽月光与昏黄油灯对撞，阴翳层次深沉，中式悬疑电影实拍质感。',
-    spatialLayout: '以居中厚重黑漆柜台为空间原点，正对入口双扇木门；面向柜台时，左侧为通高木格窗墙，右侧为纸扎堆放博古架，后方为通往后坊的过道。',
+    spatialLayout: '【入场路径】入口双扇木门；【核心地标】居中厚重黑漆大柜台；【画左立面】通高木格窗墙；【画右立面】纸扎堆放博古架；【背景阻隔】通往后坊的过道，顶空悬挂残破灯笼。',
     subScenes: ['铺面柜台区', '纸扎堆放角落'],
     sceneIds: [],
   };
@@ -67,8 +67,8 @@ function testLocationSchemaValidation() {
   const parsed = LocationSpecSchema.parse(validLocation);
   assert.strictEqual(parsed.name, '纸扎铺');
   assert.ok(parsed.promptZh.length >= 100 && parsed.promptZh.length <= 150, `场景 promptZh 字数 (${parsed.promptZh.length}) 应在黄金窗口内`);
-  assert.ok(!parsed.promptZh.includes('面向柜台时'), '场景生图词中不应包含“面向某物时”等几何坐标');
-  assert.ok(parsed.spatialLayout && parsed.spatialLayout.includes('面向柜台时'), '空间结构应专职留存于 spatialLayout 字段');
+  assert.ok(!parsed.promptZh.includes('入场路径'), '场景生图词中不应包含空间构造标签');
+  assert.ok(parsed.spatialLayout && parsed.spatialLayout.includes('【核心地标】'), '空间结构应专职留存于 spatialLayout 字段并满足五段式收束');
 
   console.log('✅ 测试 3 通过: LocationSpecSchema 强类型解析与空间结构分离合规！\n');
 }

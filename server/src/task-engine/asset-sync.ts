@@ -24,6 +24,7 @@ import {
   recordStoryboardUpdated,
   recordEntitySpecUpdated,
 } from '../project-store/freshness.js';
+import { triggerScreenplayReviewAsync } from '../tools/review/screenplay-review/index.js';
 import type { TaskRecord } from './types.js';
 import { taskStore } from './task-store.js';
 
@@ -50,6 +51,66 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
             store.saveProject(proj);
           }
 
+          // 将 Step 1 的详实大纲与 2 个分支点规划物理落盘为 outline.md 与 outline.json，透明可查
+          if (Array.isArray(output.actOutlines) && output.actOutlines.length > 0) {
+            const outlineMarkdown = [
+              `# 《${output.title || '互动影游'}》· 故事大纲与分支设定 (Step 1 纲领)`,
+              `\n- **题材**：${output.genre || '未指定'}`,
+              `- **故事梗概**：${output.logline || ''}`,
+              output.worldSetting ? `- **世界观既定真相**：${output.worldSetting}` : '',
+              `\n## 一、登场角色设定`,
+              ...(Array.isArray(output.characters)
+                ? output.characters.map(
+                    (c: any) =>
+                      `* **${c.name}**（${c.role}）\n  - 外貌视听符号：${c.appearance}\n  - 核心动机：${c.motivation}`
+                  )
+                : []),
+              `\n## 二、分幕详实剧情大纲`,
+              ...output.actOutlines.map(
+                (a: any) =>
+                  `### 第 ${a.actNumber} 幕《${a.title}》\n` +
+                  `* **核心冲突**：${a.coreConflict}\n` +
+                  `* **剧情展开脉络**：${a.plotSummary}\n` +
+                  (Array.isArray(a.scenes) && a.scenes.length > 0 ? `* **场景序列**：${a.scenes.join(' ➔ ')}\n` : '') +
+                  (a.turningPoint ? `* **幕末转折**：${a.turningPoint}\n` : '') +
+                  (a.suspense ? `* **悬念核心**：${a.suspense}\n` : '')
+              ),
+              `\n## 三、全剧 2 个核心互动分支抉择点规划`,
+              ...(Array.isArray(output.branchPoints)
+                ? output.branchPoints.map(
+                    (bp: any) => {
+                      const aDest = bp.choiceA?.targetType === 'ENDING'
+                        ? `终局【${bp.choiceA?.endingTitle || '终局'}】(${bp.choiceA?.endingType || 'BE'})`
+                        : '推进主线';
+                      const bDest = bp.choiceB?.targetType === 'ENDING'
+                        ? `终局【${bp.choiceB?.endingTitle || '终局'}】(${bp.choiceB?.endingType || 'BE'})`
+                        : '推进主线';
+
+                      return (
+                        `### 【互动抉择点 ${bp.pointIndex}】（位于第 ${bp.actNumber} 幕）\n` +
+                        `* **场景情境**：${bp.sceneContext}\n` +
+                        `* **两难抉择**：${bp.dilemma}\n` +
+                        `* **选项 A**：${bp.choiceA?.text}（走向: ${aDest}，手段与代价: ${bp.choiceA?.approachAndCost}）\n` +
+                        `* **选项 B**：${bp.choiceB?.text}（走向: ${bDest}，手段与代价: ${bp.choiceB?.approachAndCost}）\n`
+                      );
+                    }
+                  )
+                : []),
+            ]
+              .filter(Boolean)
+              .join('\n');
+
+            store.setArtifact(projectId, 'outline', outlineMarkdown);
+            store.setArtifact(projectId, 'premise', output);
+            fs.writeFileSync(path.join(projectDir, 'outline.md'), outlineMarkdown, 'utf-8');
+            atomicWriteJsonSync(path.join(projectDir, 'outline.json'), {
+              worldSetting: output.worldSetting,
+              characters: output.characters,
+              actOutlines: output.actOutlines,
+              branchPoints: output.branchPoints,
+            });
+          }
+
           // 全景剧本从 0 到 1 正向推演/重推时（非局部 Patch），自动重置下游旧的 PRD 拓扑与分幕资产，
           // 确保状态机精确转入 STEP_2_PENDING 重新以新剧本为唯一基准拆解 PRD，杜绝下游带着旧剧本脏资产假收敛
           if (!task.input?.instruction) {
@@ -69,6 +130,10 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
           }
           // 记账剧本更新（局部 Patch 会让既有 PRD 精确标脏；全量重推已在上方清理旧 PRD）
           recordScreenplayUpdated(projectId);
+          // 仅在首稿/全量重推剧本时自动后台触发质量审查；局部修复或微调后由创作者按需手动重审
+          if (!task.input?.instruction) {
+            triggerScreenplayReviewAsync(projectId, output.scriptMarkdown);
+          }
         }
         break;
       }
@@ -112,7 +177,11 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
           updatedEntities.locations = Array.isArray(updatedEntities.locations) ? updatedEntities.locations : [];
           updatedEntities.items = Array.isArray(updatedEntities.items) ? updatedEntities.items : [];
 
-          // 骨架并入：若已有对应名字实体则保留现有详细规格，若没有则创建新实体骨架
+          // 骨架同步：保留已有同名实体的详细规格与定妆图，新增缺失实体，并清理已被新清单移除/拆分的旧实体
+          if (Array.isArray(manifest.characters) && manifest.characters.length > 0) {
+            const targetCharNames = new Set(manifest.characters.map((c: any) => c.name));
+            updatedEntities.characters = updatedEntities.characters.filter((item: any) => targetCharNames.has(item.name));
+          }
           for (const c of manifest.characters || []) {
             const found = updatedEntities.characters.find((item: any) => item.name === c.name);
             if (!found) {
@@ -127,6 +196,10 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
             }
           }
 
+          if (Array.isArray(manifest.locations) && manifest.locations.length > 0) {
+            const targetLocNames = new Set(manifest.locations.map((l: any) => l.name));
+            updatedEntities.locations = updatedEntities.locations.filter((item: any) => targetLocNames.has(item.name));
+          }
           for (const l of manifest.locations || []) {
             const found = updatedEntities.locations.find((item: any) => item.name === l.name);
             if (!found) {
@@ -146,6 +219,10 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
             }
           }
 
+          if (Array.isArray(manifest.items) && manifest.items.length > 0) {
+            const targetItemNames = new Set(manifest.items.map((i: any) => i.name));
+            updatedEntities.items = updatedEntities.items.filter((item: any) => targetItemNames.has(item.name));
+          }
           for (const i of manifest.items || []) {
             const found = updatedEntities.items.find((item: any) => item.name === i.name);
             if (!found) {
@@ -328,6 +405,11 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
             filmSpec.clips.push(targetClip);
           }
           if (clipTitle) targetClip.title = clipTitle;
+          const firstBeatLoc = actionBeats?.[0]?.location;
+          const firstBeatLocId = actionBeats?.[0]?.locationId;
+          if (firstBeatLoc && !targetClip.location) targetClip.location = firstBeatLoc;
+          if (firstBeatLocId && !targetClip.locationId) targetClip.locationId = firstBeatLocId;
+
           const shootingScriptData = {
             clipId,
             clipTitle,
@@ -350,10 +432,15 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
                 shotId,
                 clipId,
                 shotIndex: idx,
-                durationSec: beat.estimatedSeconds || 4,
+                durationSec: beat.estimatedSeconds || 8,
                 shotType: beat.cinematicIntent || 'MEDIUM_SHOT',
                 cameraMovement: 'locked-off',
-                generationMode: 'first_frame',
+                generationMode:
+                  beat.generationMode ||
+                  old.generationMode ||
+                  ((beat.estimatedSeconds || 8) >= 6 ? 'ref2v' : 'first_frame'),
+                location: beat.location || targetClip.location || old.location,
+                locationId: beat.locationId || targetClip.locationId || old.locationId,
                 characters: beat.characterIds || [],
                 items: beat.itemIds || [],
                 sceneSubject: beat.actionDescription,
@@ -401,6 +488,7 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
         break;
       }
 
+      case 'film.shot_frame_prompt':
       case 'film.shot_prompt': {
         const {
           clipId,
@@ -420,7 +508,21 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
           if (clip && Array.isArray(clip.shots)) {
             const targetShot = clip.shots.find((s: any) => s.shotId === shotId);
             if (targetShot) {
-              targetShot.firstFramePrompt = firstFramePrompt;
+              const activeMode = output.continuityMode || task.input?.continuityMode || targetShot.continuityMode;
+              if (activeMode) {
+                targetShot.continuityMode = activeMode;
+              }
+              if (firstFramePrompt) {
+                targetShot.firstFramePrompt = firstFramePrompt;
+                if (!targetShot.continuityPrompts) {
+                  targetShot.continuityPrompts = {};
+                }
+                if (activeMode === 'detached') {
+                  targetShot.continuityPrompts.detached = firstFramePrompt;
+                } else {
+                  targetShot.continuityPrompts.linked = firstFramePrompt;
+                }
+              }
               if (videoPrompt) targetShot.videoPrompt = videoPrompt;
               if (cameraDirective) targetShot.cameraDirective = cameraDirective;
               if (colorDirective) targetShot.colorDirective = colorDirective;
@@ -446,8 +548,57 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
                 let updated = false;
                 for (const n of Object.values<any>(canvas.nodes)) {
                   if (n.shotId === shotId || n.id === `node_${shotId}`) {
-                    n.firstFramePrompt = firstFramePrompt;
+                    if (activeMode) n.continuityMode = activeMode;
+                    if (firstFramePrompt) {
+                      n.firstFramePrompt = firstFramePrompt;
+                      if (!n.continuityPrompts) n.continuityPrompts = {};
+                      if (activeMode === 'detached') {
+                        n.continuityPrompts.detached = firstFramePrompt;
+                      } else {
+                        n.continuityPrompts.linked = firstFramePrompt;
+                      }
+                    }
                     if (videoPrompt) n.videoPrompt = videoPrompt;
+                    updated = true;
+                  }
+                }
+                if (updated) {
+                  store.setArtifact(projectId, 'storyboard_canvas', canvas);
+                  atomicWriteJsonSync(path.join(projectDir, 'storyboard_canvas.json'), canvas);
+                }
+              }
+            }
+          }
+        }
+        break;
+      }
+
+      case 'film.shot_motion_prompt': {
+        const { clipId, shotId, videoPrompt, audioPrompt } = output;
+        if (clipId && shotId && videoPrompt) {
+          const filmSpec = store.getArtifact<any>(projectId, 'film_spec') || { clips: [] };
+          const clip = (filmSpec.clips || []).find((c: any) => c.clipId === clipId);
+          if (clip && Array.isArray(clip.shots)) {
+            const targetShot = clip.shots.find((s: any) => s.shotId === shotId);
+            if (targetShot) {
+              targetShot.videoPrompt = videoPrompt;
+              if (audioPrompt) targetShot.audioPrompt = audioPrompt;
+
+              store.setArtifact(projectId, 'film_spec', filmSpec);
+              store.setArtifact(projectId, 'storyboards', filmSpec.clips);
+              atomicWriteJsonSync(path.join(projectDir, 'storyboards.json'), filmSpec.clips);
+
+              // 标记视频过期，驱动后续生成
+              recordShotVideoUpdated(projectId, shotId);
+
+              // 同步更新分镜画布节点
+              const canvas = store.getArtifact<any>(projectId, 'storyboard_canvas');
+              if (canvas?.nodes) {
+                let updated = false;
+                for (const n of Object.values<any>(canvas.nodes)) {
+                  if (n.shotId === shotId || n.id === `node_${shotId}`) {
+                    n.videoPrompt = videoPrompt;
+                    if (audioPrompt) n.audioPrompt = audioPrompt;
                     updated = true;
                   }
                 }
@@ -517,6 +668,12 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
         }
         store.setArtifact(projectId, 'storyboards', shots);
         atomicWriteJsonSync(storyboardsPath, shots);
+        const filmSpec = store.getArtifact<any>(projectId, 'film_spec');
+        if (filmSpec) {
+          filmSpec.clips = shots;
+          store.setArtifact(projectId, 'film_spec', filmSpec);
+          atomicWriteJsonSync(path.join(projectDir, 'film_spec.json'), filmSpec);
+        }
         if (shotId && (firstFrameImageUrl || lastFrameImageUrl)) {
           recordShotKeyframeUpdated(projectId, shotId, renderedFrame || 'both');
         }
@@ -583,6 +740,7 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
           if (filmSpec) {
             filmSpec.clips = shots;
             store.setArtifact(projectId, 'film_spec', filmSpec);
+            atomicWriteJsonSync(path.join(projectDir, 'film_spec.json'), filmSpec);
           }
 
           recordShotKeyframeUpdated(projectId, targetId, isFirst ? 'first' : 'last');
@@ -631,6 +789,12 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
         }
         store.setArtifact(projectId, 'storyboards', shots);
         atomicWriteJsonSync(storyboardsPath, shots);
+        const filmSpec = store.getArtifact<any>(projectId, 'film_spec');
+        if (filmSpec) {
+          filmSpec.clips = shots;
+          store.setArtifact(projectId, 'film_spec', filmSpec);
+          atomicWriteJsonSync(path.join(projectDir, 'film_spec.json'), filmSpec);
+        }
         if (shotId && effectiveVideoUrl) {
           recordShotVideoUpdated(projectId, shotId);
         }

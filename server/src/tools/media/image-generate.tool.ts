@@ -13,17 +13,25 @@ import { MediaResolver } from '../../media/MediaResolver.js';
 import { ProjectStore } from '../../project-store/ProjectStore.js';
 import { config } from '../../utils/config.js';
 import { getRunContext, throwIfRunAborted } from '../../workflow-engine/run-context.js';
+import { compileMediaPrompt } from '../../media/compiler/media-semantic-compiler.js';
 
 export const IMAGE_GENERATE_TOOL_ID = 'generate_image';
 
 export const ImageGenerateInputSchema = z.object({
   projectId: z.string().describe('所属项目 ID，用于媒体资产本地沙箱持久化落盘'),
-  prompt: z.string().describe('专业影视生图提示词（中文或英文，包含构图、光影、主体特征）'),
-  negativePrompt: z.string().optional().describe('可选负向提示词，用于抑制拼贴、分格、文字水印或畸变'),
+  prompt: z.string().describe('纯自然语言电影生图文学描述（无 @ 符号，内部全自动编译对齐资产）'),
+  entities: z.any().optional().describe('项目资产库（包含 characters, locations, items 及其定妆图）'),
+  precedingFrameUrl: z.string().optional().describe('可选前序镜头接戏末帧图片 URL/路径'),
+  precedingFrameName: z.string().optional().describe('可选前序镜头名称'),
+  customReferenceUrls: z.array(z.string()).optional().describe('可选创作者手动指定的垫图参考列表'),
+  baseFrameUrl: z.string().optional().describe('可选微调重绘基准图路径'),
+  instruction: z.string().optional().describe('可选画面局部微调指令'),
+  poseDirective: z.any().optional().describe('可选角色动作姿态硬约束，用于底层物理动作防穿帮'),
+  negativePrompt: z.string().optional().describe('可选负向提示词，默认使用电影级防畸变负向提示词'),
   referenceImageUrls: z
     .array(z.string())
     .optional()
-    .describe('可选参考图 URL 或 /media/... 本地路径列表（多图按顺序映射为 <image1>, <image2>, ...）'),
+    .describe('兼容历史显式传入的参考图 URL 列表'),
   mode: z
     .enum([
       'character_t2i',
@@ -34,7 +42,7 @@ export const ImageGenerateInputSchema = z.object({
       'general_t2i',
     ])
     .optional()
-    .describe('生图模式'),
+    .describe('生图模式（若未提供，内部根据语义解析资产图全自动决断）'),
   size: z
     .string()
     .optional()
@@ -52,15 +60,21 @@ export const ImageGenerateInputSchema = z.object({
 
 export const imageGenerateTool = createTool({
   id: IMAGE_GENERATE_TOOL_ID,
-  description: '调用底座真实文生图算力引擎（ComfyUI 工作流 / Mock），生成高质量画面并安全落盘至本地持久化工程目录。',
+  description: '调用底座真实文生图算力引擎（ComfyUI 工作流 / Mock），自动编译纯自然语言与资产库多图映射，生成高质量画面并安全落盘至本地持久化工程目录。',
   inputSchema: ImageGenerateInputSchema,
   execute: async ({ context }) => {
     const {
       projectId,
       prompt,
+      entities,
+      precedingFrameUrl,
+      precedingFrameName,
+      customReferenceUrls,
+      baseFrameUrl,
+      instruction,
       negativePrompt,
       referenceImageUrls,
-      mode,
+      mode: explicitMode,
       denoise,
       maskImageUrl,
       size = config.frame.imageSize,
@@ -69,12 +83,31 @@ export const imageGenerateTool = createTool({
     } = context;
 
     throwIfRunAborted('ImageGenerateTool');
+
+    // 内部通用媒体语义编译：将纯自然语言 + 资产库编译为硬件级多图注意力提示词与参考图队列
+    const compiled = compileMediaPrompt({
+      text: prompt,
+      entities,
+      precedingFrameUrl,
+      precedingFrameName,
+      customReferenceUrls: customReferenceUrls || referenceImageUrls,
+      baseFrameUrl,
+      instruction,
+      poseDirective: (context as any).poseDirective,
+      overrideNegativePrompt: negativePrompt,
+    });
+
+    const finalPrompt = compiled.compiledPrompt;
+    const finalNegativePrompt = compiled.negativePrompt;
+    const finalRefUrls = compiled.referenceImageUrls;
+    const finalMode = explicitMode || compiled.mode;
+
     const provider = MediaProviderFactory.getImageProvider();
-    const rawResultUrl = await provider.generateImage(prompt, {
+    const rawResultUrl = await provider.generateImage(finalPrompt, {
       size,
-      negativePrompt,
-      referenceImageUrls,
-      mode,
+      negativePrompt: finalNegativePrompt,
+      referenceImageUrls: finalRefUrls.length > 0 ? finalRefUrls : undefined,
+      mode: finalMode,
       denoise,
       maskImageUrl,
       abortSignal: getRunContext()?.abortSignal,
@@ -134,6 +167,8 @@ export const imageGenerateTool = createTool({
     return {
       success: true,
       mediaUrl: persistentUrl,
+      imageUrl: persistentUrl,
+      compiledPrompt: finalPrompt,
       diskPath: diskResolved.diskPath,
       provider: provider.name,
       message: `图像生成并持久化成功: ${persistentUrl}`,

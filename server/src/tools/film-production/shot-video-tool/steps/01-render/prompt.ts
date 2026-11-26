@@ -12,15 +12,35 @@ import type { CinematicShotOrder } from '../../../../../project-store/contracts/
 
 /**
  * 影视工业级图生视频（I2V）纯净动词流装配 (High-Dynamics Clean Motion SSOT)
- * 首帧参考图（及尾帧）为视觉连续性提供参考，不能保证完全锁定外貌、服装、道具与冷暖光照。
- * 文本 100% 聚焦于机位与纯净动词链，彻底消灭八股文、元指令与否定句，释放扩散模型最大动能。
+ * 全链路读写纯净自然语言；自动容错剥离任何残留的 @ 符号，释放大模型物理动能。
  */
-export function formatVideoMotionPrompt(rawMotion: string, hasLastFrame = false): string {
-  const cleanMotion = (rawMotion || '').trim();
-  if (hasLastFrame) {
-    return `镜头平稳过渡演进。从首帧姿态连贯演进至尾帧：${cleanMotion}。保持指定风格与动作速率，光影自然流转。`;
+export function formatVideoMotionPrompt(
+  rawMotion: string,
+  hasLastFrame = false,
+  _entities?: any,
+  isRef2V = false
+): string {
+  let cleanMotion = (rawMotion || '').trim();
+
+  // 1. 容错转译历史遗留的 @首帧 符号为起点动能语义
+  cleanMotion = cleanMotion.replace(/[@＠](?:frame_0|first_frame|首帧)/g, '首帧画面定格状态');
+
+  // 2. 剥离任何残留的 @ 符号，保留纯净物理名称（杜绝特殊符号干扰扩散注意力）
+  cleanMotion = cleanMotion.replace(/[@＠]([\u4e00-\u9fa5_a-zA-Z0-9]+)/g, '$1').replace(/[@＠]/g, '');
+
+  // 2.5 Ref2V 全能参考直出模式：无静态首帧，直接输出纯净动作与运镜指令，不强加“以首帧定格为起点”外壳
+  if (isRef2V) {
+    return cleanMotion.endsWith('。') ? cleanMotion : `${cleanMotion}。`;
   }
-  return `以首帧定格为物理起点，动作自然连贯演进：${cleanMotion}。保持指定风格与动作速率，光影与动作自然连贯。`;
+
+  // 3. 剥离冗余八股前缀与空洞尾缀，只保留干脆的动作、运镜与声音指令
+  cleanMotion = cleanMotion.replace(/^(?:从首帧|以首帧|从起幅|以起幅)[^：:]*[：:]\s*/, '').trim();
+  const withPeriod = cleanMotion.endsWith('。') ? cleanMotion : `${cleanMotion}。`;
+
+  if (hasLastFrame) {
+    return `平稳过渡至尾帧：${withPeriod}`;
+  }
+  return withPeriod;
 }
 
 export function buildShotCinematographyPrompt(shot: CinematicShotOrder): {

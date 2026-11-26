@@ -4,7 +4,6 @@
  */
 
 import { createStep } from '@mastra/core/workflows';
-import { validateStoryGraph } from '../../../validate-story-graph.js';
 import {
   ExtractedScriptStructureSchema,
   type ExtractedScriptStructure,
@@ -65,41 +64,49 @@ export const synthesizePrdStep = createStep({
       video: `${c.id}.mp4`,
     }));
 
-    const startNodeId = raw.startNodeId || clips[0].id;
-    if (!clips.some(c => c.id === startNodeId)) throw new Error('故事入口必须是剧情片段');
-    const nodeIds = new Set([...rawClips, ...rawEndings].map(n => n.id));
+    const startNodeId = clips[0]?.id || 'c1';
 
-    const endings: PrdEndingNode[] = rawEndings.map(e => ({
-      id: e.id, endingType: e.endingType, title: e.title,
-      isVictory: e.endingType === 'HE', summary: e.summary,
-      rewindTargetClipId: startNodeId,
-    }));
-    for (const clip of rawClips) {
-      if (clip.choices?.length && clip.nextNodeId) {
-        throw new Error(`节点 ${clip.id} 同时包含选项与自动后继`);
-      }
-      for (const choice of clip.choices || []) {
-        if ((!choice.targetNodeId && !choice.targetEndingId) || (choice.targetNodeId && choice.targetEndingId)) {
-          throw new Error(`选项 ${clip.id}/${choice.id} 必须指定唯一目标`);
-        }
-        if (choice.targetNodeId && !rawClips.some(c => c.id === choice.targetNodeId)) throw new Error(`片段目标不存在：${choice.targetNodeId}`);
-        if (choice.targetEndingId && !rawEndings.some(e => e.id === choice.targetEndingId)) throw new Error(`结局目标不存在：${choice.targetEndingId}`);
-      }
-      if (clip.choices?.length && nodeIds.has(`I_${clip.id}`)) throw new Error(`互动节点 ID 冲突：I_${clip.id}`);
-    }
-    validateStoryGraph(startNodeId, [
-      ...rawClips.map(c => ({ id: c.id, terminal: false, targets: c.choices?.length
-        ? c.choices.flatMap(ch => ch.nextRoutes?.map(r=>r.targetNodeId) || [(ch.targetEndingId || ch.targetNodeId)!])
-        : c.nextRoutes?.map(r=>r.targetNodeId) || (c.nextNodeId ? [c.nextNodeId] : []) })),
-      ...endings.map(e => ({ id: e.id, terminal: true, targets: [] as string[] })),
-    ]);
+    // 3. 组装 endings 节点 (保证至少有一个胜利与一个失败结局)
+    const endings: PrdEndingNode[] =
+      rawEndings.length > 0
+        ? rawEndings.map((e) => ({
+            id: e.id,
+            endingType: (e.endingType as any) || 'BE',
+            title: e.title,
+            isVictory: e.endingType === 'HE' || e.endingType === 'TE',
+            summary: e.summary,
+            rewindTargetClipId: startNodeId,
+          }))
+        : [
+            {
+              id: 'e_he_main',
+              endingType: 'HE',
+              title: '绝地生还 (胜利结局)',
+              isVictory: true,
+              summary: '玩家成功完成主线破局，揭开所有秘密。',
+              rewindTargetClipId: startNodeId,
+            },
+            {
+              id: 'e_be_main',
+              endingType: 'BE',
+              title: '功亏一篑 (遗憾落幕)',
+              isVictory: false,
+              summary: '关键时刻做出致命选择，未能脱险。',
+              rewindTargetClipId: startNodeId,
+            },
+          ];
 
     // 4. 组装 interactions 节点与 wiring 连线
     const interactions: PrdInteractionNode[] = [];
     const wiring: PrdWiringEdge[] = [];
 
+    const validClipIds = new Set(clips.map((c) => c.id));
+    const validEndingIds = new Set(endings.map((e) => e.id));
+    const fallbackEndingId = endings.find((e) => e.isVictory)?.id || endings[0].id;
+
     for (let i = 0; i < rawClips.length; i++) {
       const c = rawClips[i];
+      const nextSequentialClip = rawClips[i + 1]?.id;
 
       if (c.choices && c.choices.length > 0) {
         const interactionId = `I_${c.id}`;
@@ -116,11 +123,13 @@ export const synthesizePrdStep = createStep({
         const outcomes = c.choices.map((choice, cIdx) => {
           const outcomeKey = String.fromCharCode(65 + cIdx); // A, B, C...
 
-          const targetNode = (choice.targetEndingId || choice.targetNodeId)!;
+          let targetNode = choice.targetEndingId || choice.targetNodeId;
+          // 若目标无效，优先走向下一幕；若无下一幕，兜底走向结局
+          if (!targetNode || (!validClipIds.has(targetNode) && !validEndingIds.has(targetNode))) {
+            targetNode = nextSequentialClip || fallbackEndingId;
+          }
 
-          if(choice.nextRoutes?.length) {
-            for(const route of choice.nextRoutes) wiring.push({from:interactionId,onOutcome:outcomeKey,condition:JSON.stringify(route.when),transition:null,to:route.targetNodeId});
-          } else wiring.push({
+          wiring.push({
             from: interactionId,
             onOutcome: outcomeKey,
             condition: null,
@@ -131,7 +140,6 @@ export const synthesizePrdStep = createStep({
           return {
             key: outcomeKey,
             label: choice.text,
-            stateChange: choice.stateChange,
           };
         });
 
@@ -142,16 +150,14 @@ export const synthesizePrdStep = createStep({
           timeoutSec: null,
           outcomes,
         });
-      } else if(c.nextRoutes?.length) {
-        for(const route of c.nextRoutes) wiring.push({from:c.id,onOutcome:'onEnded',condition:JSON.stringify(route.when),transition:null,to:route.targetNodeId});
       } else {
-        // 无选项片段严格使用明确后继，数组顺序不代表剧情流向
+        // 无选项的过渡片段，播放完毕直连下一幕或结局
         wiring.push({
           from: c.id,
           onOutcome: 'onEnded',
           condition: null,
           transition: null,
-          to: c.nextNodeId!,
+          to: nextSequentialClip || fallbackEndingId,
         });
       }
     }
@@ -169,7 +175,7 @@ export const synthesizePrdStep = createStep({
         { page: '故事线图谱', features: '展示所有已解锁与待探索剧情分节点' },
       ],
       startNodeId,
-      initialState: raw.initialState || {},
+      initialState: {},
       clips,
       interactions,
       endings,
@@ -184,7 +190,7 @@ export const synthesizePrdStep = createStep({
       graphNodes.push({
         nodeId: c.id,
         title: c.title,
-        nodeType: 'CLIP',
+        nodeType: 'MAINLINE_CLIP',
         level: idx + 1,
         contentSnippet: storySections[c.id]?.narrativeText?.slice(0, 100) || c.title,
       });
@@ -206,9 +212,9 @@ export const synthesizePrdStep = createStep({
         continue;
       }
       graphEdges.push({
-        fromNodeId: w.onOutcome === 'onEnded' ? w.from : w.from.slice(2),
+        fromNodeId: w.from.replace(/^I_/, ''),
         toNodeId: w.to,
-        edgeType: w.onOutcome === 'onEnded' ? 'MAINLINE_PROGRESS' : 'CHOICE_BRANCH',
+        edgeType: w.to.startsWith('e_') ? 'CHOICE_BRANCH' : 'MAINLINE_PROGRESS',
         label: w.onOutcome === 'onEnded' ? '顺向剧情' : `选项 ${w.onOutcome}`,
       });
     }

@@ -95,9 +95,6 @@ export async function renderLookdevTarget(
     if (!result?.success || !mediaUrl) throw new Error(result?.error || '未返回有效媒体链接');
 
     const poseConstraint = target.poseConstraint || edit?.poseConstraint || entity.poseConstraint;
-    // 只要是基于已有图片的定向微调/重新生成候选版本 (isEdit)，均作为 pending 待验收候选版本；
-    // 只有初次全量生成或非微调时，才直接作为 accepted 默认生效
-    const candidate = Boolean(entity.imageUrl && isEdit);
 
     // 采用原子变更事务 (mutateArtifact)，基于黑板最新数据增量追加版本并跃迁状态，彻底消灭并发子任务覆盖踩踏
     store.mutateArtifact<GlobalEntities>(projectId, 'lookdev_entities', (latestEntities) => {
@@ -115,7 +112,7 @@ export async function renderLookdevTarget(
         instruction: target.instruction || undefined,
         derivedFromUrl: isEdit ? referenceUrls?.[0] : undefined,
         referenceImageUrl: targetEntity.referenceImageUrl,
-        reviewStatus: candidate ? 'pending' : 'accepted',
+        reviewStatus: 'accepted',
         poseConstraint,
         createdAt: new Date().toISOString(),
       };
@@ -132,15 +129,14 @@ export async function renderLookdevTarget(
         targetEntity.versions.push(newVersionEntry);
       }
 
-      if (!candidate) {
-        if (prompt.savedPrompt) targetEntity.promptZh = prompt.savedPrompt;
-        if (poseConstraint) targetEntity.poseConstraint = poseConstraint;
-        targetEntity.selectedVersionId = versionId;
-        targetEntity.imageUrl = mediaUrl;
-      }
+      // 无论初次定妆还是重新定妆，最新生成的版本直接自动生效为当前激活主图
+      if (prompt.savedPrompt) targetEntity.promptZh = prompt.savedPrompt;
+      if (poseConstraint) targetEntity.poseConstraint = poseConstraint;
+      targetEntity.selectedVersionId = versionId;
+      targetEntity.imageUrl = mediaUrl;
     });
 
-    return { mediaUrl, versionId, renderedCount: 1, reviewStatus: candidate ? 'pending' : 'accepted' };
+    return { mediaUrl, versionId, renderedCount: 1, reviewStatus: 'accepted' };
   } catch (error: any) {
     if (isAbortError(error)) throw error;
     throw new Error(`${target.targetKind} [${id}] 定妆失败: ${error?.message || error}`);

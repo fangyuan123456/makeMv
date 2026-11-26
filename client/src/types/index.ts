@@ -141,6 +141,10 @@ export interface ShootingScriptEnvironmentLock {
 export interface ShootingScriptActionBeat {
   beatId: string;
   beatTitle: string;
+  space?: string;
+  location?: string;
+  locationId?: string;
+  isSceneTransition?: boolean;
   actionDescription: string;
   cinematicIntent: string;
   characterIds?: string[];
@@ -313,9 +317,42 @@ export interface ProjectData {
   entities?: LookdevEntitiesArtifact | any;
   storyboards?: any[];
   screenplay?: string;
+  screenplayReview?: ReviewFreshnessView;
   story?: string;
   storySections?: Record<string, { title: string; narrativeText: string }>;
   staleMap?: ProjectStaleMap;
+}
+
+export type ReviewSeverity = 'error' | 'warning';
+
+export interface ReviewIssue {
+  id: string;
+  severity: ReviewSeverity;
+  category: string;
+  actNumber?: number;
+  excerpt: string;
+  reason: string;
+  fixInstruction: string;
+}
+
+export interface ReviewReport {
+  passed: boolean;
+  summary: string;
+  issues: ReviewIssue[];
+}
+
+export type ReviewArchiveStatus = 'idle' | 'reviewing' | 'passed' | 'issues_found' | 'failed';
+
+export interface ReviewFreshnessView {
+  targetType: string;
+  status: ReviewArchiveStatus;
+  isStale: boolean;
+  currentHash: string;
+  artifactHash?: string;
+  artifactSnapshot?: string;
+  reviewedAt?: number;
+  error?: string;
+  report?: ReviewReport;
 }
 
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
@@ -389,6 +426,9 @@ export interface CanvasShotNode {
   firstFrameVersions?: ShotFrameVersion[];
   lastFrameVersions?: ShotFrameVersion[];
   videoVersions?: ShotVideoVersion[];
+  selectedFirstFrameVersionId?: string;
+  selectedLastFrameVersionId?: string;
+  selectedVideoVersionId?: string;
   generationMode?: 'first_frame' | 'first_last_frame';
   firstFramePrompt?: string;
   lastFramePrompt?: string;
@@ -411,6 +451,10 @@ export interface CanvasShotNode {
   motionDirective?: VisualDirective;
   dynamicDirective?: VisualDirective;
   focusDirective?: VisualDirective;
+  location?: string;
+  locationId?: string;
+  space?: string;
+  isSceneTransition?: boolean;
   characters?: CanvasLookdevEntitySummary[];
   locations?: CanvasLookdevEntitySummary[];
   isUnlocked?: boolean;

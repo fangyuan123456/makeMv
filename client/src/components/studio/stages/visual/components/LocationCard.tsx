@@ -397,7 +397,7 @@ export const LocationCard: React.FC<LocationCardProps> = ({
           onClick={(e) => e.stopPropagation()}
           onChange={(e) => onSpatialDraftChange?.(e.target.value)}
           rows={3}
-          placeholder="客观相对拓扑事实底座：以核心主地标为空间原点，交代正面出入通道、左右立面与顶空光影..."
+          placeholder="标准五段式收束：【入场路径】... 【核心地标】... 【画左立面】... 【画右立面】... 【背景阻隔】..."
           className="w-full text-xs text-slate-700 bg-transparent border-0 rounded-lg p-0 focus:outline-none focus:ring-0 resize-none leading-relaxed placeholder:text-slate-400 select-text font-sans"
         />
       </div>

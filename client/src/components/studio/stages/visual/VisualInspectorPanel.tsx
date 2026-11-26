@@ -12,8 +12,8 @@
 import React from 'react';
 import type { ProjectData } from '../../../../types/index.js';
 import { updateShootingScript } from '../../../../lib/api.js';
-
-
+import { TiptapMentionEditor } from '../../canvas/TiptapMentionEditor.js';
+import { toMentionText } from '../../canvas/EntityMentionText.js';
 
 const AutoResizeTextarea: React.FC<{
   value: string;
@@ -21,7 +21,9 @@ const AutoResizeTextarea: React.FC<{
   placeholder?: string;
   className?: string;
   minRows?: number;
-}> = ({ value, onChange, placeholder, className, minRows = 1 }) => {
+  autoFocus?: boolean;
+  onBlur?: () => void;
+}> = ({ value, onChange, placeholder, className, minRows = 1, autoFocus, onBlur }) => {
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
   const resize = React.useCallback(() => {
@@ -33,7 +35,17 @@ const AutoResizeTextarea: React.FC<{
 
   React.useEffect(() => {
     resize();
+    const timer = setTimeout(resize, 30);
+    return () => clearTimeout(timer);
   }, [value, resize]);
+
+  React.useEffect(() => {
+    if (autoFocus && textareaRef.current) {
+      textareaRef.current.focus();
+      const len = textareaRef.current.value.length;
+      textareaRef.current.setSelectionRange(len, len);
+    }
+  }, [autoFocus]);
 
   return (
     <textarea
@@ -44,6 +56,7 @@ const AutoResizeTextarea: React.FC<{
         onChange(e.target.value);
         resize();
       }}
+      onBlur={onBlur}
       placeholder={placeholder}
       className={`resize-none overflow-hidden block ${className || ''}`}
     />
@@ -139,6 +152,7 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
   const [isSavingScript, setIsSavingScript] = React.useState(false);
   const [saveSuccessTip, setSaveSuccessTip] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
+  const [editingBeatIndex, setEditingBeatIndex] = React.useState<number | null>(null);
 
   let shots: StoryboardShotItem[] = [];
   if (currentClipId && Array.isArray(rawStoryboards) && rawStoryboards.length > 0) {
@@ -181,18 +195,19 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
     : undefined;
   const shootingScript = matchedFilmClip?.shootingScript || matchedRawClip?.shootingScript;
 
-  // 自动从 shootingScript 同步到直接可编辑的 beats 状态
+  // 自动从 shootingScript 同步到直接可编辑的 beats 状态（基准文本经由 toMentionText 标准化，与输入态严格对齐）
   React.useEffect(() => {
     const rawBeats = Array.isArray(shootingScript?.actionBeats)
       ? shootingScript.actionBeats.map((b: any, idx: number) => ({
           ...b,
           beatId: b.beatId || `beat_init_${idx + 1}`,
+          actionDescription: toMentionText(b.actionDescription || '', entities),
         }))
       : [];
     const jsonStr = JSON.stringify(rawBeats);
     setBeats(JSON.parse(jsonStr));
     setOriginalBeatsJson(jsonStr);
-  }, [currentClipId, shootingScript]);
+  }, [currentClipId, shootingScript, entities]);
 
   const originalBeats = React.useMemo(() => {
     try {
@@ -220,6 +235,11 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
     if (field === 'shotNumber') return false; // 顺延序号变化不作为用户字段修改
     const origVal = orig[field] ?? '';
     const currVal = curr[field] ?? '';
+    if (field === 'actionDescription') {
+      const s1 = String(origVal).replace(/\r\n/g, '\n').trim();
+      const s2 = String(currVal).replace(/\r\n/g, '\n').trim();
+      return s1 !== s2;
+    }
     return String(origVal).trim() !== String(currVal).trim();
   };
 
@@ -680,111 +700,89 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
                 <div className="space-y-3">
                   {shootingScript ? (
                     <>
-                      {/* 顶部操作条：无修改时极简清爽，有修改时平滑浮现保存按钮 */}
-                      <div className="flex items-center justify-between pb-1 min-h-[32px]">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-semibold text-slate-700 flex items-center gap-1">
-                            <span>🎬</span>
-                            <span>导演视听摄制单</span>
-                          </span>
-                          <span className="text-[10px] text-slate-400 font-mono">
-                            ({beats.length} 镜)
-                          </span>
-                          {isDirty && (
-                            <span className="text-[10px] font-medium text-amber-800 bg-amber-100/80 border border-amber-300/80 px-2 py-0.5 rounded-full animate-in fade-in duration-200 flex items-center gap-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-                              <span>未保存改动</span>
+                      {/* 顶部操作区：标题纯粹独立，有修改时自适应滑出全宽整洁操作条 */}
+                      <div className="space-y-2 pb-1">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-bold text-slate-800 flex items-center gap-1 select-none">
+                              <span>🎬</span>
+                              <span>导演视听摄制单</span>
                             </span>
-                          )}
+                            <span className="text-[10px] text-slate-400 font-mono px-1.5 py-0.2 rounded bg-slate-100 border border-slate-200/60 select-none">
+                              {beats.length} 镜
+                            </span>
+                          </div>
+
                           {saveSuccessTip && (
-                            <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full animate-in fade-in duration-150">
-                              ✓ 已保存生效
+                            <span className="text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md animate-in fade-in duration-150 flex items-center gap-1 select-none">
+                              <span>✓</span>
+                              <span>已保存生效</span>
                             </span>
                           )}
                           {saveError && (
-                            <span className="text-[10px] font-medium text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded">
+                            <span className="text-[10px] font-medium text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded select-none">
                               {saveError}
                             </span>
                           )}
                         </div>
 
-                        {/* 只要有修改，最上面直接出来保存按钮与全部重置按钮 */}
+                        {/* 修改状态条：全宽自适应，左侧状态脉冲，右侧精致按钮，绝不拥挤折行 */}
                         {isDirty && (
-                          <div className="flex items-center gap-1.5 animate-in slide-in-from-top-1 fade-in duration-150">
-                            <button
-                              type="button"
-                              onClick={handleResetAll}
-                              disabled={isSavingScript}
-                              className="text-[11px] text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200/80 border border-slate-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
-                              title="将全幕所有修改还原为初始状态"
-                            >
-                              <span>↺</span>
-                              <span>重置全部</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handleSaveEdit}
-                              disabled={isSavingScript}
-                              className="text-[11px] text-white bg-indigo-600 hover:bg-indigo-700 font-medium px-3 py-1 rounded-lg transition-all flex items-center gap-1 shadow-sm disabled:opacity-50 cursor-pointer"
-                            >
-                              <span>{isSavingScript ? '⏳' : '💾'}</span>
-                              <span>{isSavingScript ? '保存中...' : '保存修改'}</span>
-                            </button>
+                          <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-amber-50/90 border border-amber-300/80 text-amber-950 animate-in slide-in-from-top-1 fade-in duration-150 shadow-2xs">
+                            <div className="flex items-center gap-1.5 text-[11px] font-medium whitespace-nowrap select-none">
+                              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                              <span>台本已修改未保存</span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={handleResetAll}
+                                disabled={isSavingScript}
+                                className="text-[11px] text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 border border-amber-200 px-2 py-0.5 rounded-md transition-colors cursor-pointer flex items-center gap-0.5 shadow-2xs whitespace-nowrap"
+                                title="将全幕所有修改还原为初始状态"
+                              >
+                                <span>↺</span>
+                                <span>重置</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleSaveEdit}
+                                disabled={isSavingScript}
+                                className="text-[11px] text-white bg-indigo-600 hover:bg-indigo-700 font-medium px-2.5 py-0.5 rounded-md transition-all flex items-center gap-1 shadow-2xs disabled:opacity-50 cursor-pointer whitespace-nowrap active:scale-95"
+                              >
+                                <span>{isSavingScript ? '⏳' : '💾'}</span>
+                                <span>{isSavingScript ? '保存中' : '保存修改'}</span>
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
 
-                      {/* 视听动作表演流：直接可编辑 + 修改黄色高亮 */}
+                      {/* 视听动作表演流：全部进入自由输入框（彻底消灭死标题），直接可编辑 + 修改黄色高亮 */}
                       <div className="space-y-2.5">
-                        {(() => {
-                          let lastSpace = '';
-                          return beats.map((beat: any, bIdx: number) => {
-                            const currentSpace = beat.space || 
-                              (beat.beatTitle && beat.beatTitle.includes('空间') 
-                                ? beat.beatTitle.match(/【(空间[^】]+)】/)?.[1] 
-                                : undefined);
-                            const showSpaceHeader = currentSpace && currentSpace !== lastSpace;
-                            if (currentSpace) {
-                              lastSpace = currentSpace;
-                            }
+                        {beats.map((beat: any, bIdx: number) => {
+                          const beatModified = isBeatModified(bIdx);
+                          const titleModified = isFieldModified(bIdx, 'beatTitle');
+                          const descModified = isFieldModified(bIdx, 'actionDescription');
+                          const dialogueModified = isFieldModified(bIdx, 'dialogue');
+                          const intentModified = isFieldModified(bIdx, 'cinematicIntent');
+                          const audioModified = isFieldModified(bIdx, 'audioAmbience');
+                          const secModified = isFieldModified(bIdx, 'estimatedSeconds');
 
-                            const beatModified = isBeatModified(bIdx);
-                            const titleModified = isFieldModified(bIdx, 'beatTitle');
-                            const descModified = isFieldModified(bIdx, 'actionDescription');
-                            const dialogueModified = isFieldModified(bIdx, 'dialogue');
-                            const intentModified = isFieldModified(bIdx, 'cinematicIntent');
-                            const audioModified = isFieldModified(bIdx, 'audioAmbience');
-                            const secModified = isFieldModified(bIdx, 'estimatedSeconds');
+                          return (
+                            <React.Fragment key={beat.beatId || `beat_${bIdx}`}>
+                              {/* 全剧第0镜头开头支持插入新镜头 */}
+                              {bIdx === 0 && (
+                                <InsertDivider onInsert={() => handleInsertBeatAt(0)} />
+                              )}
 
-                            return (
-                              <React.Fragment key={beat.beatId || `beat_${bIdx}`}>
-                                {showSpaceHeader && (
-                                  <div className="pt-2 pb-0.5">
-                                    <div className="px-3 py-1.5 rounded-lg bg-slate-900 text-white flex items-center justify-between shadow-xs">
-                                      <span className="text-xs font-bold flex items-center gap-1.5">
-                                        <span>🎬</span>
-                                        <span>{currentSpace}</span>
-                                      </span>
-                                      {shootingScript.environmentLock?.timeOfDay && !currentSpace.includes(shootingScript.environmentLock.timeOfDay) && (
-                                        <span className="text-[10px] font-medium bg-slate-800 border border-slate-700 text-amber-300 px-2 py-0.5 rounded">
-                                          {shootingScript.environmentLock.timeOfDay}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-
-                                {/* 每个场景空间标头下方（或者全剧第0镜头开头），都可以精准插入新镜头 */}
-                                {(showSpaceHeader || bIdx === 0) && (
-                                  <InsertDivider onInsert={() => handleInsertBeatAt(bIdx)} />
-                                )}
-
-                                {/* 单镜头卡片：修改了呈现温暖琥珀黄边框高亮 */}
-                                <div className={`group p-3 bg-white border rounded-xl space-y-2 text-xs shadow-2xs transition-all ${
-                                  beatModified
-                                    ? 'border-amber-300 bg-amber-50/15 ring-1 ring-amber-200/50'
-                                    : 'border-slate-200/80 hover:border-indigo-300'
-                                }`}>
+                              {/* 单镜头卡片：修改了呈现温暖琥珀黄边框高亮 */}
+                              <div className={`group p-3 bg-white border rounded-xl space-y-2 text-xs shadow-2xs transition-all ${
+                                beatModified
+                                  ? 'border-amber-300 bg-amber-50/15 ring-1 ring-amber-200/50'
+                                  : 'border-slate-200/80 hover:border-indigo-300'
+                              }`}>
                                   {/* 顶部镜号与标题栏 */}
                                   <div className="flex items-center justify-between gap-2">
                                     <div className="flex items-center gap-1.5 flex-1 min-w-0">
@@ -800,11 +798,7 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
                                       {/* 标题：直接点击编辑，修改了黄色高亮 */}
                                       <AutoResizeTextarea
                                         minRows={1}
-                                        value={(beat.beatTitle || '')
-                                          .replace(/^镜头\s*\d+[\s·:：]*/, '')
-                                          .replace(/【空间[^】]+】/, '')
-                                          .replace(/\(?\d+s\)?$/, '')
-                                          .trim()}
+                                        value={beat.beatTitle || ''}
                                         onChange={(val) => handleUpdateBeat(bIdx, 'beatTitle', val)}
                                         placeholder="镜头标题（如：近景甩镜 · 违规回头）"
                                         className={`text-xs font-bold px-1 py-0.5 flex-1 min-w-0 outline-none focus:outline-none focus:ring-0 leading-normal rounded transition-colors ${
@@ -822,7 +816,7 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
                                         <button
                                           type="button"
                                           onClick={() => handleResetSingleBeat(bIdx)}
-                                          className="text-[9px] font-medium text-amber-800 hover:text-amber-950 bg-amber-100 hover:bg-amber-200/90 border border-amber-300 px-1.5 py-0.5 rounded flex items-center gap-0.5 cursor-pointer transition-colors shadow-2xs"
+                                          className="text-[10px] font-medium text-amber-800 hover:text-amber-950 bg-amber-100 hover:bg-amber-200/90 border border-amber-300 px-1.5 py-0.5 rounded flex items-center gap-0.5 cursor-pointer transition-colors shadow-2xs whitespace-nowrap shrink-0"
                                           title="将此镜头还原至修改前"
                                         >
                                           <span>↺</span>
@@ -879,17 +873,13 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
                                     </div>
                                   </div>
 
-                                  {/* 物理动作与画面描述：直接可编辑 + 修改黄色高亮 */}
-                                  <AutoResizeTextarea
-                                    minRows={2}
+                                  {/* 物理动作与画面描述：所见即所得即梦式行内资产编辑器（输入与显示 100% 同体） */}
+                                  <TiptapMentionEditor
                                     value={beat.actionDescription || ''}
+                                    entities={entities}
                                     onChange={(val) => handleUpdateBeat(bIdx, 'actionDescription', val)}
-                                    placeholder="输入角色纯物理动作与环境镜头画面..."
-                                    className={`w-full text-[11px] rounded-lg p-2 leading-relaxed outline-none focus:outline-none focus:ring-0 transition-colors ${
-                                      descModified
-                                        ? 'bg-amber-100/50 border border-amber-300 ring-1 ring-amber-200 text-amber-950 font-medium'
-                                        : 'text-slate-700 bg-slate-50/40 hover:bg-slate-50 focus:bg-white border border-slate-200/70 focus:border-indigo-400'
-                                    }`}
+                                    isModified={descModified}
+                                    placeholder="在 @场景 中，@角色 动作走位与 @道具 交互..."
                                   />
 
                                   {/* 角色对白：影视剧本竖线优雅排版 + 修改黄色高亮 */}
@@ -952,8 +942,7 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
                                 <InsertDivider onInsert={() => handleInsertBeatAt(bIdx + 1)} />
                               </React.Fragment>
                             );
-                          });
-                        })()}
+                          })}
                       </div>
                     </>
                   ) : (

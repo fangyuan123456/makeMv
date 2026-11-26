@@ -130,12 +130,22 @@ export function buildShotMediaFileName(params: {
  */
 export function readFrameVersions(shot: any, frame: ShotFrameKind): ShotFrameVersion[] {
   const key = frameVersionsKey(frame);
-  const versions: ShotFrameVersion[] = Array.isArray(shot?.[key]) ? [...shot[key]] : [];
+  const rawList: ShotFrameVersion[] = Array.isArray(shot?.[key]) ? [...shot[key]] : [];
+  const seenIds = new Set<string>();
+  const versions = rawList.map((v) => {
+    let vid = v?.versionId;
+    if (!vid || seenIds.has(vid)) {
+      vid = newFrameVersionId();
+    }
+    seenIds.add(vid);
+    return vid === v?.versionId ? v : { ...v, versionId: vid };
+  });
   const active = activeFrameUrl(shot, frame);
   if (active && !versions.some((v) => cleanFrameUrl(v?.imageUrl) === active)) {
     const rawName = active.split('/').pop() || '';
+    const baseId = `v_base_${shot?.shotId || shot?.id || 'shot'}_${frame}`;
     versions.push({
-      versionId: `v_base_${shot?.shotId || shot?.id || 'shot'}_${frame}`,
+      versionId: seenIds.has(baseId) ? newFrameVersionId() : baseId,
       imageUrl: active,
       fileName: rawName,
       prompt: frame === 'last' ? shot?.lastFramePrompt : shot?.firstFramePrompt,
@@ -158,7 +168,7 @@ export function applyFrameVersion(shot: any, frame: ShotFrameKind, version: Shot
   const url = cleanFrameUrl(version.imageUrl);
   if (frame === 'last') {
     shot.lastFrameImageUrl = url;
-    if (version.prompt) shot.lastFramePrompt = version.prompt;
+    shot.selectedLastFrameVersionId = version.versionId;
     if (version.upscale) shot.lastFrameUpscale = version.upscale;
     else delete shot.lastFrameUpscale;
 
@@ -170,7 +180,7 @@ export function applyFrameVersion(shot: any, frame: ShotFrameKind, version: Shot
   } else {
     shot.firstFrameImageUrl = url;
     shot.keyframeUrl = url;
-    if (version.prompt) shot.firstFramePrompt = version.prompt;
+    shot.selectedFirstFrameVersionId = version.versionId;
     if (version.upscale) shot.firstFrameUpscale = version.upscale;
     else delete shot.firstFrameUpscale;
 
@@ -200,8 +210,13 @@ export function appendFrameVersion(
   payload: Omit<ShotFrameVersion, 'versionId' | 'createdAt'>
 ): ShotFrameVersion {
   const versions = readFrameVersions(shot, frame);
+  const { prompt: latestPrompt, ...restPayload } = payload;
+  if (latestPrompt) {
+    if (frame === 'last') shot.lastFramePrompt = latestPrompt;
+    else shot.firstFramePrompt = latestPrompt;
+  }
   const version: ShotFrameVersion = {
-    ...payload,
+    ...restPayload,
     imageUrl: cleanFrameUrl(payload.imageUrl),
     versionId: newFrameVersionId(),
     createdAt: new Date().toISOString(),
@@ -267,12 +282,22 @@ export function upgradeFrameVersion(
  * 读取视频版本清单（只读归一化）
  */
 export function readVideoVersions(shot: any): ShotVideoVersion[] {
-  const versions: ShotVideoVersion[] = Array.isArray(shot?.videoVersions) ? [...shot.videoVersions] : [];
+  const rawList: ShotVideoVersion[] = Array.isArray(shot?.videoVersions) ? [...shot.videoVersions] : [];
+  const seenIds = new Set<string>();
+  const versions = rawList.map((v) => {
+    let vid = v?.versionId;
+    if (!vid || seenIds.has(vid)) {
+      vid = newFrameVersionId();
+    }
+    seenIds.add(vid);
+    return vid === v?.versionId ? v : { ...v, versionId: vid };
+  });
   const active = activeVideoUrl(shot);
   if (active && !versions.some((v) => cleanFrameUrl(v?.videoUrl) === active)) {
     const rawName = active.split('/').pop() || '';
+    const baseId = `v_base_${shot?.shotId || shot?.id || 'shot'}_video`;
     versions.push({
-      versionId: `v_base_${shot?.shotId || shot?.id || 'shot'}_video`,
+      versionId: seenIds.has(baseId) ? newFrameVersionId() : baseId,
       videoUrl: active,
       fileName: rawName,
       prompt: shot?.videoPrompt || shot?.prompt,
@@ -293,7 +318,7 @@ export function readVideoVersions(shot: any): ShotVideoVersion[] {
 export function applyVideoVersion(shot: any, version: ShotVideoVersion): void {
   const url = cleanFrameUrl(version.videoUrl);
   shot.videoUrl = url;
-  if (version.prompt) shot.videoPrompt = version.prompt;
+  shot.selectedVideoVersionId = version.versionId;
   if (version.continuityMode) shot.continuityMode = version.continuityMode;
   if (version.motionDirective !== undefined) shot.motionDirective = version.motionDirective;
   if (version.dynamicDirective !== undefined) shot.dynamicDirective = version.dynamicDirective;
@@ -308,8 +333,12 @@ export function appendVideoVersion(
   payload: Omit<ShotVideoVersion, 'versionId' | 'createdAt'>
 ): ShotVideoVersion {
   const versions = readVideoVersions(shot);
+  const { prompt: latestPrompt, ...restPayload } = payload;
+  if (latestPrompt) {
+    shot.videoPrompt = latestPrompt;
+  }
   const version: ShotVideoVersion = {
-    ...payload,
+    ...restPayload,
     videoUrl: cleanFrameUrl(payload.videoUrl),
     versionId: newFrameVersionId(),
     createdAt: new Date().toISOString(),

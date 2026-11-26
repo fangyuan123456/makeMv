@@ -232,7 +232,7 @@ export class TaskDispatcher {
       replacesTaskId: task.taskId,
       lastFailure: task.lastFailure,
       retryCount: (task.retryCount || 0) + 1,
-      maxRetries: task.maxRetries ?? 2,
+      maxRetries: 0,
     });
   }
 
@@ -288,7 +288,7 @@ export class TaskDispatcher {
       ...(params.recoveryAttempts ? { recoveryAttempts: params.recoveryAttempts } : {}),
       ...(params.lastFailure ? { lastFailure: params.lastFailure } : {}),
       retryCount: params.retryCount ?? 0,
-      maxRetries: params.maxRetries ?? 2,
+      maxRetries: params.maxRetries ?? 0,
       status: 'pending',
       input: idempotencyKey ? { ...input, __idempotencyKey: idempotencyKey } : input,
       createdAt: now,
@@ -481,19 +481,6 @@ export class TaskDispatcher {
     }
 
     taskStore.saveTask(task);
-
-    // 通用底座自动重试策略 (Auto-Retry on Failure)
-    if (status === 'failed' && (task.retryCount || 0) < (task.maxRetries ?? 2)) {
-      setTimeout(() => {
-        const latest = taskStore.getLatestTask(task.taskId);
-        if (latest && latest.taskId === task.taskId && latest.status === 'failed') {
-          console.log(`[TaskDispatcher] 自动重试触发: ${task.toolName} (第 ${(task.retryCount || 0) + 1} 次重试)`);
-          void this.retry(task.taskId).catch((err) => {
-            console.error(`[TaskDispatcher] 自动重试任务 ${task.taskId} 派发异常:`, err);
-          });
-        }
-      }, 1000);
-    }
   }
 }
 

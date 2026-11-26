@@ -20,3 +20,10 @@ if (existsSync(from)) {
 } else {
   console.log('[copy-runtime-assets] 源目录不存在，跳过拷贝:', from.pathname);
 }
+
+const skillsFrom = new URL('../src/skills/', import.meta.url);
+const skillsTo = new URL('../dist/skills/', import.meta.url);
+if (existsSync(skillsFrom)) {
+  cpSync(skillsFrom, skillsTo, { recursive: true });
+  console.log('[copy-runtime-assets] 核心技能库已复制到 dist');
+}

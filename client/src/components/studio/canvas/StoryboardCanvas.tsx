@@ -192,6 +192,10 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
   const [focusDrawerNode, setFocusDrawerNode] = useState<CanvasShotNode | null>(null);
   const [processCanvasNode, setProcessCanvasNode] = useState<CanvasShotNode | null>(null);
 
+  const lookdevEntities = useMemo(() => {
+    return projectData?.entities || projectData?.artifacts?.lookdev_entities || null;
+  }, [projectData]);
+
   // 切换分幕时自动重置选中与打开的检视抽屉
   useEffect(() => {
     setSelectedNodeId(null);
@@ -264,6 +268,16 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
         (b.beatId && shotId && b.beatId.replace(/[-_]/g, '').toLowerCase() === shotId.replace(/[-_]/g, '').toLowerCase())
       ) || scriptBeats[index];
 
+      const currentLocation = shot.location || matchedBeat?.location || clip?.location;
+      const currentLocationId = shot.locationId || matchedBeat?.locationId || clip?.locationId;
+      const previousLocation = previousShot?.location || (index > 0 ? (scriptBeats[index - 1]?.location || clip?.location) : undefined);
+      const isSceneTransition = Boolean(
+        index > 0 &&
+        currentLocation &&
+        previousLocation &&
+        currentLocation !== previousLocation
+      );
+
       nodes[nodeId] = {
         id: nodeId,
         type: 'shot_node',
@@ -277,6 +291,10 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
         audioAmbience: matchedBeat?.audioAmbience || shot.audioAmbience || shot.audioPrompt,
         shotType: matchedBeat?.shotType || shot.shotType || shot.cameraDirective?.label,
         cameraMovement: matchedBeat?.cameraMovement || shot.cameraMovement,
+        location: currentLocation,
+        locationId: currentLocationId,
+        space: matchedBeat?.space || shot.space,
+        isSceneTransition,
         // 台本描述的是镜头如何演绎，首帧提示词留给下一级关键帧处理。
         prompt: matchedBeat?.actionDescription || shot.videoPrompt || shot.description || shot.promptZh || shot.visualPromptZh || '',
         durationSec: shot.durationSec || matchedBeat?.estimatedSeconds || shot.duration || 4,
@@ -805,6 +823,7 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
       };
       const firstVersions: any[] = projectShot?.firstFrameVersions || node.firstFrameVersions || [];
       const lastVersions: any[] = projectShot?.lastFrameVersions || node.lastFrameVersions || [];
+      const videoVersions: any[] = projectShot?.videoVersions || node.videoVersions || [];
       result[id] = {
         ...node,
         ...(projectShot
@@ -821,6 +840,8 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
               motionDirective: projectShot.motionDirective || node.motionDirective,
               dynamicDirective: projectShot.dynamicDirective || node.dynamicDirective,
               focusDirective: projectShot.focusDirective || node.focusDirective,
+              location: projectShot.location || actionBeat?.location || node.location,
+              locationId: projectShot.locationId || actionBeat?.locationId || node.locationId,
               continuityMode: projectShot.continuityMode || node.continuityMode || 'auto',
             }
           : {}),
@@ -853,6 +874,10 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
         cameraMovement: actionBeat?.cameraMovement || projectShot?.cameraMovement || node.cameraMovement,
         firstFrameVersions: firstVersions,
         lastFrameVersions: lastVersions,
+        videoVersions,
+        selectedFirstFrameVersionId: projectShot?.selectedFirstFrameVersionId || (node as any).selectedFirstFrameVersionId,
+        selectedLastFrameVersionId: projectShot?.selectedLastFrameVersionId || (node as any).selectedLastFrameVersionId,
+        selectedVideoVersionId: projectShot?.selectedVideoVersionId || (node as any).selectedVideoVersionId,
         keyframeUrl: withCacheVersion(rawKf, Math.max(firstVer || 0, projectVersionStamp(firstVersions))),
         lastFrameUrl: withCacheVersion(rawLast, Math.max(lastVer || 0, projectVersionStamp(lastVersions))),
         firstFrameUpscale,
@@ -881,7 +906,7 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
   // 上报分镜画布自身焦点（必须位于所有条件 return 之前，严格遵守 React Hooks 顺序；下钻 ShotProcessCanvas 时子页自动压栈覆盖）
   const canvasFocus = useMemo(
     () => ({
-      location: clipTitle ? `分镜画布 · ${clipTitle}` : '分镜画布',
+      location: clipTitle ? `演绎片段画布 · ${clipTitle}` : '演绎片段画布',
       target: selectedCanvasNode
         ? {
             kind: 'shot',
@@ -989,11 +1014,14 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
               ) : (
                 <ShotCanvasCard
                   node={node}
+                  entities={lookdevEntities}
                   isSelected={selectedNodeId === node.id}
                   isExtractingPrompt={tasks.some(
                     (t) =>
                       (t.status === 'running' || t.status === 'pending') &&
-                      t.toolName === 'film.shot_prompt' &&
+                      (t.toolName === 'film.shot_frame_prompt' ||
+                        t.toolName === 'film.shot_motion_prompt' ||
+                        t.toolName === 'film.shot_prompt') &&
                       t.input?.shotId === node.shotId
                   )}
                   onSelect={() => setSelectedNodeId(node.id)}
@@ -1103,18 +1131,18 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
           </div>
           <h3 className="text-base font-black text-slate-800 tracking-tight mb-2">
             {activePlanningTask?.input?.shotId
-              ? `AI 分镜执行导演正在重新校准【镜头 ${activePlanningTask.input.shotId}】提示词与视听语法...`
-              : `AI 分镜执行导演正在推演${clipTitle ? `【${clipTitle}】` : '本幕'}分镜台本...`}
+              ? `AI 视听执行导演正在重新校准【片段 ${activePlanningTask.input.shotId}】提示词与动作时序...`
+              : `AI 视听执行导演正在拆分${clipTitle ? `【${clipTitle}】` : '本幕'}演绎片段...`}
           </h3>
           <p className="text-xs text-slate-500 text-center max-w-md leading-relaxed mb-5">
             {activePlanningTask?.input?.shotId
-              ? '正在按照影视摄影五层公理体系与二元正交动量规范，定向重构首帧生图词与运镜动态表演。'
-              : '正在结合本幕剧情文本与视觉定妆资产，逐镜编排景别构图、机位运镜、视听节拍与首帧/动态提示词。'}
+              ? '正在按照影视导演提示词规范，重构该演绎片段的视频动作流或起幅画面。'
+              : '正在结合本幕剧情文本与视觉定妆资产，将剧情拆分为连贯的演绎片段并对齐角色与场景。'}
           </p>
           <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-indigo-50 border border-indigo-200/80 text-indigo-700 text-[11px] font-semibold shadow-2xs">
             <span className="w-2 h-2 rounded-full bg-indigo-500 animate-ping" />
             <span>
-              {activePlanningTask?.progress?.message || '🎬 正在拆解镜头节拍 · 🎥 编排景别运镜与提示词'}
+              {activePlanningTask?.progress?.message || '🎬 正在拆分演绎片段 · 🎥 对齐角色场景与动作时序'}
             </span>
           </div>
         </div>

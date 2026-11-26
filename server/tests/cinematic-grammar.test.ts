@@ -12,9 +12,9 @@ test('shared quality constraints do not exclude supported styles or composition'
 });
 
 test('still-frame guidance is separate from motion and output fields', () => {
-  assert.match(CINEMATIC_FIVE_LAYER_FRAMEWORK, /空间与接戏/);
-  assert.match(CINEMATIC_FIVE_LAYER_FRAMEWORK, /允许空镜、群像/);
+  assert.match(CINEMATIC_FIVE_LAYER_FRAMEWORK, /机位视点与透视/);
+  assert.match(CINEMATIC_FIVE_LAYER_FRAMEWORK, /重力解剖与着力点/);
   assert.doesNotMatch(CINEMATIC_FIVE_LAYER_FRAMEWORK, /动态表演与运镜规范|videoPrompt/);
-  assert.match(CINEMATIC_TEMPORAL_DYNAMICS_SPEC, /慢动作、定格、动画/);
-  assert.match(storyboardRolePrompt('c1', '第一幕'), /首帧构图指导/);
+  assert.match(CINEMATIC_TEMPORAL_DYNAMICS_SPEC, /景别动能分级/);
+  assert.match(storyboardRolePrompt('c1', '第一幕'), /首帧视觉生图/);
 });

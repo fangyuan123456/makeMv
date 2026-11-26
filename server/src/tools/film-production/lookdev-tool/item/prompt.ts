@@ -15,7 +15,7 @@ export const PROP_LOOKDEV_NEGATIVE =
  * 影视工业级单体道具棚拍统摄后缀 (Isolated Prop Catalog Suffix SSOT)
  */
 export const PROP_ISOLATED_CATALOG_SUFFIX =
-  '单件独立道具居中特写，纯浅灰中性无缝摄影棚背景，三点式静物柔光与边缘轮廓光，微距对焦真实物理材质与工艺细节，无杂物无人物无多余环境。';
+  '单件独立道具居中特写，平放或稳固置于纯浅灰中性无缝摄影棚台面上（细长或尖锐物件采用斜卧平放姿态），带有真实自然的台面接触阴影，三点式静物柔光与边缘轮廓光，微距对焦真实物理材质与工艺细节。';
 
 /**
  * 组装道具特写定妆渲染提示词（单一事实来源 SSOT）：
@@ -31,5 +31,5 @@ export function buildPropLookdevPrompt(
     .trim()
     .replace(/[，,。；;]+$/, '');
   const cleanStyle = artStyle?.trim() ? `画风：${artStyle.trim()}。` : '';
-  return `核心道具实物资产特写：${coreContent}。${PROP_ISOLATED_CATALOG_SUFFIX}无文字无标签无水印。${cleanStyle}`.trim();
+  return `核心道具实物资产特写：${coreContent}。${PROP_ISOLATED_CATALOG_SUFFIX}${cleanStyle}`.trim();
 }

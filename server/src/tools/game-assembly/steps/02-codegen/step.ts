@@ -18,8 +18,6 @@ import {
   type CodegenStepOutput,
 } from './schema.js';
 import type { TechPlanStepOutput } from '../01-tech-plan/schema.js';
-import { buildPrdScenes } from './prd-routing.js';
-import { parseGeneratedScreenplay } from '../../../planner/script-to-prd-tool/steps/01-extract/parse-generated.js';
 import { RUNTIME_FILES } from './runtime-files.js';
 import type { UniversalPrdSpec } from '../../../../project-store/contracts/planner/index.js';
 
@@ -61,7 +59,6 @@ export function generateMainJs(params: {
  */
 
 import { play } from '../runtime/player.js';
-import { resolveRoute } from '../runtime/routing.js';
 
 // 内嵌分幕工程数据
 const SCRIPT_DATA = ${JSON.stringify(embeddedScript, null, 2)};
@@ -169,14 +166,6 @@ class InteractiveGameCockpit {
     }
 
     const choices = scene.choices || [];
-    if (choices.length === 0 && scene.routes?.length) {
-      this.playScene(resolveRoute(scene.routes, this.blackboard.state));
-      return;
-    }
-    if (choices.length === 0 && scene.next) {
-      this.playScene(scene.next);
-      return;
-    }
     if (choices.length === 0) {
       this.renderEnding({
         type: 'NE',
@@ -218,12 +207,11 @@ class InteractiveGameCockpit {
   }
 
   handleChoice(choice) {
-    this.interactionEl.querySelectorAll('button').forEach(button => { button.disabled = true; });
     if (choice.stateChange) {
       this.blackboard.applyChange(choice.stateChange);
       this.updateHud();
     }
-    const targetSceneId = choice.routes?.length ? resolveRoute(choice.routes, this.blackboard.state) : choice.to || choice.targetSceneId || choice.nextNodeId;
+    const targetSceneId = choice.to || choice.targetSceneId || choice.nextNodeId;
     if (targetSceneId) {
       this.playScene(targetSceneId);
     } else if (choice.ending) {
@@ -525,15 +513,21 @@ export async function executeCodegenStep(
   const effectivePrd: UniversalPrdSpec = input.prd || store.getArtifact(input.projectId, 'prd');
   const title = input.title || effectivePrd?.gameTitle || '未命名互动影游';
   const startSceneId = input.startNodeId || input.script?.startSceneId || effectivePrd?.startNodeId || 'S1';
-  const initialState = effectivePrd?.initialState || input.script?.initialState || {};
+  const initialState = input.script?.initialState || effectivePrd?.initialState || {};
 
   let scenes: any[] = (input.scenes && input.scenes.length ? input.scenes : input.script?.scenes) || [];
-  if (effectivePrd?.clips?.length && effectivePrd.wiring?.length) {
-    const screenplay = store.getArtifact(input.projectId, 'screenplay');
-    const extracted = typeof screenplay==='string' ? parseGeneratedScreenplay(screenplay) : null;
-    scenes = buildPrdScenes(effectivePrd, scenes, Object.fromEntries((extracted?.clips || []).map(c=>[c.id,c.narrativeText])));
-  } else if(input.script && input.scenes?.length) {
-    scenes = input.script.scenes.map(s=>({...input.scenes.find(m=>m.sceneId===s.sceneId),...s}));
+  if (scenes.length === 0 && effectivePrd?.clips?.length) {
+    scenes = effectivePrd.clips.map((c: any) => ({
+      sceneId: c.id || c.clipId,
+      title: c.title,
+      text: c.narrativeText || c.title || '',
+      background: c.backgroundImageUrl || '',
+      choices: (c.choices || []).map((ch: any) => ({
+        text: ch.text || ch.label,
+        to: ch.to || ch.targetSceneId || ch.nextNodeId,
+      })),
+      ending: c.ending,
+    }));
   }
 
   // 4. 写入 index.html
@@ -558,7 +552,6 @@ export async function executeCodegenStep(
     'game-assembly/style.css',
     'game-assembly/runtime/player.js',
     'game-assembly/runtime/player.css',
-    'game-assembly/runtime/routing.js',
   ];
 
   const indexRel = path.relative(projectDir, indexHtmlPath).split(path.sep).join('/');
