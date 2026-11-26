@@ -192,12 +192,12 @@ test('纯 SVG 拓扑图谱渲染器 (StoryGraphSvgRenderer) 闭环测试', () =>
   assert.ok(svg.includes('立刻查验公文包'), '必须包含抉择分支文本标注');
 });
 
-test('ComfyUI 视频工作流模板 (comfyui_i2v.json) 与 videoGenerateTool 契约测试', () => {
+test('ComfyUI 视频工作流模板 (comfyui_h3_ref2v_6step.json) 与 videoGenerateTool 契约测试', () => {
   const provider = new ComfyUIMediaProvider();
-  const i2vPath = provider.resolveTemplatePath('comfyui_i2v.json');
-  assert.ok(fs.existsSync(i2vPath), 'comfyui_i2v.json 模板文件必须存在');
+  const ref2vPath = provider.resolveTemplatePath('comfyui_h3_ref2v_6step.json');
+  assert.ok(fs.existsSync(ref2vPath), 'comfyui_h3_ref2v_6step.json 模板文件必须存在');
 
-  const rawJson = JSON.parse(fs.readFileSync(i2vPath, 'utf-8'));
+  const rawJson = JSON.parse(fs.readFileSync(ref2vPath, 'utf-8'));
   const apiPrompt = ensureApiPromptFormat(rawJson);
 
   // 1. 测试提示词注入视频工作流

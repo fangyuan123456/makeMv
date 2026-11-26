@@ -65,13 +65,13 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
     );
   }, [projectData]);
 
-  const [selected, setSelected] = useState<ProcessNode>('first');
+  const [selected, setSelected] = useState<ProcessNode>('video');
   const [shotDropdownOpen, setShotDropdownOpen] = useState(false);
   const shotMenuRef = React.useRef<HTMLDivElement>(null);
 
-  // 切换目标镜头节点时自动重置首选步骤为首帧与更新连续性
+  // 切换目标片段节点时自动重置首选步骤为视频与更新连续性
   useEffect(() => {
-    setSelected('first');
+    setSelected('video');
     setContinuityMode(node.continuityMode || 'auto');
   }, [node.id, node.shotId]);
 
@@ -191,63 +191,13 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
       return;
     }
 
-    // 若无对应模式提示词，触发动态自愈推演
+    // 直接持久化连续性模式（控制 Ref2V 是否自动带入上一段末帧 videoLastFrameUrl）
     setIsGeneratingPrompt(true);
     try {
-      const clipId = node.clipId || node.shotId.split('-')[0];
-      const task = await runTask(projectId, 'film.shot_frame_prompt', {
-        projectId,
-        clipId,
-        shotId: node.shotId,
-        continuityMode: nextMode,
-      });
-
-      let generatedPrompt = '';
-      if (task?.taskId) {
-        const startTime = Date.now();
-        while (Date.now() - startTime < 12000) {
-          await new Promise((r) => setTimeout(r, 800));
-          try {
-            const currentTask = await fetchTaskRecord(task.taskId);
-            if (currentTask.status === 'completed') {
-              generatedPrompt = currentTask.output?.firstFramePrompt || '';
-              break;
-            } else if (currentTask.status === 'failed' || currentTask.status === 'cancelled') {
-              break;
-            }
-          } catch {}
-        }
-      }
-
-      if (generatedPrompt && generatedPrompt.trim()) {
-        setDraftPrompt(generatedPrompt);
-        setSavedPrompt(generatedPrompt);
-        if (!(node as any).continuityPrompts) (node as any).continuityPrompts = {};
-        if (nextMode === 'detached') {
-          (node as any).continuityPrompts.detached = generatedPrompt;
-        } else {
-          (node as any).continuityPrompts.linked = generatedPrompt;
-        }
-        await updateShotContinuity(projectId, node.shotId, nextMode, generatedPrompt);
-      } else {
-        // 兜底补齐：承接模式下注入声明式 @link(前序尾帧)；独立模式下剔除 @link
-        let fallbackPrompt = draftPrompt || node.firstFramePrompt || '';
-        if (nextMode === 'linked') {
-          if (!fallbackPrompt.includes('@link')) {
-            fallbackPrompt = `@link(前序尾帧) 继承前序时空光色。${fallbackPrompt}`;
-          }
-        } else {
-          fallbackPrompt = fallbackPrompt.replace(/[@＠]link(?:\([^)]*\))?\s*/g, '').trim();
-        }
-        setDraftPrompt(fallbackPrompt);
-        setSavedPrompt(fallbackPrompt);
-        await updateShotContinuity(projectId, node.shotId, nextMode, fallbackPrompt);
-      }
-      onRefreshProject?.();
-    } catch (err: any) {
-      console.warn('动态生成连续性提示词失败:', err);
       await updateShotContinuity(projectId, node.shotId, nextMode);
       onRefreshProject?.();
+    } catch (err: any) {
+      console.warn('切换连续性模式失败:', err);
     } finally {
       setIsGeneratingPrompt(false);
     }
@@ -353,8 +303,7 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const dragStart = React.useRef({ x: 0, y: 0, panX: 0, panY: 0 });
-  const hasLastFrame = node.generationMode === 'first_last_frame' || Boolean(node.lastFrameUrl);
-  const processNodes: ProcessNode[] = hasLastFrame ? ['first', 'last', 'video'] : ['first', 'video'];
+  const processNodes: ProcessNode[] = ['video'];
   const labels: Record<ProcessNode, string> = { first: '首帧', last: '末帧', video: '视频' };
 
   const getActiveTask = (kind: ProcessNode): TaskRecord | undefined => {
@@ -407,39 +356,26 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
 
   const autoExtractedShotRef = useRef<string | null>(null);
 
-  // 点进单镜详情或切换镜头时：按需自动补齐缺失的首帧生图词或视频运镜词
+  // 点进片段详情或切换片段时：按需自动补齐缺失的视频运镜词（不再推演首帧生图词）
   useEffect(() => {
     if (!projectId || !node.shotId || !node.clipId) return;
 
     if (
-      (!node.firstFramePrompt || !node.videoPrompt) &&
-      !isPromptExtracting &&
+      !node.videoPrompt &&
       !isMotionExtracting &&
       autoExtractedShotRef.current !== node.shotId
     ) {
       autoExtractedShotRef.current = node.shotId;
-      if (!node.firstFramePrompt) {
-        onRunTool('film.shot_frame_prompt', {
-          projectId,
-          clipId: node.clipId,
-          shotId: node.shotId,
-          __idempotencyKey: `shot-frame-prompt:auto:${projectId}:${node.shotId}`,
-        })
-          .then(() => onRefreshProject?.())
-          .catch((err) => console.warn(`[ShotProcessCanvas] 自动推演镜头 [${node.shotId}] 首帧词失败:`, err));
-      }
-      if (!node.videoPrompt) {
-        onRunTool('film.shot_motion_prompt', {
-          projectId,
-          clipId: node.clipId,
-          shotId: node.shotId,
-          __idempotencyKey: `shot-motion-prompt:auto:${projectId}:${node.shotId}`,
-        })
-          .then(() => onRefreshProject?.())
-          .catch((err) => console.warn(`[ShotProcessCanvas] 自动推演镜头 [${node.shotId}] 视频运镜词失败:`, err));
-      }
+      onRunTool('film.shot_motion_prompt', {
+        projectId,
+        clipId: node.clipId,
+        shotId: node.shotId,
+        __idempotencyKey: `shot-motion-prompt:auto:${projectId}:${node.shotId}`,
+      })
+        .then(() => onRefreshProject?.())
+        .catch((err) => console.warn(`[ShotProcessCanvas] 自动推演片段 [${node.shotId}] 视频运镜词失败:`, err));
     }
-  }, [projectId, node.shotId, node.clipId, node.firstFramePrompt, node.videoPrompt, isPromptExtracting, isMotionExtracting]);
+  }, [projectId, node.shotId, node.clipId, node.videoPrompt, isMotionExtracting]);
 
   // 手动重新推演首关键帧生图词
   const handleExtractShotPrompt = async () => {
@@ -1457,8 +1393,8 @@ export const ShotProcessCanvas: React.FC<ShotProcessCanvasProps> = ({
           </div>
         )}
 
-        {/* 首帧时空因果决策：是否承接上镜尾帧 */}
-        {selected === 'first' && (
+        {/* 时空连续性决策：是否在 Ref2V 时自动带入上一段尾帧 */}
+        {selected === 'video' && (
           <div className="mt-3 space-y-2">
             <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 shadow-2xs">
               <div className="flex items-center gap-1.5 min-w-0">

@@ -63,16 +63,6 @@ export const shotVideoStep = createStep({
         return true;
       }
 
-      // 底图确定性源头：优先使用显式参考图或首帧图 (I2V)；若无首帧图或指定 ref2v，则自动收集角色/场景/道具定妆图走 H3 全能参考直出
-      let effectiveImage = referenceImageUrl;
-      if (!effectiveImage && mode !== 'ref2v' && targetShot.generationMode !== 'ref2v') {
-        const firstVersions = Array.isArray(targetShot.firstFrameVersions) ? targetShot.firstFrameVersions : [];
-        const latestUpscale = [...firstVersions].reverse().find((v: any) => v.source === 'upscale' && v.imageUrl);
-        effectiveImage = latestUpscale?.imageUrl || targetShot.firstFrameImageUrl || targetShot.keyframeUrl;
-      }
-
-      const effectiveLastFrame = targetShot.lastFrameImageUrl || targetShot.lastFrameUrl || undefined;
-
       // 业务层纯提示词：自定义优先，否则沿用镜头台本（保持纯戏剧台本，绝不存硬件外壳）
       if (customPrompt && customPrompt.trim()) {
         targetShot.videoPrompt = customPrompt.trim();
@@ -81,10 +71,10 @@ export const shotVideoStep = createStep({
         targetShot.videoPrompt ||
         `${targetShot.cameraMovement || '中速稳健运镜'}, 电影级平滑物理运镜，人物动作流畅写实，自然物理速率`;
 
-      // 收集 Ref2V 多图参考资产（当无首帧图或明确选用 ref2v 时启用）
+      // 收集 Ref2V 多图参考资产（全线走 H3 全能参考直出：角色/场景/道具定妆图 + 可选构图参考图 + 同场景上一段末帧）
       const ref2vUrls: string[] = [];
       const ref2vLegend: string[] = [];
-      if (!effectiveImage) {
+      {
         const entities = store.getArtifact<any>(projectId, 'lookdev_entities');
         const seenRef = new Set<string>();
         const pushRef = (url: string | undefined, label: string) => {
@@ -94,6 +84,10 @@ export const shotVideoStep = createStep({
           ref2vUrls.push(clean);
           ref2vLegend.push(`<Picture ${ref2vUrls.length}> ${label}`);
         };
+
+        if (referenceImageUrl) {
+          pushRef(referenceImageUrl, '为起始构图与站位参考');
+        }
 
         const charList = Array.isArray(entities?.characters) ? entities.characters : [];
         const targetCharIds = Array.isArray(targetShot.characters) ? targetShot.characters : [];
@@ -132,18 +126,14 @@ export const shotVideoStep = createStep({
         }
 
         if (ref2vUrls.length === 0) {
-          console.warn(`[ShotVideoTool] 镜头 [${targetShot.shotId}] 既缺少首帧底图，也未匹配到定妆参考图，跳过视频渲染`);
+          console.warn(`[ShotVideoTool] 镜头 [${targetShot.shotId}] 未匹配到任何定妆或构图参考图，跳过视频渲染`);
           return false;
         }
       }
 
-      const useRef2V = !effectiveImage && ref2vUrls.length > 0;
-
       // 底层算力硬件提示词（动态装配，仅内存态传给视频生成工具，绝不写回 targetShot 业务实体）
-      const baseHardwarePrompt = formatVideoMotionPrompt(rawMotion, Boolean(effectiveLastFrame), undefined, useRef2V);
-      const hardwarePrompt = useRef2V
-        ? `${ref2vLegend.join('；')}。\n${baseHardwarePrompt}`
-        : baseHardwarePrompt;
+      const baseHardwarePrompt = formatVideoMotionPrompt(rawMotion, false, undefined, true);
+      const hardwarePrompt = `${ref2vLegend.join('；')}。\n${baseHardwarePrompt}`;
       const audioPrompt = targetShot.audioPrompt || targetShot.ambience || '电影级写实环境声与质感氛围';
 
       const targetDuration = Math.min(15, Math.max(2, Math.round(durationSec ?? targetShot.durationSec ?? targetShot.estimatedSeconds ?? 5)));
@@ -166,10 +156,8 @@ export const shotVideoStep = createStep({
             projectId,
             prompt: hardwarePrompt,
             audioPrompt,
-            mode: useRef2V ? 'ref2v' : 'i2v',
-            referenceImageUrl: effectiveImage,
-            referenceImageUrls: useRef2V ? ref2vUrls : undefined,
-            lastFrameImageUrl: effectiveLastFrame,
+            mode: 'ref2v',
+            referenceImageUrls: ref2vUrls,
             duration: targetDuration,
             subfolder: 'videos',
             customFilename: fileName.replace(/\.[^.]+$/, ''),

@@ -17,22 +17,19 @@ export function buildShotMotionModifierPrompt(params: {
 }): string {
   const { shot, instruction, customVideoPrompt } = params;
 
-  return `你是一名国际顶级电影视效指导与执行导演。
-现在请根据导演的微调诉求，对镜头【${shot.shotId} · ${shot.title}】的既有视频时序动作流（videoPrompt）执行精准定向微调：
+  return `你是一名国际顶级电影导演与摄影指导。
+现在请根据导演的微调诉求，对演绎片段【${shot.shotId} · ${shot.title}】的既有视频多机位提示词（videoPrompt）执行精准定向微调：
 
-【既有视频动态基底】：
-${shot.videoPrompt || '暂无既有视频动作流'}
-
-【当前镜头首帧起幅定格（不可破坏的物理起点）】：
-${shot.firstFramePrompt || '沿用首帧设定'}
+【既有视频提示词基底】：
+${shot.videoPrompt || '暂无既有视频提示词'}
 
 ${instruction ? `【导演微调指令】：\n${instruction}\n` : ''}
-${customVideoPrompt ? `【创作者指定动态雏形】：\n${customVideoPrompt}\n` : ''}
+${customVideoPrompt ? `【创作者指定提示词雏形】：\n${customVideoPrompt}\n` : ''}
 
 ${getSkillsForStage('motion')}
 
-【微调输出准则（50~100 字，高信噪比精简版）】：
-1. 直接描述动作变化、简洁运镜与声音接续，去掉“从起幅定格连贯演进：”等套话前缀以及“电影级阻尼、超清细节、冷暖光比”等静态画质与抽象修辞；
-2. 遵循景别动能分级法则（全景重位移与环境流，中景重肢体交互，特写重神态与生理微动态），严禁在全景镜头中写呼吸/喉结/眼神等亚像素不可见微动作；
+【微调输出准则（适配 H3 Ref2V 段落多机位直出）】：
+1. 保留「人物站位：...」与时间戳机位格式（\`[机位A·起—止秒·焦段·机位与运镜]：动作与音效\`），仅按导演指令精准调整指定机位、动作或台词；
+2. 严禁写入“电影质感、超清细节、冷暖光比、外貌服饰描写”等静态画质套话，把全部篇幅留给站位、焦段角度、物理动作与声音；
 3. 输出符合 ShotMotionPromptOutputSchema 的 JSON。`;
 }

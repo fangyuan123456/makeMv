@@ -19,7 +19,7 @@ import { buildShotMotionPromptPrompt } from './prompt.js';
 
 export const shotMotionPromptStep = createStep({
   id: 'shot-motion-prompt-step',
-  description: '以首帧为物理起幅基准，推演符合景别动能分级（LOD）的图生视频动作流',
+  description: '基于段落剧情与时空站位，推演适配 H3 Ref2V 的段落多机位视频提示词',
   inputSchema: ShotMotionPromptInputSchema,
   outputSchema: ShotMotionPromptOutputSchema,
   execute: async ({ context }) => {
@@ -62,8 +62,9 @@ export const shotMotionPromptStep = createStep({
     const promptText = buildShotMotionPromptPrompt({
       shot: {
         shotId: currentShot.shotId,
-        title: currentShot.title || `镜头 ${currentShot.shotId}`,
+        title: currentShot.title || `片段 ${currentShot.shotId}`,
         shotType: currentShot.shotType || currentShot.sliceSummary || '',
+        location: currentShot.location || currentClip.location || '',
         sceneSubject: currentShot.sceneSubject || currentShot.description || '',
         firstFramePrompt,
         firstFrameImageUrl,
@@ -71,8 +72,9 @@ export const shotMotionPromptStep = createStep({
         motionDirective: currentShot.motionDirective,
         dynamicDirective: currentShot.dynamicDirective,
         focusDirective: currentShot.focusDirective,
-        durationSec: input.durationSec || currentShot.durationSec || currentShot.estimatedSeconds || 3,
+        durationSec: input.durationSec || currentShot.durationSec || currentShot.estimatedSeconds || 8,
         dialogue: currentShot.dialogue,
+        continuityMode: currentShot.continuityMode,
       },
       clipTitle,
       narrativeText,
@@ -83,7 +85,7 @@ export const shotMotionPromptStep = createStep({
 
     const agent = new Agent({
       name: 'shot-motion-prompt-director',
-      instructions: '你是一名顶级电影导演兼视效指导，擅长严格遵循景别动能分级（LOD）与首帧物理连续性，描摹克制专业的图生视频动作流。',
+      instructions: '你是一名顶级电影导演兼摄影指导，擅长用「站位光影 + 时间戳多机位」编写高信噪比的 H3 Ref2V 视频提示词。',
       model: LLMProvider.getModel(),
     });
 

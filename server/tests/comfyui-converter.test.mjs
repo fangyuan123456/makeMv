@@ -53,15 +53,12 @@ test('character templates keep every loader widget field', () => {
   }
 });
 
-test('H3 video prompt keeps required inputs and rejects UI canvas format', () => {
-  const prompt = ensureApiPromptFormat(readTemplate('comfyui_h3_first_last_8step.json'));
-  assert.equal(prompt['14'].inputs.width, 1280);
-  assert.equal(prompt['14'].inputs.height, 704);
-  assert.equal(prompt['14'].inputs.length, 96);
-  assert.equal(prompt['21'].inputs.selection, 'sol-attn');
-  assert.equal(prompt['21'].inputs.min_tokens, 12288);
-  assert.equal(prompt['13'].inputs.format, 'auto');
-  assert.ok(ComfyUITopologyInjector.injectPrompts(prompt, '镜头从首帧推向尾帧'));
-  assert.equal(prompt['14'].inputs.prompt, '镜头从首帧推向尾帧');
+test('H3 ref2v video prompt keeps required inputs and rejects UI canvas format', () => {
+  const prompt = ensureApiPromptFormat(readTemplate('comfyui_h3_ref2v_6step.json'));
+  const ref2vNode = Object.values(prompt).find((n) => n?.class_type === 'MiniMaxH3ReferenceToVideo');
+  assert.ok(ref2vNode && ref2vNode.inputs, '必须包含 MiniMaxH3ReferenceToVideo 节点');
+  assert.ok('width' in ref2vNode.inputs && 'height' in ref2vNode.inputs && 'length' in ref2vNode.inputs);
+  assert.ok(ComfyUITopologyInjector.injectPrompts(prompt, '<Picture 1> 为角色外观基准。\n陈守义缓慢推门进入正厅。'));
+  assert.equal(ref2vNode.inputs.prompt, '<Picture 1> 为角色外观基准。\n陈守义缓慢推门进入正厅。');
   assert.throws(() => ensureApiPromptFormat({ nodes: [], links: [] }), /不是 \/prompt API 格式/);
 });

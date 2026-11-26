@@ -438,7 +438,7 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
                 generationMode:
                   beat.generationMode ||
                   old.generationMode ||
-                  ((beat.estimatedSeconds || 8) >= 6 ? 'ref2v' : 'first_frame'),
+                  'ref2v',
                 location: beat.location || targetClip.location || old.location,
                 locationId: beat.locationId || targetClip.locationId || old.locationId,
                 characters: beat.characterIds || [],

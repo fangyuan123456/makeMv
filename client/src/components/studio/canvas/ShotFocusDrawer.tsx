@@ -55,10 +55,8 @@ export const ShotFocusDrawer: React.FC<ShotFocusDrawerProps> = ({
       setSelectedTaskId(node.activeTaskId || (node.candidateTaskIds && node.candidateTaskIds[0]) || null);
       if (node.type === 'lookdev_root') {
         setActiveStep('keyframe');
-      } else if (!node.videoUrl && node.keyframeUrl) {
+      } else if (!node.videoUrl) {
         setActiveStep('motion');
-      } else if (!node.keyframeUrl) {
-        setActiveStep('keyframe');
       } else {
         setActiveStep('candidates');
       }
@@ -332,7 +330,7 @@ export const ShotFocusDrawer: React.FC<ShotFocusDrawerProps> = ({
                     </div>
                     <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 space-y-1">
                       <span className="text-[10px] text-slate-400 font-medium">生成模式</span>
-                      <p className="text-sm font-bold text-indigo-700">首帧图生视频</p>
+                      <p className="text-sm font-bold text-indigo-700">H3 全能参考直出视频 (Ref2V)</p>
                     </div>
                   </div>
 

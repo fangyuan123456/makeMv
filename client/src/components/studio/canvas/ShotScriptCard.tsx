@@ -430,7 +430,7 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
                   : 'bg-slate-50 text-slate-400 border-slate-200/70'
               }`}
             >
-              {node.videoUrl ? '视频就绪' : node.keyframeUrl ? '首帧就绪' : '待制作'}
+              {node.videoUrl ? '视频就绪' : node.videoPrompt ? '台本就绪' : '待制作'}
             </span>
           )}
 

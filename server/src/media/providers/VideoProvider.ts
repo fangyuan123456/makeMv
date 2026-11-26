@@ -5,7 +5,7 @@
 
 export interface VideoGenerationOptions {
   requestId?: string;
-  mode?: 'i2v' | 'ref2v';
+  mode?: 'ref2v';
   referenceImageUrl?: string;
   referenceImageUrls?: string[];
   lastFrameImageUrl?: string;

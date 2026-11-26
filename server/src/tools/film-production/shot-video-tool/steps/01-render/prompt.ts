@@ -3,15 +3,14 @@
  * 镜头视频动作表演与音效提示词装配 (遵循行业标准与多角色空间锚定语法)
  *
  * 核心设计：
- * 彻底实现图生视频 (I2V) 与文生图 (T2I) 提示词契约正交分离。
- * 首帧参考图为视觉连续性提供参考，不能保证完全锁定外貌、服装、道具与冷暖光照，严禁在 I2V 文本中混入“【视觉连续性锁定】禁止改变”等
- * 负向抑制性文字，确保大模型交叉注意力动能充沛，以电影标准自然物理速率驱动动作与机位。
+ * 全线采用全能多图参考视频生成 (Ref2V) 契约，剥离任何冗余的静态首帧外壳与抑制性文字，
+ * 确保大模型交叉注意力动能充沛，以电影标准自然物理速率驱动多机位动作与运镜。
  */
 
 import type { CinematicShotOrder } from '../../../../../project-store/contracts/film-production/film-spec.js';
 
 /**
- * 影视工业级图生视频（I2V）纯净动词流装配 (High-Dynamics Clean Motion SSOT)
+ * 影视工业级 Ref2V 纯净动词流装配 (High-Dynamics Clean Motion SSOT)
  * 全链路读写纯净自然语言；自动容错剥离任何残留的 @ 符号，释放大模型物理动能。
  */
 export function formatVideoMotionPrompt(

@@ -78,8 +78,8 @@ describe('Storyboard Pipeline SSOT (Shooting Script & Shot Prompt)', () => {
       },
       clipTitle: '夜归老宅',
     });
-    assert.ok(motionPrompt.includes('首帧起幅状态'));
-    assert.ok(motionPrompt.includes('生理微动态'));
+    assert.ok(motionPrompt.includes('Ref2V'));
+    assert.ok(motionPrompt.includes('人物站位：'));
   });
 
   it('3. 各分镜工具的 modifier 均具备独立的微调提示词与结构化/增量继承机制', () => {
@@ -132,10 +132,10 @@ describe('Storyboard Pipeline SSOT (Shooting Script & Shot Prompt)', () => {
       },
       instruction: '让主角手部动作放慢一倍，配角视线同步下移',
     });
-    assert.ok(motionModPrompt.includes('既有视频动态基底'));
+    assert.ok(motionModPrompt.includes('既有视频提示词基底'));
     assert.ok(motionModPrompt.includes('原有视频动作流'));
     assert.ok(motionModPrompt.includes('配角视线同步下移'));
-    assert.ok(motionModPrompt.includes('生理微动态'));
+    assert.ok(motionModPrompt.includes('Ref2V'));
   });
 
   it('4. 全剧故事因果与前后镜头接戏 (Continuity) 上下文正确注入各级提示词与契约', () => {
