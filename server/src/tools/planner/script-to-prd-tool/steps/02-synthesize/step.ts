@@ -175,20 +175,63 @@ export const synthesizePrdStep = createStep({
       }
     }
 
-    // 5. 组装通用 PRD 全貌
+    // 5. 汇聚状态字典与初始状态 (合并抽取字典与实际使用的 stateChange 键)
+    const stateMap = new Map<string, { key: string; label: string; initialValue: any; showInHud: boolean; description: string }>();
+    for (const sf of raw.stateSchema || []) {
+      const k = String(sf.key || '').replace(/^[+]/, '').trim();
+      if (!k) continue;
+      stateMap.set(k, {
+        key: k,
+        label: sf.label || k,
+        initialValue: sf.initialValue ?? 0,
+        showInHud: sf.showInHud !== false,
+        description: sf.description || '剧情交互状态记录',
+      });
+    }
+    for (const inter of interactions) {
+      for (const o of inter.outcomes || []) {
+        for (const k of Object.keys(o.stateChange?.add || {})) {
+          if (!stateMap.has(k)) {
+            stateMap.set(k, {
+              key: k,
+              label: k,
+              initialValue: 0,
+              showInHud: true,
+              description: `${inter.id} (${o.label}) 触发写入`,
+            });
+          }
+        }
+      }
+    }
+    const stateSchema = Array.from(stateMap.values());
+    const initialState: Record<string, any> = {};
+    for (const sf of stateSchema) {
+      initialState[sf.key] = sf.initialValue;
+    }
+
+    // 6. 组装通用 PRD 全貌
     const prd: UniversalPrdSpec = {
       gameTitle,
-      genre: '互动影游',
-      playerIdentity: '故事核心主角',
-      premiseAndPerspective: '第一人称视听浸入式互动电影',
-      outOfFlowSummary: '无复杂外围养成，专注纯剧情分支与生死抉择',
-      gameplayAndVictorySummary: '在剧情关键时刻做出决策，达成胜利通关或发掘不同隐藏终局',
+      genre: raw.genre || '互动影游',
+      playerIdentity: raw.playerIdentity || '故事核心主角',
+      premiseAndPerspective: raw.premiseAndPerspective || '第一人称视听浸入式互动电影',
+      ...(raw.uiTheme ? { uiTheme: raw.uiTheme } : {}),
+      outOfFlowSummary:
+        stateSchema.length > 0
+          ? `围绕 ${stateSchema.map((s) => s.label).join('、')} 共 ${stateSchema.length} 项剧情状态推进，支持局部存档、回溯重选与多结局图鉴。`
+          : '专注纯剧情沉浸推进、动作/搜证交互与多结局图鉴结算。',
+      gameplayAndVictorySummary: '按分幕推进视频与末帧交互，收集关键状态线索并在高压抉择点做出决定，达成胜利通关或发掘全部分支结局。',
       uiPagesSummary: [
-        { page: '主播放区', features: '沉浸全屏播放、分支选择悬浮卡片、回溯选集' },
-        { page: '故事线图谱', features: '展示所有已解锁与待探索剧情分节点' },
+        { page: 'Loading 预加载页', features: '首幕视频与核心定妆/道具素材预热、作品标题与进度条展示，避免开场黑屏卡顿' },
+        { page: '游戏主页', features: '首幕海报底图、作品标题与简介、开始新游戏、继续上次存档、故事线与结局图鉴入口（显示已解锁数）' },
+        { page: '主播放与交互舞台', features: '全屏视频播放、顶部中文状态 HUD 角标、幕末安全区互动浮层（搜证/长按/连点/时机/限时抉择）、静音与暂停入口' },
+        { page: '暂停与设置浮层', features: '呼出即冻结视频与互动倒计时，支持继续播放、音量调节、重看当前幕、返回主页' },
+        { page: '故事线选集与回溯', features: '按主干与分支展示已解锁节点与结局，支持回溯重玩（恢复该节点进入前状态快照，保留已解锁结局）' },
+        { page: '结局结算页', features: '展示结局徽章（TE/HE/BE/NE）、标题与完整判词、回溯关键点重选、返回主页与重新开始' },
       ],
       startNodeId,
-      initialState: {},
+      initialState,
+      ...(stateSchema.length > 0 ? { stateSchema } : {}),
       clips,
       interactions,
       endings,

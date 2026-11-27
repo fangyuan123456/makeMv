@@ -84,6 +84,7 @@ export interface ExtractedCharacter {
   identity: string;
   appearanceSummary: string;
   promptZh: string;
+  voiceStyle?: string;
   referenceImageUrl?: string;
   imageUrl?: string;
   versions?: LookdevVersion[];

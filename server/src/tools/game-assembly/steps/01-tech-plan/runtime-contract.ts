@@ -20,19 +20,21 @@ export function buildRuntimeFactsSection(facts: {
 
 export function buildRuntimeBehaviorRules(): string {
   return `【运行时行为要求】
-1. 一幕只有四种情况，按放映单判断：
-   - 有 interaction：自动弹介入点，按 kind 渲染真实交互（CLICK 给可点区域与点击反馈、HOLD 显示长按进度、其它未知 kind 降级为「点击确认」按钮），做完套用 stateChange、把 feedback 当轻提示展示，然后按 next 切幕；
-   - 有 choices 且有内容：自动弹选项按钮，点击先套用 stateChange 再跳到 to；
-   - 有 ending：自动展示终局覆盖层（title、verdict），有 rewindTo 就给「回到该幕重选」；
-   - 只有 next（或什么都没有）：直接切 next，中间不要插任何点击。
-2. 状态：initialState 起步，{ add } 累加、{ set } 赋值。HUD 常驻显示当前幕标题（放映单里的 title）与关键状态数值。
-3. 视觉：遮罩、装饰、按钮、进度、过场都由 CSS 与内联 SVG 绘制；不引用任何图片、字体、CDN 或第三方库；图标用 SVG path，不要堆 emoji。
-4. 关卡结构（幕号、走向、按钮文案）按放映单写进代码；台词与画面由底座播。不要按幕写 if / switch，用一张表驱动，所有幕走同一条调度路径。
-5. 切幕只走一条通道 goToScene(sceneId)：清理浮层 → play，不要在三处各写一份加载逻辑。
-6. 渲染新一幕前必须清掉上一幕的介入层、选项层、提示层（清 innerHTML 并隐藏），不许浮层残留；浮层显示状态统一使用同一个类名（推荐 is-visible），不得在 JS 使用 is-visible、CSS 却只定义 active。
-7. 介入层与选项层只放在画面下部安全区，不遮挡 HUD 与幕标题；同一时刻只能有一个可交互浮层。
-8. HUD 不要出现 "TRUST 2 / HASCHIP NO" 这种机器味标签，按业务写中文（如 信任 2 / 证据 3）。
-9. 放映单里没有这一幕、或去向指向不存在的幕时，给一句明确提示并停在当前画面，不要白屏、不要死循环。`;
+1. 界面完整度（6 大界面缺一不可）：
+   - Loading 预加载页（预加载首幕资源并显示进度）；
+   - 游戏主页（首幕海报底图、标题、开始新游戏、继续存档、故事线与结局图鉴）；
+   - 主播放舞台（全屏播放 + 顶部中文状态 HUD + 暂停/选集/静音按钮 + 幕末安全区互动层）；
+   - 暂停浮层（呼出即冻结视频与倒计时，支持继续、重看当前幕、返回主页）；
+   - 故事线选集与回溯（展示已解锁节点与结局，支持按状态快照回溯重玩）；
+   - 结局结算页（展示结局徽章、判词、回溯重选、返回主页）。
+2. 一幕交互按放映单与 \`interaction.kind\` 分发：
+   - \`SEARCH\`：安全区散落展示全部目标与干扰项（若 \`searchMode === 'FLASHLIGHT'\` 则叠加探照光圈）；点干扰物仅弹轻提示；全部目标集齐后套用 \`stateChange\` 并切幕；
+   - \`TIMED_CHOICE\` / \`CHOICE\` / \`ACTION_ZONE\`：渲染选项或空间热区；有 \`timeoutSec\` 时顶部显示倒计时条，归零自动触发 \`TIMEOUT\` 分支；
+   - \`HOLD\` / \`QTE_TAP\` / \`TIMING\` / \`CLICK\`：按对应蓄力环/连点条/靶区或触发按钮渲染真实交互；
+   - 有 \`ending\`：展示终局覆盖层；只有 \`next\`：直接切 \`next\`。
+3. 状态：initialState 起步，{ add } 累加、{ set } 赋值。HUD 仅显示中文状态名（由 \`stateSchema\` 映射），严禁印出英文变量名。
+4. 视觉：遮罩、装饰、按钮、进度、过场由 CSS 与内联 SVG 绘制，主色/强调色/背景色直接复用 PRD 的 \`uiTheme\`；页面在 iframe 中自适应宽高 100%。
+5. 切幕只走一条通道 goToScene(sceneId)：清理计时器与浮层 → play，不留残留。`;
 }
 
 export function buildScreeningList(
@@ -47,7 +49,10 @@ export function buildScreeningList(
       if (typeof len === 'number') parts.push(`正文 ${len} 字`);
 
       if (s.interaction) {
-        parts.push(`介入 ${s.interaction.kind}「${s.interaction.prompt}」${describeChange(s.interaction.stateChange)}`);
+        const cd = s.interaction.timeoutSec ? `(${s.interaction.timeoutSec}s)` : '';
+        const targets = s.interaction.config?.targets?.map((t) => t.name).join('、');
+        const cfgNote = targets ? `[目标:${targets}]` : '';
+        parts.push(`介入 ${s.interaction.kind}${cd}「${s.interaction.prompt}」${cfgNote}${describeChange(s.interaction.stateChange)}`);
         if (opts.verbatim && s.interaction.feedback) parts.push(`操作后提示「${s.interaction.feedback}」`);
       }
 

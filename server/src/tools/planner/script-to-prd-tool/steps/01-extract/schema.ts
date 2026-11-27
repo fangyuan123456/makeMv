@@ -7,6 +7,8 @@ import { z } from 'zod';
 import {
   InteractionConfigSchema,
   InteractionKindSchema,
+  PrdStateFieldSchema,
+  PrdUiThemeSchema,
 } from '../../../../../project-store/contracts/planner/index.js';
 
 export const ScriptToPrdInputSchema = z.object({
@@ -37,6 +39,11 @@ export const ExtractedClipInteractionSchema = z.object({
 
 export const ExtractedScriptStructureSchema = z.object({
   title: z.string().describe('提取出的剧作标题'),
+  genre: z.string().optional().describe('真实题材类型（如 中式民俗微恐、赛博朋克潜入、动作悬疑）'),
+  playerIdentity: z.string().optional().describe('玩家扮演的主角姓名与身份定位'),
+  premiseAndPerspective: z.string().optional().describe('故事核心前提与第一人称临场视角描述'),
+  uiTheme: PrdUiThemeSchema.optional().describe('契合剧作题材的 UI 主题配色与质感建议'),
+  stateSchema: z.array(PrdStateFieldSchema).optional().describe('全局状态字典（含每个状态变量的中文名、初始值、HUD 显隐及用途）'),
   clips: z.array(
     z.object({
       id: z.string().describe('切片规范 ID，如 c1, c2, b1_a'),

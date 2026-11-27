@@ -81,6 +81,7 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
   const [activeTab, setActiveTab] = useState<'characters' | 'locations' | 'items'>('characters');
   const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({});
   const [spatialDrafts, setSpatialDrafts] = useState<Record<string, string>>({});
+  const [voiceDrafts, setVoiceDrafts] = useState<Record<string, string>>({});
   const [isSavingSpatial, setIsSavingSpatial] = useState(false);
   const [uploadingEntityId, setUploadingEntityId] = useState<string | null>(null);
   const [versionModalEntity, setVersionModalEntity] = useState<ActiveEntityModal | null>(null);
@@ -714,10 +715,25 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
       spatialDrafts[selectedLocId] !== origSpatialStr
   );
 
-  // 综合是否有改动
-  const isEntityChanged = isPromptChanged || isSpatialChanged;
+  const selectedCharId = selectedCharacter
+    ? selectedCharacter.characterId || selectedCharacter.id
+    : null;
+  const origVoiceStr = selectedCharacter?.voiceStyle || '';
+  const currentVoiceStr = selectedCharId
+    ? voiceDrafts[selectedCharId] !== undefined
+      ? voiceDrafts[selectedCharId]
+      : origVoiceStr
+    : '';
+  const isVoiceChanged = Boolean(
+    selectedCharId &&
+      voiceDrafts[selectedCharId] !== undefined &&
+      voiceDrafts[selectedCharId] !== origVoiceStr
+  );
 
-  // 统一批量保存当前选中实体的所有未生效修改 (Prompt 和/或 空间构造)
+  // 综合是否有改动
+  const isEntityChanged = isPromptChanged || isSpatialChanged || isVoiceChanged;
+
+  // 统一批量保存当前选中实体的所有未生效修改 (Prompt / 空间构造 / 声色基准)
   const handleSaveActiveEntityChanges = async () => {
     if (!activeSelectedEntity || !activeEntityId) return;
     const entityType: 'character' | 'location' | 'item' = selectedCharacter
@@ -733,9 +749,19 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
     if (selectedLocation && selectedLocId && isSpatialChanged && spatialDrafts[selectedLocId] !== undefined) {
       patch.spatialLayout = spatialDrafts[selectedLocId];
     }
+    if (selectedCharacter && selectedCharId && isVoiceChanged && voiceDrafts[selectedCharId] !== undefined) {
+      patch.voiceStyle = voiceDrafts[selectedCharId];
+    }
 
     if (Object.keys(patch).length > 0) {
       await updateEntity(projectId, entityType, activeEntityId, patch);
+      if (selectedCharId && patch.voiceStyle !== undefined) {
+        setVoiceDrafts((prev) => {
+          const next = { ...prev };
+          delete next[selectedCharId];
+          return next;
+        });
+      }
       onRefreshProject?.();
     }
   };
@@ -1648,6 +1674,54 @@ export const LookdevCanvas: React.FC<LookdevCanvasProps> = ({
                     </div>
                   );
                 })()}
+
+                {/* 板块 3：角色声色基准 (仅角色专有，专供下游视频台词配音) */}
+                {selectedCharacter && selectedCharId && (
+                  <div className="bg-emerald-50/40 border border-emerald-200/80 rounded-2xl p-3.5 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-emerald-950 flex items-center space-x-1">
+                        <span>🎙️</span>
+                        <span>声色基准 (视频配音专用)</span>
+                      </span>
+                      {isVoiceChanged && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setVoiceDrafts((prev) => {
+                              const next = { ...prev };
+                              delete next[selectedCharId];
+                              return next;
+                            });
+                          }}
+                          className="inline-flex items-center gap-1 text-[10px] text-white bg-amber-500 hover:bg-amber-600 border border-amber-600 px-2 py-0.5 rounded-md font-bold transition shadow-xs cursor-pointer group active:scale-95 animate-in fade-in"
+                          title="放弃未应用的改动，一键还原为当前已保存声色基准"
+                        >
+                          <span>↺ 还原声色</span>
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      value={currentVoiceStr}
+                      onChange={(e) =>
+                        setVoiceDrafts((prev) => ({
+                          ...prev,
+                          [selectedCharId]: e.target.value,
+                        }))
+                      }
+                      placeholder="如：沙哑低沉老年男声，语速缓慢带干咳（10~25字，独立于生图提示词）"
+                      className={`w-full text-xs text-slate-800 rounded-xl px-3 py-2 focus:outline-none transition-colors ${
+                        isVoiceChanged
+                          ? 'border-2 border-amber-400/90 bg-amber-50/20 focus:ring-2 focus:ring-amber-400/30'
+                          : 'border border-emerald-200/90 bg-white focus:ring-1 focus:ring-emerald-500'
+                      }`}
+                    />
+                    <p className="text-[10px] text-emerald-700/85 leading-tight">
+                      * 仅用于锁定视频对白声线，不会混入角色定妆生图提示词。
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>

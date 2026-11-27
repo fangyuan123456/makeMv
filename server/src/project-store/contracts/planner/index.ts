@@ -122,16 +122,37 @@ export const PrdUiPageSpecSchema = z.object({
 
 export type PrdUiPageSpec = z.infer<typeof PrdUiPageSpecSchema>;
 
+export const PrdUiThemeSchema = z.object({
+  primaryColor: z.string().describe('主色调十六进制，如 #b91c1c'),
+  accentColor: z.string().describe('强调/高亮色十六进制，如 #d97706'),
+  bgColor: z.string().describe('深色背景色十六进制，如 #0b0d12'),
+  vibeKeywords: z.string().describe('视觉质感与排版基调关键词，如：中式民俗暗红烛火、青石冷灰、宣纸契约边框'),
+});
+
+export type PrdUiTheme = z.infer<typeof PrdUiThemeSchema>;
+
+export const PrdStateFieldSchema = z.object({
+  key: z.string().describe('状态变量英文键名，如 ledger'),
+  label: z.string().describe('HUD 展示的中文名称，如 泛黄旧册'),
+  initialValue: PrdStateValueSchema.default(0).describe('初始值'),
+  showInHud: z.boolean().default(true).describe('是否在游玩界面的 HUD 角标中展示'),
+  description: z.string().describe('状态来源与剧情用途说明'),
+});
+
+export type PrdStateField = z.infer<typeof PrdStateFieldSchema>;
+
 export const UniversalPrdSpecSchema = z.object({
   gameTitle: z.string(),
   genre: z.string(),
   playerIdentity: z.string(),
   premiseAndPerspective: z.string(),
+  uiTheme: PrdUiThemeSchema.optional(),
   outOfFlowSummary: z.string(),
   gameplayAndVictorySummary: z.string(),
   uiPagesSummary: z.array(PrdUiPageSpecSchema),
   startNodeId: z.string().optional(),
   initialState: z.record(PrdStateValueSchema).default({}),
+  stateSchema: z.array(PrdStateFieldSchema).optional(),
   clips: z.array(PrdClipNodeSchema),
   interactions: z.array(PrdInteractionNodeSchema),
   endings: z.array(PrdEndingNodeSchema),

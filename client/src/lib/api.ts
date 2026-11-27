@@ -298,6 +298,7 @@ export async function updateEntity(
   entityId: string,
   updates: {
     promptZh?: string;
+    voiceStyle?: string;
     referenceImageUrl?: string;
     appearanceSummary?: string;
     atmosphere?: string;
