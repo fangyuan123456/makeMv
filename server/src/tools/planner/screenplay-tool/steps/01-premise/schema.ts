@@ -53,17 +53,24 @@ export const PremiseInteractionOutcomeSchema = z.object({
 
 export type PremiseInteractionOutcome = z.infer<typeof PremiseInteractionOutcomeSchema>;
 
-export const PremiseInteractionSchema = z.object({
-  pointIndex: z.number().int().min(1).describe('全剧互动节点顺序编号（从 1 开始）'),
-  actNumber: z.number().int().describe('所属幕次序号'),
-  isBranching: z.boolean().describe('true=命运分支节点（占用全剧 ≤2 个分支名额）；false=零分支单线沉浸互动（0 额外视频成本，完成后统一推进下一幕）'),
-  kind: InteractionKindSchema.describe('互动玩法类型：CHOICE / TIMED_CHOICE / SEARCH / HOLD / QTE_TAP / TIMING / CLICK / ACTION_ZONE'),
-  prompt: z.string().describe('呈现给玩家的行动指令或抉择提示'),
-  timeoutSec: z.number().int().min(3).max(20).nullable().optional().describe('限时秒数（TIMED_CHOICE / 限时 SEARCH / QTE 等按需填写，普通单线可留空）'),
-  sceneContext: z.string().describe('互动触发瞬间的物理站位与当下危机（即本幕正文悬念定格点）'),
-  config: InteractionConfigSchema.optional().describe('按玩法类型配置的结构化参数（如 SEARCH 的 targets/decoys、HOLD 的 holdDurationMs 等）'),
-  outcomes: z.array(PremiseInteractionOutcomeSchema).min(1).describe('结果列表：单线互动至少 1 个 CONTINUE_MAINLINE 结果（可附带 TIMEOUT 状态分支同归下一幕）；命运分支至少 2 个不同走向结果'),
-});
+export const PremiseInteractionSchema = z
+  .object({
+    pointIndex: z.number().int().min(1).describe('全剧互动节点顺序编号（从 1 开始）'),
+    actNumber: z.number().int().describe('所属幕次序号'),
+    isBranching: z.boolean().describe('true=命运分支节点（占用全剧 ≤2 个分支名额）；false=零分支单线沉浸互动（0 额外视频成本，完成后统一推进下一幕）'),
+    kind: InteractionKindSchema.describe('互动玩法类型：CHOICE / TIMED_CHOICE / SEARCH / HOLD / QTE_TAP / TIMING / CLICK / ACTION_ZONE'),
+    prompt: z.string().describe('呈现给玩家的行动指令或抉择提示'),
+    timeoutSec: z.number().int().min(3).max(20).nullable().optional().describe('限时秒数（TIMED_CHOICE / 限时 SEARCH / QTE 等按需填写，普通单线可留空）'),
+    sceneContext: z.string().describe('互动触发瞬间的物理站位与当下危机（即本幕正文悬念定格点）'),
+    config: InteractionConfigSchema.optional().describe('按玩法类型配置的结构化参数（如 SEARCH 的 targets/decoys、HOLD 的 holdDurationMs 等）'),
+    outcomes: z.array(PremiseInteractionOutcomeSchema).min(1).describe('结果列表：单线互动至少 1 个 CONTINUE_MAINLINE 结果（可附带 TIMEOUT 状态分支同归下一幕）；命运分支至少 2 个不同走向结果，且至多 1 个 CONTINUE_MAINLINE'),
+  })
+  .refine(
+    (item) =>
+      !item.isBranching ||
+      item.outcomes.filter((o) => o.targetType === 'CONTINUE_MAINLINE').length <= 1,
+    '命运分支节点 (isBranching=true) 至多允许 1 个 CONTINUE_MAINLINE 结果，禁止双线硬合流进同一后续幕'
+  );
 
 export type PremiseInteraction = z.infer<typeof PremiseInteractionSchema>;
 
@@ -71,7 +78,7 @@ export const ScreenplayActOutlineSchema = z.object({
   actNumber: z.number().int().describe('幕次序号'),
   title: z.string().describe('本幕标题（如《警报初鸣》、《深渊抉择》）'),
   coreConflict: z.string().describe('本幕核心戏剧冲突矛盾'),
-  plotSummary: z.string().describe('【分幕故事脉络】：本幕的核心剧情展开、人物遭遇、关键危机交锋与事件演进脉络（详实且紧凑，约 100-200 字，交代具体事件与冲突推进，拒绝空话与无意义注水）'),
+  plotSummary: z.string().describe('【分幕故事脉络】：从承接上一幕互动结果开始，只写到本幕 turningPoint（互动触发起幅点）为止（约 80-150 字），不提前演完互动之后的结果'),
   scenes: z.array(z.string()).describe('本幕核心母场景名称列表（每幕聚焦 1 个核心母场景；若上一幕 CONTINUE_MAINLINE 选项转移了地点，则 scenes[0] 必须与该选项去向一致）'),
   turningPoint: z.string().describe('本幕重大戏剧转折（推动走向互动起幅或引爆下一阶段危机的主导事件）'),
   suspense: z.string().describe('本幕结尾留下的核心悬念或未解谜团'),

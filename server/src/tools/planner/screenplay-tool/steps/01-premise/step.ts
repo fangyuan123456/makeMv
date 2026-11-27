@@ -56,6 +56,26 @@ export const premiseStep = createStep({
       abortSignal,
     });
 
-    return result as PremiseOutput;
+    const premise = result as PremiseOutput;
+    const maxActNumber = (premise.actOutlines || []).reduce(
+      (max, act) => Math.max(max, act.actNumber || 0),
+      0
+    );
+    if (maxActNumber > 0 && Array.isArray(premise.interactions)) {
+      for (const inter of premise.interactions) {
+        if (inter.actNumber >= maxActNumber) {
+          for (const outcome of inter.outcomes || []) {
+            if (outcome.targetType === 'CONTINUE_MAINLINE') {
+              const upperKey = String(outcome.key || '').toUpperCase();
+              outcome.targetType = 'ENDING';
+              outcome.endingType = outcome.endingType || (upperKey === 'FAIL' || upperKey === 'TIMEOUT' ? 'BE' : 'HE');
+              outcome.endingTitle = outcome.endingTitle || outcome.label || '终局结算';
+            }
+          }
+        }
+      }
+    }
+
+    return premise;
   },
 });

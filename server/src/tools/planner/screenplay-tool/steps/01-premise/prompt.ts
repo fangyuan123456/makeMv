@@ -19,8 +19,12 @@ export function buildPremiseSystemPrompt(): string {
 3. **统一互动模型绑定（\`interactions\` 数组）**：
    - 所有幕末互动统一输出在 \`interactions\` 中，通过 \`isBranching\` 区分两类节点：
      * **单线沉浸互动（\`isBranching: false\`，不占分支名额，0 额外视频成本）**：普通幕按氛围挂载 \`SEARCH\`（场景找东西/搜证，在 \`config.targets\` 与 \`config.decoys\` 中列出目标物与干扰物）、\`HOLD\`（长按屏息/蓄力）、\`QTE_TAP\`（连点破局）、\`TIMING\`（时机靶区格挡）或 \`CLICK\`（关键触发）。其 \`outcomes\` 均推进同一条主线（\`CONTINUE_MAINLINE\`），可通过 \`stateTag\`（如 \`+ledger\`）写入状态供后续判断。
-     * **命运分支节点（\`isBranching: true\`，全剧严格 ≤ 2 个）**：根据张力选用 \`TIMED_CHOICE\`、\`CHOICE\`、带超时分叉的 \`SEARCH\`/\`HOLD\`/\`QTE_TAP\`/\`TIMING\`（\`ACTION_ZONE\` 仅在创作者明确要求动作双片反馈时使用）。过程分支中错误/逃避/超时走向 \`ENDING\`，承担代价走向 \`CONTINUE_MAINLINE\`；高潮节点各自走向独立 \`ENDING\`；每个走向 \`ENDING\` 的 \`outcome\` 必须在 \`endingTitle\` 与 \`endingType\` 明确定义结局，并在 \`approachAndCost\` 交代命运终局。
-     * **防抢戏边界**：每幕 \`plotSummary\` 只铺垫到互动触发前的悬念起幅，各 \`outcome.approachAndCost\` 仅交代本幕交互的即时收尾（严禁提前替下一幕找完道具或演完下一幕的核心动作）。
+     * **命运分支节点（\`isBranching: true\`，全剧严格 ≤ 2 个）**：根据张力选用 \`TIMED_CHOICE\`、\`CHOICE\`、带超时分叉的 \`SEARCH\`/\`HOLD\`/\`QTE_TAP\`/\`TIMING\`（\`ACTION_ZONE\` 仅在创作者明确要求动作双片反馈时使用）。过程分支中**至多 1 个结果走向 \`CONTINUE_MAINLINE\`**，其余结果与超时必须走向各自独立的 \`ENDING\`（严禁两个不同选择同时连进同一场下一幕造成合流穿帮）；**最后一幕（高潮终局幕）的所有互动结果必须全部走向 \`ENDING\`，严禁写 \`CONTINUE_MAINLINE\`**；每个走向 \`ENDING\` 的 \`outcome\` 必须在 \`endingTitle\` 与 \`endingType\` 明确定义结局，并在 \`approachAndCost\` 交代命运终局。
+     * **时间接力边界（防抢戏与防倒序）**：每幕 \`plotSummary\` 从承接上一幕互动结果写起，**只铺垫到本幕 \`turningPoint\`（互动触发起幅点）即止**；本幕交互完成后才会发生的新角色入场或结果兑现，统一写进该节点的 \`outcome.approachAndCost\`，留给下一幕开篇演出来，严禁把两段写重叠。
+     * **反模板化与节奏留白**：
+       - **允许纯叙事张力幕**：并非每幕都要硬塞互动，节奏紧凑的开场或情绪爆发幕可不挂互动（留白直切下一幕）；
+       - **先定戏剧动作，后配玩法**：严禁固定套用 \`HOLD → SEARCH → TIMED_CHOICE\` 顺序！先按题材写顺每幕核心物理冲突，再按动作本质选型——排查翻找才用 \`SEARCH\`，持续憋气/抵门才用 \`HOLD\`，搏斗挣脱/抢按才用 \`QTE_TAP\`，卡点命中/闪避才用 \`TIMING\`，关键触发用 \`CLICK\`，两难对峙用 \`TIMED_CHOICE\`/\`CHOICE\`；命运分支也优先结合动作型玩法（\`TIMING\`/\`QTE_TAP\`/\`HOLD\`），不全部写成嘴炮抉择；
+       - **前因后果兑现**：单线互动写入的 \`stateTag\`（如物证、伤势）须在后续分支描述或结局结算中产生真实影响。
 
 ${getSkillPrompt('ai-interactive-screenplay')}
 

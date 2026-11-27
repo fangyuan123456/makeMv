@@ -383,6 +383,23 @@ async function testTwoBranchPointsAndNoMergeContract() {
     false,
     '命运分支节点 (isBranching=true) 全剧不得超过两个'
   );
+  assert.strictEqual(
+    PremiseOutputSchema.safeParse({
+      ...validPremise,
+      interactions: [
+        {
+          ...validPremise.interactions[0],
+          outcomes: [
+            validPremise.interactions[0].outcomes[0],
+            { ...validPremise.interactions[0].outcomes[0], key: 'B', label: '另一条线也硬连进第2幕' },
+          ],
+        },
+        validPremise.interactions[1],
+      ],
+    }).success,
+    false,
+    '命运分支节点 (isBranching=true) 不允许双线同时 CONTINUE_MAINLINE 硬合流'
+  );
   const singlePrompt = buildFullScriptPrompt({ premise: singleResult.data! });
   assert.ok(singlePrompt.includes('命运分支 1 个，单线沉浸 1 个'), '扩写应准确注入单线与分支实际数量');
 
