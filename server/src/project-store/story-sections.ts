@@ -2,11 +2,12 @@
  * project-store/story-sections.ts
  * 分幕剧本正文统一解析器 (Story Sections SSOT)
  *
- * 唯一事实来源：从 story.md（或回退 screenplay.md）按 `## <clipId>｜<title>` 标准标题
- * 解析各分幕剧本正文，供接口读取、分镜规划工具与分镜导演上下文统一消费。
+ * 唯一事实来源：从结构化剧本 JSON (screenplay.json) 的 clips 提取各分幕剧本正文，
+ * 供接口读取、分镜规划工具与分镜导演上下文统一消费。
  */
 
 import { ProjectStore } from './ProjectStore.js';
+import { resolveProjectStorySource } from './story-source.js';
 
 export interface StorySection {
   title: string;
@@ -58,11 +59,21 @@ export function getProjectStorySections(
   projectId: string,
   overrideMarkdown?: string
 ): Record<string, StorySection> {
-  const store = ProjectStore.getInstance();
-  const text =
-    overrideMarkdown ||
-    store.getArtifact<string>(projectId, 'story') ||
-    store.getArtifact<string>(projectId, 'screenplay') ||
-    '';
-  return parseStorySections(text);
+  if (overrideMarkdown) {
+    return parseStorySections(overrideMarkdown);
+  }
+  const storySource = resolveProjectStorySource(projectId);
+  if (!storySource || !Array.isArray(storySource.clips)) {
+    return {};
+  }
+  const sections: Record<string, StorySection> = {};
+  for (const c of storySource.clips) {
+    if (c?.id && c?.narrativeText) {
+      sections[c.id] = {
+        title: c.title || c.id,
+        narrativeText: String(c.narrativeText).trim(),
+      };
+    }
+  }
+  return sections;
 }

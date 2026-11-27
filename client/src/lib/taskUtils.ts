@@ -11,7 +11,7 @@
 import type { TaskRecord } from '../types/index.js';
 
 export interface ConversationTaskRunningScope {
-  mode?: 'lookdev' | 'storyboard' | 'planner' | string;
+  mode?: 'lookdev' | 'storyboard' | 'planner' | 'game' | string;
   clipId?: string;
   focusTargetId?: string;
 }
@@ -52,6 +52,8 @@ export function isConversationTaskRunning(
         ? 'lookdev'
         : sessionId === 'planner'
         ? 'planner'
+        : sessionId === 'game' || sessionId.startsWith('game')
+        ? 'game'
         : undefined);
 
     if (effectiveMode === 'storyboard') {
@@ -72,6 +74,9 @@ export function isConversationTaskRunning(
     } else if (effectiveMode === 'planner') {
       const plannerTools = ['planner.screenplay', 'planner.script_to_prd'];
       if (plannerTools.includes(task.toolName)) return true;
+    } else if (effectiveMode === 'game') {
+      const gameTools = ['game.assembly', 'game.compile_story'];
+      if (gameTools.includes(task.toolName)) return true;
     }
 
     return false;

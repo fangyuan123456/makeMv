@@ -13,12 +13,14 @@ export function buildScreenplaySystemPrompt(): string {
 
 ${getSkillPrompt('ai-interactive-screenplay')}
 
-### 【工程契约与互动钩子写作规范】
-- 严格依据大纲既定的场景、人物设定与统一互动节点（\`interactions\`）推进，不擅自增删分支点、生造无关题材角色或篡改大纲设定的走向。
-- **【时间接力与剧作起幅铁律】**：无论单线互动还是命运分支，**幕末 \`【互动钩子】\` 就是本幕时间线的物理终点**。每幕正文只需从上一幕推进结果的即时收尾开场，单向推进到本幕 \`turningPoint\`（互动触发前的悬念起幅瞬间）即止；**严禁把互动完成之后才会发生的新角色入场、冲突升级或找到物证提前写进本幕正文**（这些一律留到下一幕开头或专有终局中兑现）。
-- 幕末统一使用清晰的 \`### 【互动钩子：<单线|分支> <KIND> | ...】\` Markdown 区块表达：
-  - 单线节点（\`isBranching: false\`）：注明操作提示、目标物证与干扰线索（\`SEARCH\`）、写入状态 \`+tag\`，以及统一推进下一幕；
-  - 分支节点（\`isBranching: true\`）：注明各选项/成败结果、限时秒数与超时默认后果（\`TIMEOUT\`），各自指向对应下一幕或专有终局（可结合前序 \`+tag\` 状态解锁隐藏结局）。`;
+### 【结构化输出与工程契约】
+- **分工铁律（代码自动拼装拓扑，模型专注戏剧表演）**：
+  - 每一幕的标题（\`## 第 N 幕\`）、\`【互动抉择点】\` 选项清单、走向箭头与 \`### 【互动钩子：...】\` 将由系统根据大纲 \`interactions\` **100% 确定性自动拼装**；
+  - 你**只需且必须**按 \`StructuredScreenplayContentSchema\` 输出两部分结构化内容：
+    1. \`acts\`：按 \`actNumber\` 顺序填写每一幕的 \`sceneHeader\`（单母场景与光影环境）和 \`narrativeBody\`（纯戏剧正文，250~450 字）；**严禁在 \`narrativeBody\` 内自己手写 \`【互动抉择点】\`、\`### 【互动钩子】\` 或 \`【终局】\`**；
+    2. \`endings\`：为全剧**每一个** \`targetType === "ENDING"\` 的选项（含中间幕支线/超时终局与最后一幕全部选项）填写一份 \`narrativeText\`（80~150 字电影定格结算，不重不漏）。
+- **【防剧透剥离铁律】**：大纲的 \`plotSummary\` 与 \`turningPoint\` 往往包含整幕的收尾发现（例如“搜出了香灰/符纸”“吞下证据”）。编写 \`narrativeBody\` 时**必须自动剥离互动之后才发生的结果**：\`narrativeBody\` 只写到互动触发前的悬念起幅瞬间（如蹲在尸体旁看到衣襟露出纸角、手刚按上暗格、对手高举武器逼问）并自然悬停等待玩家动作；**严禁提前写出“已找到目标物证/已完成互动动作/互动后才进门的新角色”**——这些结果一律写入对应 \`endings\` 结算文案，或留待**下一幕 \`narrativeBody\` 开篇第 1 句**作为即时承接演出！
+- **【跨幕母场景与物理接力一致】**：每幕 \`sceneHeader\` 严格锁定 1 个核心母场景；若上一幕 \`CONTINUE_MAINLINE\` 选项的动作是“从 A 地前往 B 地”，则上一幕只在 A 地收束，下一幕 \`sceneHeader\` 切至 B 地并在 \`narrativeBody\` 第 1 句写进入 B 地，严禁两幕写在同一地点却重复演出“搬运/前往该地点”。`;
 }
 
 export function buildFullScriptPrompt(params: {
@@ -79,7 +81,7 @@ ${premise.actOutlines.map((a) => {
 }).join('\n')}
 ${interactionsGuide}
 
-现在，严格依据上述技能规范与大纲中的 ${interactions.length} 个互动节点（含 ${branchingCount} 个命运分支），撰写标准 **Markdown 格式互动影游剧本**：
-- 全剧总计约 **${suggestedLength}** 汉字（硬上限不超过 2000 字），每幕严格聚焦 1 个核心主场景；
-- 直接输出完整的剧本正文 Markdown，不要使用任何占位符。`;
+现在，严格依据上述技能规范与大纲中的 ${interactions.length} 个互动节点（含 ${branchingCount} 个命运分支），按 \`StructuredScreenplayContentSchema\` 输出结构化分幕正文（\`acts\`）与专有终局结算（\`endings\`）：
+- 全剧正文总计约 **${suggestedLength}** 汉字（单幕 \`narrativeBody\` 控制在 250~450 字），每幕严格聚焦 1 个核心主场景；
+- 系统会自动为你拼装 \`【互动抉择点】\`、\`【终局：...】\` 标题和 \`### 【互动钩子】\`，你只需输出纯净、连贯、充满视听张力的 \`acts\` 与 \`endings\` 内容，不重不漏。`;
 }

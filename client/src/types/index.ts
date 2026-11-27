@@ -236,6 +236,7 @@ export interface PrdInteractionOutcome {
 export interface PrdInteractionNode {
   id: string;
   kind: 'CHOICE' | 'ACTION' | 'CLICK' | 'HOLD' | string;
+  isBranching?: boolean;
   prompt: string;
   timeoutSec?: number | null;
   config?: Record<string, any>;
@@ -301,6 +302,8 @@ export interface ProjectData {
   artifacts: {
     prd?: UniversalPrdSpec | any;
     prdMarkdown?: string;
+    screenplay_json?: any;
+    story_graph?: any;
     lookdev_entities?: LookdevEntitiesArtifact;
     hasStandaloneGame?: boolean;
     film_spec?: FilmAdapterArtifact;
@@ -313,6 +316,8 @@ export interface ProjectData {
   entities?: LookdevEntitiesArtifact | any;
   storyboards?: any[];
   screenplay?: string;
+  screenplayJson?: any;
+  storyGraph?: any;
   screenplayReview?: ReviewFreshnessView;
   story?: string;
   storySections?: Record<string, { title: string; narrativeText: string }>;

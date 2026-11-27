@@ -7,6 +7,7 @@ import { createStep } from '@mastra/core/workflows';
 import { Agent } from '@mastra/core/agent';
 import { LLMProvider } from '../../../../../llm/index.js';
 import { ProjectStore } from '../../../../../project-store/ProjectStore.js';
+import { resolveProjectStorySource } from '../../../../../project-store/story-source.js';
 import { generateStructured } from '../../../../../utils/llm-diagnostics.js';
 import { getProjectStorySections } from '../../../../../project-store/story-sections.js';
 import {
@@ -41,7 +42,7 @@ export const shotMotionPromptStep = createStep({
     }
     const currentShot = shotList[shotIdx];
 
-    const prd = store.getArtifact<any>(input.projectId, 'universal_prd') || store.getArtifact<any>(input.projectId, 'prd') || {};
+    const prd = resolveProjectStorySource(input.projectId) || {};
     const storyOverview = input.storyOverview || prd?.oneSentenceSummary || prd?.logline || prd?.premise || prd?.title || '';
 
     const lookdevEntities = store.getArtifact<any>(input.projectId, 'lookdev_entities') || {};

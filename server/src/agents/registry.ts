@@ -8,12 +8,14 @@ export * from './runtime/runner.js';
 export * from './planner/agent.js';
 export * from './lookdev/agent.js';
 export * from './storyboard/agent.js';
+export * from './game-assembly/agent.js';
 export * from './generic/agent.js';
 
 import { AgentRunner } from './runtime/runner.js';
 import { PlannerAgent } from './planner/agent.js';
 import { LookdevAgent } from './lookdev/agent.js';
 import { StoryboardAgent } from './storyboard/agent.js';
+import { GameAssemblyAgent } from './game-assembly/agent.js';
 import { GenericAgent } from './generic/agent.js';
 
 export class AgentFactory {
@@ -48,6 +50,21 @@ export class AgentFactory {
         projectId: options.projectId,
         sessionId: sid,
         clipId: options.clipId,
+      });
+    }
+
+    // 🎮 工序 3: 游戏总装与调优导演机器人 (Game Assembly Copilot)
+    if (
+      typeOrSessionId === 'game-assembly' ||
+      typeOrSessionId === 'game_assembly' ||
+      typeOrSessionId === 'game' ||
+      sid === 'game' ||
+      sid.startsWith('game-assembly') ||
+      sid.startsWith('game_assembly')
+    ) {
+      return new GameAssemblyAgent({
+        projectId: options.projectId,
+        sessionId: sid,
       });
     }
 

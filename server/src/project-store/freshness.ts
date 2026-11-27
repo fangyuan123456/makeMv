@@ -243,7 +243,7 @@ export function recordAllEntitySpecsUpdated(
 export function recordStoryboardUpdated(projectId: string, clipIds: string[]): void {
   const ledger = readFreshnessLedger(projectId);
   const now = Date.now();
-  const prdStamp = Math.max(now, ledger.prdUpdatedAt || 0);
+  const prdStamp = Math.max(now, ledger.screenplayUpdatedAt || 0, ledger.prdUpdatedAt || 0);
   for (const cid of clipIds) {
     if (!cid) continue;
     ledger.clipsStoryboard[cid] = { updatedAt: now, sourcePrdAt: prdStamp };
@@ -260,7 +260,7 @@ export function recordShotPromptUpdated(
   if (!shotIds.length) return;
   const ledger = readFreshnessLedger(projectId);
   const now = Date.now();
-  const prdStamp = Math.max(now, ledger.prdUpdatedAt || 0);
+  const prdStamp = Math.max(now, ledger.screenplayUpdatedAt || 0, ledger.prdUpdatedAt || 0);
   if (!ledger.shotsPrompt) ledger.shotsPrompt = {};
 
   // 为已有关键帧但尚无提示词基线的镜头补记旧基线，确保修改后可感知过期
@@ -488,17 +488,18 @@ export function computeProjectStaleMap(projectId: string): ProjectStaleMap {
     const shots: any[] = Array.isArray(clip?.shots) ? clip.shots : [];
     if (!clipId) continue;
 
-    // 2. PRD ➔ 分幕分镜
+    // 2. 结构化剧本 / PRD ➔ 分幕分镜
     const clipRecord = ledger.clipsStoryboard[clipId];
+    const upstreamStoryAt = Math.max(ledger.screenplayUpdatedAt || 0, ledger.prdUpdatedAt || 0);
     if (
       shots.length > 0 &&
-      ledger.prdUpdatedAt &&
+      upstreamStoryAt > 0 &&
       clipRecord?.sourcePrdAt &&
-      ledger.prdUpdatedAt > clipRecord.sourcePrdAt
+      upstreamStoryAt > clipRecord.sourcePrdAt
     ) {
       staleMap.clips[clipId] = {
-        reason: '上游 PRD 拓扑已更新，本幕分镜可能与最新剧情不同步',
-        updatedAt: ledger.prdUpdatedAt,
+        reason: '上游剧本已更新，本幕分镜可能与最新剧情不同步',
+        updatedAt: upstreamStoryAt,
       };
     }
 

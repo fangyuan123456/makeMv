@@ -38,10 +38,16 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
   try {
     switch (toolName) {
       case 'planner.screenplay_writer': {
-        if (output.scriptMarkdown) {
-          store.setArtifact(projectId, 'screenplay', output.scriptMarkdown);
-          const screenplayPath = path.join(projectDir, 'screenplay.md');
-          fs.writeFileSync(screenplayPath, output.scriptMarkdown, 'utf-8');
+        if (output.scriptMarkdown || output.screenplayDocument) {
+          if (output.screenplayDocument) {
+            const { scriptMarkdown: _omitScriptMarkdown, ...persistedScreenplayJson } = output.screenplayDocument;
+            store.setArtifact(projectId, 'screenplay_json', persistedScreenplayJson);
+            const screenplayJsonPath = path.join(projectDir, 'screenplay.json');
+            fs.writeFileSync(screenplayJsonPath, JSON.stringify(persistedScreenplayJson, null, 2), 'utf-8');
+          }
+          if (output.scriptMarkdown) {
+            store.setArtifact(projectId, 'screenplay', output.scriptMarkdown);
+          }
           if (output.title) {
             const proj = store.getProject(projectId);
             proj.meta.title = output.title;
@@ -140,7 +146,7 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
         break;
       }
 
-      case 'planner.script_to_prd': {
+      case 'game.prd': {
         if (output.prd) {
           store.setArtifact(projectId, 'prd', output.prd);
 

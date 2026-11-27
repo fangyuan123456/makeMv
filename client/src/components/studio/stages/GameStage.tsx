@@ -4,25 +4,37 @@
  */
 
 import React, { useState } from 'react';
-import type { ProjectData } from '../../../types/index.js';
+import type { ProjectData, TaskRecord } from '../../../types/index.js';
+import { DirectorFloatingBubble } from '../chat/DirectorFloatingBubble.js';
 
 interface GameStageProps {
   projectId: string;
   projectData: ProjectData | null;
+  tasks?: TaskRecord[];
   onRunTool: (toolName: string, input: Record<string, any>) => Promise<any>;
+  onRefreshProject?: () => void;
   isBusy: boolean;
 }
 
 export const GameStage: React.FC<GameStageProps> = ({
   projectId,
   projectData,
+  tasks = [],
   onRunTool,
+  onRefreshProject,
   isBusy,
 }) => {
   const [iframeKey, setIframeKey] = useState(0);
 
   // 拼接游戏静态入口地址
   const gameUrl = `/media/${encodeURIComponent(projectId)}/game-assembly/index.html`;
+
+  const hasGamePrd = Boolean(projectData?.prd?.clips?.length || projectData?.artifacts?.prd?.clips?.length);
+
+  const handleGenerateGamePrd = async () => {
+    await onRunTool('game.prd', {});
+    onRefreshProject?.();
+  };
 
   const handleAssembleGame = async () => {
     await onRunTool('game.assembly', {});
@@ -49,6 +61,17 @@ export const GameStage: React.FC<GameStageProps> = ({
         </div>
 
         <div className="flex items-center space-x-2">
+          <button
+            onClick={handleGenerateGamePrd}
+            disabled={isBusy}
+            className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg border transition disabled:opacity-40 shadow-2xs ${
+              hasGamePrd
+                ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                : 'bg-white hover:bg-indigo-50 text-indigo-700 border-indigo-200'
+            }`}
+          >
+            {hasGamePrd ? '✅ 已生成游戏 PRD' : '📐 生成游戏 PRD'}
+          </button>
           <button
             onClick={handleAssembleGame}
             disabled={isBusy}
@@ -94,6 +117,14 @@ export const GameStage: React.FC<GameStageProps> = ({
           />
         </div>
       </div>
+
+      {/* 游戏总装与调优悬浮导演机器人 */}
+      <DirectorFloatingBubble
+        mode="game"
+        projectId={projectId}
+        tasks={tasks}
+        onRefreshProject={onRefreshProject}
+      />
     </div>
   );
 };

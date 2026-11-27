@@ -137,8 +137,9 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
   const items = entities?.items || [];
 
   // 2. 提取当前幕剧情文本
-  const prd = projectData?.prd || projectData?.artifacts?.gdd?.prd;
-  const currentClip = (prd?.clips || []).find((c: any) => c.id === node.clipId);
+  const screenplayJson = projectData?.screenplayJson || projectData?.artifacts?.screenplay_json;
+  const clipSource = screenplayJson?.clips || [];
+  const currentClip = clipSource.find((c: any) => c.id === node.clipId);
   const narrativeText =
     currentClip?.narrativeText ||
     (node.clipId ? projectData?.storySections?.[node.clipId]?.narrativeText : '') ||

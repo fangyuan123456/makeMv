@@ -10,14 +10,24 @@ export function buildAssetManifestPrompt(params: {
 }): string {
   const { title, storyMarkdown, prd } = params;
 
+  // 精简传入提示词的设定摘要，避免把 screenplay.json 里的 scriptMarkdown/storyGraph/acts 或大纲背景人物重复传入干扰出场判定
+  const compactOutline = prd
+    ? {
+        title: prd.title || prd.gameTitle,
+        genre: prd.genre,
+        logline: prd.logline || prd.premiseAndPerspective,
+        worldSetting: prd.worldSetting,
+      }
+    : {};
+
   return `你是一名享誉好莱坞的资深电影制片统筹与选角总监（Film Production Coordinator & Script Breakdown Supervisor）。
-请依据影视工业标准剧本分解规范（Hollywood Script Breakdown Pipeline），通读剧本与策划案，提炼全剧的高信噪比核心资产清单：
+请依据影视工业标准剧本分解规范（Hollywood Script Breakdown Pipeline），通读剧本与策划大纲，提炼全剧的高信噪比核心资产清单：
 
 【故事标题】：${title || '未命名影视项目'}
 
-【策划案/世界观大纲】：
+【世界观与角色大纲】：
 \`\`\`json
-${JSON.stringify(prd || {}, null, 2)}
+${JSON.stringify(compactOutline, null, 2)}
 \`\`\`
 
 【剧本正文】：
@@ -27,8 +37,9 @@ ${storyMarkdown || '请结合项目剧情提取出场资产'}
 
 【影视工业三大资产分类与收敛刚性公理（SSOT · 100% 通用无偏）】：
 1. 🎭【角色公理 (Speaking Cast & Agency)】：
-   - 必须以剧本中真正有对白发言、独立台词交互或主导核心戏剧冲突的能动主体为准；
+   - 必须以剧本正文中真正以肉身或具象实体登场、有对白发言、独立台词交互或主导核心戏剧冲突的能动主体为准；
    - 具象化灵异实体、人形傀儡、非人化身或关键智能造物，只要具备独立戏剧交互能动性，100% 统一定性为角色（严禁被误定为道具或场景陈设）；
+   - 严禁提取仅在台词、回忆或背景物件（遗像、画像、铭文等）中出现、无实质戏份或交互的人物；若该物件承担核心线索特写，按关键道具或场景陈设处理；
    - 100% 绝对严禁提取泛用无名路人、背景群演或单次功能性过客；
    - 准入原则：按剧情实际需要收敛，仅保留推动主线与分支因果的核心主角与重要配角。
 
@@ -45,8 +56,8 @@ ${storyMarkdown || '请结合项目剧情提取出场资产'}
      c. 【关键因果与解谜信物 (Hero Props)】：被演员亲手握持、抓取、翻阅、交付，且承载核心解谜、规则证物或终局逆转的关键信物（如特定日记册、刻名信物、解谜钥匙等）；
    - ⚠️【绝对刚性禁令 · 严禁提取生活环境陈设】：凡是摆在背景、挂在墙上、放在桌案上但未承载核心解谜/因果机制的生活陈设与家具（如普通香炉、烛台、挂画、茶杯、桌椅、门槛），100% 属于场景固定硬装，绝对严禁作为独立道具提取！
 
-4. 📌【PRD 锚点优先对齐】：
-   - 优先继承工序 1（Planner）在策划案 PRD 中已经确立的角色、核心空间与关键信物名称，保持全剧术语 100% 一致，严禁随意更名。
+4. 📌【剧本正文第一事实源】：
+   - 角色、核心空间与关键信物的提取 **100% 以【剧本正文】中的实际出场、物理可拍摄性与戏剧交互为准**，保持全剧称呼术语一致，严禁仅因世界观设定中提到某已故或未出场人物就将其列入定妆角色名单。
 
 请输出严格符合 AssetManifestOutputSchema 的 JSON。`;
 }

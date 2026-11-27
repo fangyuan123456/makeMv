@@ -14,6 +14,7 @@ import type { TaskRecord } from '../../../types/index.js';
 import {
   LookdevConversationClient,
   StoryboardConversationClient,
+  GameAssemblyConversationClient,
   type ConversationMessage,
 } from '../../../lib/DirectorConversation.js';
 import { useDirectorChatFlow } from '../../../hooks/useDirectorChatFlow.js';
@@ -25,8 +26,8 @@ export interface DirectorFloatingBubbleProps {
   projectId: string;
   tasks?: TaskRecord[];
   onRefreshProject?: () => void;
-  // 核心解耦模式：'lookdev' (定妆空间总监) | 'storyboard' (分幕分镜导演)
-  mode: 'lookdev' | 'storyboard';
+  // 核心解耦模式：'lookdev' (定妆空间总监) | 'storyboard' (分幕分镜导演) | 'game' (互动影游总装导演)
+  mode: 'lookdev' | 'storyboard' | 'game';
   // 分幕模式下必传当前分幕标识与标题
   clipId?: string;
   clipTitle?: string;
@@ -185,18 +186,25 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
     }
   };
 
-  // 1. 核心解耦：根据 mode 与 clipId 动态挂载对应的专属会话客户端 (各幕独立会话)
+  // 1. 核心解耦：根据 mode 与 clipId 动态挂载对应的专属会话客户端 (各工序独立会话)
   const session = useMemo(() => {
     if (mode === 'lookdev') {
       return new LookdevConversationClient(projectId || '');
+    }
+    if (mode === 'game') {
+      return new GameAssemblyConversationClient(projectId || '');
     }
     return new StoryboardConversationClient(projectId || '', clipId);
   }, [mode, projectId, clipId]);
 
   const defaultWelcome = useMemo(() => {
-    return mode === 'lookdev'
-      ? `你好，我是你的 **定妆空间总监**。🎨\n\n我专注全剧的角色定妆、服装设计与场景空间光影美学：\n- **角色/场景微调**：“把林薇的白大褂改成黑色风衣”、“安全屋更阴暗一些”\n- **高清超分变清晰**：“把当前这张图变清晰”、“把所有角色定妆都超分一下”\n\n有任何外貌、光影或清晰度提升想法随时告诉我！`
-      : `你好，我是【${clipId || '本幕'} · ${clipTitle || '分镜台本'}】的 **分镜执行导演**。🎬\n\n我专门负责本幕剧情的镜头切分、视听节拍与关键帧清晰度：\n- **机位与节奏**：“第3镜改成特写，聚焦颤抖的手指”、“这一幕剪辑节奏再加快一点”\n- **高清超分变清晰**：“把当前首帧变清晰”、“把本幕所有已生成的首帧超分到2倍”\n\n有任何镜头与画质提升想法随时告诉我！`;
+    if (mode === 'lookdev') {
+      return `你好，我是你的 **定妆空间总监**。🎨\n\n我专注全剧的角色定妆、服装设计与场景空间光影美学：\n- **角色/场景微调**：“把林薇的白大褂改成黑色风衣”、“安全屋更阴暗一些”\n- **高清超分变清晰**：“把当前这张图变清晰”、“把所有角色定妆都超分一下”\n\n有任何外貌、光影或清晰度提升想法随时告诉我！`;
+    }
+    if (mode === 'game') {
+      return `你好，我是你的 **互动影游总装导演**。🎮\n\n我负责把策划与视听资产装配为可直接在浏览器运行的独立游戏工程，并支持对话式修改：\n- **总装可玩工程**：“一键总装可玩游戏工程”\n- **界面与样式定制**：“把开始按钮改大并加霓虹光效”、“背景音乐加上循环播放”\n- **玩法与交互调优**：“手电筒搜证加个扫光动画”、“选项出现时加上音效”\n- **数据快速同步**：“同步最新分幕剧本与媒体数据到工程”\n\n对游戏 UI、手感或交互机制有任何想法随时告诉我！`;
+    }
+    return `你好，我是【${clipId || '本幕'} · ${clipTitle || '分镜台本'}】的 **分镜执行导演**。🎬\n\n我专门负责本幕剧情的镜头切分、视听节拍与关键帧清晰度：\n- **机位与节奏**：“第3镜改成特写，聚焦颤抖的手指”、“这一幕剪辑节奏再加快一点”\n- **高清超分变清晰**：“把当前首帧变清晰”、“把本幕所有已生成的首帧超分到2倍”\n\n有任何镜头与画质提升想法随时告诉我！`;
   }, [mode, clipId, clipTitle]);
 
   // 2. 接入全系统统一对话微内核 Hook
@@ -283,6 +291,16 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
         `✨ 使用 SeedVR2 对关键帧进行 4× 高清超分`,
       ];
     }
+    if (mode === 'game') {
+      return [
+        `🚀 一键总装互动影游独立站点工程`,
+        `🔄 同步最新分幕剧本与媒体数据到游戏`,
+        `🎨 将开始界面按钮改大并增加霓虹发光效果`,
+        `🔦 手电筒搜证环节增加动态扫光光晕`,
+        `⏳ 为所有交互选项加上 10 秒倒计时进度条`,
+        `📱 优化手机端触屏与舞台安全区比例`,
+      ];
+    }
     return [
       `✨ 使用 SeedVR2 对当前定妆图进行 4× 高清超分`,
       `👔 为核心角色生成正侧背三视图立绘定妆`,
@@ -292,14 +310,30 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
   }, [mode]);
 
   const isLookdev = mode === 'lookdev';
+  const isGame = mode === 'game';
+  const roleName = isLookdev ? '定妆空间总监' : isGame ? '互动影游总装导演' : '电影分镜执行导演';
+  const roleEmoji = isLookdev ? '🎨' : isGame ? '🎮' : '🎬';
+  const roleTag = isLookdev ? 'Lookdev' : isGame ? 'Game' : clipId || 'Storyboard';
+  const roleSubTitle = isLookdev
+    ? '定妆空间总监 · 角色与场景'
+    : isGame
+    ? '互动影游总装导演 · 独立站点装配与调优'
+    : `分镜导演 · ${clipTitle || clipId}`;
+
   const themeGradient = isLookdev
     ? 'from-emerald-600 via-teal-600 to-cyan-500'
+    : isGame
+    ? 'from-amber-600 via-indigo-600 to-purple-600'
     : 'from-purple-600 via-indigo-600 to-blue-500';
   const headerGradient = isLookdev
     ? 'from-slate-900 via-teal-950 to-slate-900'
+    : isGame
+    ? 'from-slate-900 via-purple-950 to-slate-900'
     : 'from-slate-900 via-indigo-950 to-slate-900';
   const tagBg = isLookdev
     ? 'bg-teal-500/30 text-teal-200 border-teal-400/30'
+    : isGame
+    ? 'bg-amber-500/30 text-amber-200 border-amber-400/30'
     : 'bg-purple-500/30 text-purple-200 border-purple-400/30';
   // 灵感胶囊仅在初始未开始对话阶段展示；一旦创作者开始对话或正在打字，立即自动隐藏
   const hasUserDialogue = useMemo(() => messages.some((m) => m.role === 'user'), [messages]);
@@ -342,9 +376,13 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
                   ? 'scale-110 shadow-2xl ring-4 ring-indigo-400 cursor-grabbing'
                   : 'hover:shadow-2xl hover:scale-105 active:scale-95 ring-4 ring-white/80 cursor-grab'
               } transition-transform duration-200`}
-              title={isLookdev ? '按住可拖动吸边，点击唤起定妆空间总监' : `按住可拖动吸边，点击唤起分镜导演 (${clipId})`}
+              title={
+                isDragging
+                  ? '拖拽中'
+                  : `按住可拖动吸边，点击唤起${roleName}`
+              }
             >
-              <span className={`text-2xl ${isDragging ? '' : 'animate-pulse'}`}>{isLookdev ? '🎨' : '🎬'}</span>
+              <span className={`text-2xl ${isDragging ? '' : 'animate-pulse'}`}>{roleEmoji}</span>
               {hasUnread && !isDragging && (
                 <span className="absolute -top-1 -right-1 flex h-4 w-4">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
@@ -362,9 +400,7 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
               >
                 {focusLabel
                   ? `🎯 聚焦: ${focusLabel}`
-                  : isLookdev
-                  ? '定妆空间总监 · 角色与场景'
-                  : `分镜导演 · ${clipTitle || clipId}`}
+                  : roleSubTitle}
               </div>
             )}
           </div>
@@ -384,12 +420,12 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
           {/* 顶部标题栏 */}
           <div className={`px-4 py-3 bg-gradient-to-r ${headerGradient} text-white flex items-center justify-between shadow-sm select-none flex-shrink-0`}>
               <div className="flex items-center space-x-2">
-                <span className="text-xl">{isLookdev ? '🎨' : '🎬'}</span>
+                <span className="text-xl">{roleEmoji}</span>
                 <div>
                   <div className="text-sm font-bold flex items-center space-x-1.5">
-                    <span>{isLookdev ? '定妆空间总监' : '电影分镜执行导演'}</span>
+                    <span>{roleName}</span>
                     <span className={`text-[10px] px-1.5 py-0.5 rounded border ${tagBg}`}>
-                      {isLookdev ? 'Lookdev' : clipId || 'Storyboard'}
+                      {roleTag}
                     </span>
                   </div>
                   <div className="text-[11px] text-slate-300 flex items-center space-x-1">
@@ -399,6 +435,8 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
                         ? `🎯 当前聚焦: ${focusLabel}`
                         : isLookdev
                         ? '专注全剧角色定妆与场景空间'
+                        : isGame
+                        ? '专注独立游戏总装与界面交互调优'
                         : `检视中: ${clipId} · ${clipTitle || '当前分幕'}`}
                     </span>
                   </div>
@@ -443,10 +481,12 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
                       onRetry={() => (msg.taskId ? handleRetryTask(msg.taskId) : handleSendMessage('重试本工序'))}
                       onRetryTask={handleRetryTask}
                       onCancelPlan={handleCancelPlan}
-                      directorRoleName={isLookdev ? '定妆空间总监' : '电影分镜执行导演'}
+                      directorRoleName={roleName}
                       progressGradientClass={
                         isLookdev
                           ? 'from-teal-500 via-emerald-600 to-cyan-600'
+                          : isGame
+                          ? 'from-amber-500 via-indigo-600 to-purple-600'
                           : 'from-purple-600 via-indigo-600 to-blue-500'
                       }
                       onApproveProposal={handleApproveProposal}
@@ -465,7 +505,7 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
                   >
                     <div className="flex items-center space-x-1.5 px-1">
                       <span className="text-[10px] font-medium text-slate-400">
-                        {isUser ? '创作者' : isLookdev ? '定妆空间总监' : '电影分镜执行导演'}
+                        {isUser ? '创作者' : roleName}
                       </span>
                     </div>
 
@@ -474,6 +514,8 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
                         isUser
                           ? isLookdev
                             ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-tr-xs'
+                            : isGame
+                            ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-tr-xs'
                             : 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-tr-xs'
                           : 'bg-white border border-slate-200/80 text-slate-800 rounded-tl-xs'
                       }`}
@@ -492,7 +534,13 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
                           proposal={msg.proposal}
                           onApprove={() => handleApproveProposal(msg.id)}
                           disabled={isStreaming || isApproving || isTaskRunning}
-                          accentClassName={isLookdev ? 'bg-teal-600 hover:bg-teal-700' : 'bg-indigo-600 hover:bg-indigo-700'}
+                          accentClassName={
+                            isLookdev
+                              ? 'bg-teal-600 hover:bg-teal-700'
+                              : isGame
+                              ? 'bg-indigo-600 hover:bg-indigo-700'
+                              : 'bg-indigo-600 hover:bg-indigo-700'
+                          }
                         />
                       )}
                     </div>
@@ -504,11 +552,11 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
               {isStreaming && (
                 <div className="flex flex-col items-start space-y-1">
                   <span className="text-[10px] font-medium text-slate-400 px-1">
-                    {isLookdev ? '定妆空间总监' : '电影分镜执行导演'}
+                    {roleName}
                   </span>
                   <div className="max-w-[90%] p-3.5 rounded-2xl rounded-tl-xs bg-white text-slate-800 border border-slate-200/80 text-xs leading-relaxed shadow-sm">
                     <div className="whitespace-pre-wrap">{streamingContent}</div>
-                    <span className={`inline-block w-1.5 h-3.5 ${isLookdev ? 'bg-emerald-500' : 'bg-indigo-600'} ml-1 animate-pulse align-middle`}></span>
+                    <span className={`inline-block w-1.5 h-3.5 ${isLookdev ? 'bg-emerald-500' : isGame ? 'bg-amber-500' : 'bg-indigo-600'} ml-1 animate-pulse align-middle`}></span>
                   </div>
                 </div>
               )}
@@ -585,6 +633,8 @@ export const DirectorFloatingBubble: React.FC<DirectorFloatingBubbleProps> = ({
                       ? '后台任务正在执行，请稍候...'
                       : mode === 'storyboard'
                       ? `对分幕 ${clipId || '当前幕'} 提意见或贴参考图 (Enter)...`
+                      : mode === 'game'
+                      ? '提界面修改、手感调整或总装需求 (Enter)...'
                       : '提外貌/场景意见，或 Ctrl+V 贴参考图 (Enter)...'
                   }
                   className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100 transition resize-none leading-relaxed shadow-2xs disabled:opacity-50"

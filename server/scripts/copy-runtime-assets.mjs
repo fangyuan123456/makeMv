@@ -6,8 +6,8 @@
 
 import { cpSync, existsSync } from 'node:fs';
 
-const from = new URL('../src/tools/game-assembly/steps/02-codegen/runtime/', import.meta.url);
-const to = new URL('../dist/tools/game-assembly/steps/02-codegen/runtime/', import.meta.url);
+const from = new URL('../src/tools/game-assembly/assembly-tool/steps/02-codegen/runtime/', import.meta.url);
+const to = new URL('../dist/tools/game-assembly/assembly-tool/steps/02-codegen/runtime/', import.meta.url);
 
 if (!existsSync(new URL('../dist/', import.meta.url))) {
   console.error('[copy-runtime-assets] 没有 dist 目录，先跑 tsc');

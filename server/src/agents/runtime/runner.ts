@@ -288,6 +288,11 @@ export abstract class AgentRunner<TIntent = any> {
           }
         } else if (part.type === 'tool-call' && (part as any).toolName === EMIT_DIRECTOR_INTENT_TOOL_NAME) {
           hasEmittedIntent = true;
+        } else if (part.type === 'error') {
+          const streamErr = (part as any).error;
+          throw streamErr instanceof Error
+            ? streamErr
+            : new Error(String(streamErr?.message || streamErr || '大模型流式调用异常'));
         }
       }
 

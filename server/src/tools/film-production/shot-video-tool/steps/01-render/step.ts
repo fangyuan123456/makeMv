@@ -74,15 +74,21 @@ export const shotVideoStep = createStep({
       // 收集 Ref2V 多图参考资产（全线走 H3 全能参考直出：角色/场景/道具定妆图 + 可选构图参考图 + 同场景上一段末帧）
       const ref2vUrls: string[] = [];
       const ref2vLegend: string[] = [];
+      let matchedLocName = '';
+      let matchedLocPicIndex = 0;
       {
         const entities = store.getArtifact<any>(projectId, 'lookdev_entities');
         const seenRef = new Set<string>();
-        const pushRef = (url: string | undefined, label: string) => {
+        const pushRef = (url: string | undefined, label: string): number => {
           const clean = url?.split('?')[0].trim();
-          if (!clean || seenRef.has(clean) || ref2vUrls.length >= 9) return;
+          if (!clean) return 0;
+          const existingIdx = ref2vUrls.indexOf(clean);
+          if (existingIdx >= 0) return existingIdx + 1;
+          if (seenRef.has(clean) || ref2vUrls.length >= 9) return 0;
           seenRef.add(clean);
           ref2vUrls.push(clean);
           ref2vLegend.push(`<Picture ${ref2vUrls.length}> ${label}`);
+          return ref2vUrls.length;
         };
 
         if (referenceImageUrl) {
@@ -103,10 +109,14 @@ export const shotVideoStep = createStep({
             (targetShot.location && l.name === targetShot.location)
         );
         if (matchedLoc) {
-          pushRef(
+          const picIdx = pushRef(
             matchedLoc.imageUrl || matchedLoc.referenceImageUrl,
             `为场景[${matchedLoc.name}]空间美术参考（参考图不是成品构图，需按本镜机位重新构筑视角与比例）`
           );
+          if (picIdx > 0) {
+            matchedLocName = matchedLoc.name || '';
+            matchedLocPicIndex = picIdx;
+          }
         }
 
         const itemList = Array.isArray(entities?.items) ? entities.items : [];
@@ -173,7 +183,11 @@ export const shotVideoStep = createStep({
 
       // 底层算力硬件提示词（动态装配，仅内存态传给视频生成工具，绝不写回 targetShot 业务实体）
       const baseHardwarePrompt = formatVideoMotionPrompt(rawMotion, false, undefined, true);
-      const hardwarePrompt = `${ref2vLegend.join('；')}。\n${baseHardwarePrompt}`;
+      const sceneAnchor =
+        matchedLocName && matchedLocPicIndex > 0
+          ? `场景空间：画面发生于${matchedLocName}（空间美术参考 <Picture ${matchedLocPicIndex}>）。\n`
+          : '';
+      const hardwarePrompt = `${ref2vLegend.join('；')}。\n${sceneAnchor}${baseHardwarePrompt}`;
       const audioPrompt = targetShot.audioPrompt?.trim() || undefined;
 
       const targetDuration = Math.min(15, Math.max(2, Math.round(durationSec ?? targetShot.durationSec ?? targetShot.estimatedSeconds ?? 5)));

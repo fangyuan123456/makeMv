@@ -47,7 +47,7 @@ export const PipelineStepper: React.FC<PipelineStepperProps> = ({
       id: 'planner',
       number: '01',
       title: '剧本与策划',
-      desc: '创意推演 & PRD 图论拓扑',
+      desc: '创意推演 & 故事因果拓扑',
       isReady: hasPrd,
     },
     {
@@ -120,7 +120,7 @@ export const PipelineStepper: React.FC<PipelineStepperProps> = ({
         {steps.map((step, idx) => {
           const isActive = currentStage === step.id;
           const isLocked = step.id === 'visual' ? !canEnterVisual : step.id === 'game' ? !canEnterGame : false;
-          const lockedReason = step.id === 'visual' ? '请先完成剧本与策划，生成完整 PRD' : '请先完成视听工坊中所有剧情片段的镜头视频';
+          const lockedReason = step.id === 'visual' ? '请先完成剧本与策划，生成结构化故事拓扑' : '请先完成视听工坊中所有剧情片段的镜头视频';
           return (
             <React.Fragment key={step.id}>
               {idx > 0 && <span className="text-slate-300 text-[10px] select-none">→</span>}

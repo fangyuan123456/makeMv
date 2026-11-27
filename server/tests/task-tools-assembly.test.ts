@@ -34,17 +34,25 @@ function testDirectoryArchitecture() {
     '[架构违规拦截] game-assembly 外层禁止出现 prompt.ts'
   );
 
-  assert.ok(fs.existsSync(path.join(assemblyDir, 'workflow.ts')), '应存在 workflow.ts');
-  assert.ok(fs.existsSync(path.join(assemblyDir, 'index.ts')), '应存在 index.ts');
-  assert.ok(fs.existsSync(path.join(assemblyDir, 'steps')), '应存在 steps 子目录');
+  assert.ok(fs.existsSync(path.join(assemblyDir, 'index.ts')), '应存在聚合导出 index.ts');
 
-  const stepDirs = ['01-tech-plan', '02-codegen'];
-  for (const step of stepDirs) {
-    const full = path.join(assemblyDir, 'steps', step);
-    assert.ok(fs.existsSync(full), `工序目录应存在: ${step}`);
-    assert.ok(fs.existsSync(path.join(full, 'schema.ts')), `${step} 应存在 schema.ts`);
-    assert.ok(fs.existsSync(path.join(full, 'step.ts')), `${step} 应存在 step.ts`);
-    assert.ok(fs.existsSync(path.join(full, 'index.ts')), `${step} 应存在 index.ts`);
+  const toolDirs = [
+    { name: 'assembly-tool', steps: ['01-tech-plan', '02-codegen'] },
+    { name: 'compile-story-tool', steps: ['01-compile-story'] },
+  ];
+
+  for (const tool of toolDirs) {
+    const toolPath = path.join(assemblyDir, tool.name);
+    assert.ok(fs.existsSync(toolPath), `工具目录应存在: ${tool.name}`);
+    assert.ok(fs.existsSync(path.join(toolPath, 'workflow.ts')), `${tool.name} 应存在 workflow.ts`);
+    assert.ok(fs.existsSync(path.join(toolPath, 'index.ts')), `${tool.name} 应存在 index.ts`);
+    for (const step of tool.steps) {
+      const full = path.join(toolPath, 'steps', step);
+      assert.ok(fs.existsSync(full), `工序目录应存在: ${tool.name}/steps/${step}`);
+      assert.ok(fs.existsSync(path.join(full, 'schema.ts')), `${step} 应存在 schema.ts`);
+      assert.ok(fs.existsSync(path.join(full, 'step.ts')), `${step} 应存在 step.ts`);
+      assert.ok(fs.existsSync(path.join(full, 'index.ts')), `${step} 应存在 index.ts`);
+    }
   }
 
   console.log('✅ 测试 1 通过: game-assembly 目录完全符合外层零 schema/prompt 与一步一文件夹规范！\n');
@@ -158,9 +166,21 @@ async function testDualCallbackAndPackaging() {
   assert.ok(htmlContent.includes('<div id="app"></div>'), 'index.html 必须包含 #app 挂载点');
   assert.ok(htmlContent.includes('./js/main.js'), 'index.html 必须引入入口脚本');
 
-  // 验证底座已落盘
+  // 验证底座与三层分离产物已落盘
   const playerJs = path.resolve(projectDir, 'game-assembly/runtime/player.js');
+  const engineJs = path.resolve(projectDir, 'game-assembly/runtime/engine.js');
+  const storyJson = path.resolve(projectDir, 'game-assembly/story.json');
+  const mainJs = path.resolve(projectDir, 'game-assembly/js/main.js');
+  const styleCss = path.resolve(projectDir, 'game-assembly/style.css');
   assert.ok(fs.existsSync(playerJs), '播放底座 player.js 必须已就位');
+  assert.ok(fs.existsSync(engineJs), '系统引擎 engine.js 必须已就位');
+  assert.ok(fs.existsSync(storyJson), '静态剧本数据包 story.json 必须已就位');
+  assert.ok(fs.existsSync(mainJs), '入口脚本 js/main.js 必须已就位');
+  assert.ok(fs.existsSync(styleCss), '样式文件 style.css 必须已就位');
+
+  const parsedStory = JSON.parse(fs.readFileSync(storyJson, 'utf-8'));
+  assert.ok(Array.isArray(parsedStory.clips) && parsedStory.clips.length >= 2, 'story.json 应包含完整分幕');
+  assert.ok(parsedStory.stateSchema && parsedStory.uiTheme, 'story.json 应包含 stateSchema 与 uiTheme');
 
   console.log('✅ 测试 3 通过: GameAssemblyTool 双阶段回调与静态工程落盘 100% 验证成功！\n');
 

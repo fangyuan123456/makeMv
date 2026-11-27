@@ -81,12 +81,19 @@ export async function fetchProject(projectId: string): Promise<ProjectData> {
  */
 export async function saveScreenplay(
   projectId: string,
-  screenplay: string
-): Promise<{ success: boolean; screenplay: string; screenplayReview: ReviewFreshnessView }> {
+  payload:
+    | string
+    | {
+        screenplay?: string;
+        actUpdate?: { actNumber: number; sceneHeader?: string; narrativeBody: string };
+        endingUpdates?: Array<{ actNumber: number; outcomeKey: string; narrativeText: string }>;
+      }
+): Promise<{ success: boolean; screenplay: string; screenplayJson?: any; screenplayReview: ReviewFreshnessView }> {
+  const body = typeof payload === 'string' ? { screenplay: payload } : payload;
   const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/screenplay`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ screenplay }),
+    body: JSON.stringify(body),
   });
   const data = await parseResponseJson(res, '保存剧本失败');
   if (!res.ok || !data?.success) {

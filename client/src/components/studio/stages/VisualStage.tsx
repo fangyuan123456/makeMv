@@ -82,10 +82,10 @@ export const VisualStage: React.FC<VisualStageProps> = ({
       badge: totalAssets > 0 ? `${completedAssets}/${totalAssets}` : undefined,
     });
 
-    // 2. 收集所有分幕切片 (基于标准 prd / storyboards / film_spec)
+    // 2. 收集所有分幕切片 (基于结构化剧本 screenplayJson / storyboards / film_spec)
     const prdClips =
-      projectData?.artifacts?.prd?.clips ||
-      (projectData as any)?.prd?.clips ||
+      projectData?.screenplayJson?.clips ||
+      projectData?.artifacts?.screenplay_json?.clips ||
       [];
     const rawStoryboards =
       projectData?.storyboards ||
@@ -133,6 +133,9 @@ export const VisualStage: React.FC<VisualStageProps> = ({
 
     const wiring =
       projectData?.artifacts?.prd?.wiring ||
+      (projectData?.storyGraph?.edges || [])
+        .filter((e: any) => e.edgeType === 'MAINLINE_PROGRESS')
+        .map((e: any) => ({ fromNodeId: e.fromNodeId, toNodeId: e.toNodeId })) ||
       [];
 
     const clipsList = Array.from(clipMap.values());

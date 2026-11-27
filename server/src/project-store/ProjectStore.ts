@@ -26,7 +26,7 @@ import {
 import {
   formatGddPrdToMarkdown,
   formatStoryScenesToMarkdown,
-} from '../tools/planner/script-to-prd-tool/steps/02-synthesize/markdown-renderer.js';
+} from '../tools/game-assembly/prd-tool/steps/02-synthesize/markdown-renderer.js';
 
 /**
  * 全局法定资产物理落盘规范 (Canonical Artifact Spec SSOT)

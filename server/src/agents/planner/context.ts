@@ -1,7 +1,7 @@
 import { ProjectStore } from '../../project-store/ProjectStore.js';
-import { computeProjectStaleMap } from '../../project-store/freshness.js';
+import { resolveProjectStorySource } from '../../project-store/story-source.js';
 
-export type PlannerPhase = 'STEP_1_PENDING' | 'STEP_2_PENDING' | 'STAGE_1_COMPLETED';
+export type PlannerPhase = 'STEP_1_PENDING' | 'STAGE_1_COMPLETED';
 
 function buildScreenplaySummary(screenplay?: string | null): string {
   if (!screenplay || screenplay.trim().length <= 100) return '尚未生成剧本正文';
@@ -11,48 +11,33 @@ function buildScreenplaySummary(screenplay?: string | null): string {
   return `已产出剧本正文（共约 ${trimmed.length} 字）。内容摘录：\n"""\n${head}${tail}\n"""`;
 }
 
-function buildPrdSummary(prd: any): string {
-  if (!prd || !(prd.clips?.length > 0 || prd.scenes?.length > 0)) {
-    return '尚未拆解 PRD 拓扑';
+function buildTopologySummary(storySource: any): string {
+  if (!storySource || !(storySource.clips?.length > 0)) {
+    return '';
   }
-  const clips: any[] = prd.clips || prd.scenes || [];
-  const interactions: any[] = prd.interactions || [];
-  const endings: any[] = prd.endings || [];
+  const clips: any[] = storySource.clips || [];
+  const interactions: any[] = storySource.interactions || [];
+  const endings: any[] = storySource.endings || [];
 
   const lines: string[] = [];
-  const titlePart = prd.gameTitle ? `《${prd.gameTitle}》` : '';
-  const genrePart = prd.genre ? `（${prd.genre}）` : '';
+  const titlePart = storySource.title || storySource.gameTitle ? `《${storySource.title || storySource.gameTitle}》` : '';
+  const genrePart = storySource.genre ? `（${storySource.genre}）` : '';
   lines.push(
-    `已收敛 Universal PRD 拓扑策划案${titlePart}${genrePart}：共 ${clips.length} 个分幕/分支片段、${interactions.length} 个互动节点、${endings.length} 个结局。`
+    `已收敛结构化分幕与因果拓扑${titlePart}${genrePart}：共 ${clips.length} 个分幕片段、${interactions.length} 个互动节点、${endings.length} 个结局。`
   );
 
   if (clips.length > 0) {
     const clipList = clips
       .slice(0, 12)
-      .map((c: any) => `${c.id}(${c.title || c.name || c.id})`)
+      .map((c: any) => `${c.id}(${c.title || c.id})`)
       .join('、');
     lines.push(`- 分幕片段：${clipList}${clips.length > 12 ? ` 等 ${clips.length} 项` : ''}`);
-  }
-
-  if (interactions.length > 0) {
-    const choiceList = interactions
-      .slice(0, 8)
-      .map((inter: any) => {
-        const opts = (inter.outcomes || [])
-          .map((o: any) => `${o.key}:${String(o.label || '').slice(0, 28)}`)
-          .join(' / ');
-        const mode = inter.isBranching === false ? '单线' : '分支';
-        const kindTag = `${inter.kind || 'CHOICE'}·${mode}${inter.timeoutSec ? `·${inter.timeoutSec}s` : ''}`;
-        return `${inter.id}(${kindTag})[${opts}]`;
-      })
-      .join('；');
-    lines.push(`- 互动节点：${choiceList}`);
   }
 
   if (endings.length > 0) {
     const endingList = endings
       .slice(0, 6)
-      .map((e: any) => `[${e.endingType || (e.isVictory ? 'HE' : 'BE')}] ${e.title || e.id}：${String(e.summary || '').slice(0, 60)}`)
+      .map((e: any) => `[${e.endingType || 'BE'}] ${e.title || e.id}`)
       .join('；');
     lines.push(`- 分支结局：${endingList}`);
   }
@@ -63,26 +48,20 @@ function buildPrdSummary(prd: any): string {
 export function evaluatePlannerPhase(projectId: string): {
   phase: PlannerPhase;
   hasScreenplay: boolean;
-  hasPrd: boolean;
   screenplaySummary: string;
-  prdSummary: string;
+  topologySummary: string;
 } {
   const store = ProjectStore.getInstance();
   const screenplay = store.getArtifact<string>(projectId, 'screenplay');
-  const prd = store.getArtifact<any>(projectId, 'prd');
-  const hasScreenplay = Boolean(screenplay && screenplay.trim().length > 100);
-  const hasPrd = Boolean(prd && (prd.clips?.length > 0 || prd.scenes?.length > 0));
-  const staleMap = computeProjectStaleMap(projectId);
+  const storySource = resolveProjectStorySource(projectId);
+  const hasScreenplay = Boolean((screenplay && screenplay.trim().length > 100) || (storySource?.clips?.length > 0));
 
-  let phase: PlannerPhase = 'STEP_1_PENDING';
-  if (hasScreenplay && (!hasPrd || Boolean(staleMap.prd))) phase = 'STEP_2_PENDING';
-  else if (hasScreenplay && hasPrd) phase = 'STAGE_1_COMPLETED';
+  const phase: PlannerPhase = hasScreenplay ? 'STAGE_1_COMPLETED' : 'STEP_1_PENDING';
 
   return {
     phase,
     hasScreenplay,
-    hasPrd,
-    screenplaySummary: buildScreenplaySummary(screenplay),
-    prdSummary: buildPrdSummary(prd),
+    screenplaySummary: buildScreenplaySummary(screenplay || storySource?.scriptMarkdown),
+    topologySummary: buildTopologySummary(storySource),
   };
 }

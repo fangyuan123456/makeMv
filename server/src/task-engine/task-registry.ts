@@ -4,7 +4,7 @@
  */
 
 import type { BaseTaskTool } from '../tools/base/task-tool.js';
-import { screenplayTool, scriptToPrdTool } from '../tools/planner/index.js';
+import { screenplayTool } from '../tools/planner/index.js';
 import {
   assetManifestTool,
   entitySpecTool,
@@ -13,7 +13,7 @@ import {
   lookdevTool,
   shotVideoTool,
 } from '../tools/film-production/index.js';
-import { gameAssemblyTool } from '../tools/game-assembly/index.js';
+import { gameAssemblyTool, gameCompileStoryTool, gamePrdTool } from '../tools/game-assembly/index.js';
 
 export interface ToolMetadata {
   toolName: string;
@@ -39,7 +39,6 @@ export class TaskToolRegistry {
     const list: BaseTaskTool<any, any>[] = [
       // 1. 剧本策划类
       screenplayTool,
-      scriptToPrdTool,
       // 2. 影视视听制作类
       assetManifestTool,
       entitySpecTool,
@@ -48,7 +47,9 @@ export class TaskToolRegistry {
       lookdevTool,
       shotVideoTool,
       // 3. 游戏总装类
+      gamePrdTool,
       gameAssemblyTool,
+      gameCompileStoryTool,
     ];
 
     for (const tool of list) {

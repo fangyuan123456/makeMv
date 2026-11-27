@@ -21,4 +21,5 @@ export interface RuntimeFile {
 export const RUNTIME_FILES: RuntimeFile[] = [
   { path: 'runtime/player.js', content: readRuntime('player.js') },
   { path: 'runtime/player.css', content: readRuntime('player.css') },
+  { path: 'runtime/engine.js', content: readRuntime('engine.js') },
 ];

@@ -6,6 +6,8 @@ import { GenericAgent } from '../src/agents/generic/agent.js';
 import { LookdevAgent } from '../src/agents/lookdev/agent.js';
 import { PlannerAgent } from '../src/agents/planner/agent.js';
 import { StoryboardAgent } from '../src/agents/storyboard/agent.js';
+import { GameAssemblyAgent } from '../src/agents/game-assembly/agent.js';
+import { AgentFactory } from '../src/agents/registry.js';
 import { mergeStreamedAndToolReply } from '../src/agents/runtime/runner.js';
 import { createIntentTools } from '../src/agents/runtime/intent-tool.js';
 import { JsonStreamStringExtractor } from '../src/utils/JsonStreamStringExtractor.js';
@@ -349,6 +351,85 @@ test('storyboard agent injects current clipId for single-step storyboard plannin
     assert.equal(intent.tool, 'film.shooting_script');
     assert.equal(intent.params.clipId, 'c2');
     assert.equal(intent.params.projectId, projectId);
+  } finally {
+    fs.rmSync(getProjectDir(projectId), { recursive: true, force: true });
+  }
+});
+
+test('game assembly agent routing, phase evaluation, and post task SOP deduction', () => {
+  const projectId = `test_game_assembly_${Date.now()}`;
+  const store = ProjectStore.getInstance();
+  try {
+    // 1. AgentFactory 支持 'game' 路由创建 GameAssemblyAgent
+    const agentViaGame = AgentFactory.create('game', { projectId });
+    assert.ok(agentViaGame instanceof GameAssemblyAgent, '传入 "game" 必须正确创建 GameAssemblyAgent');
+
+    const agentViaAssembly = AgentFactory.create('game-assembly', { projectId });
+    assert.ok(agentViaAssembly instanceof GameAssemblyAgent, '传入 "game-assembly" 必须正确创建 GameAssemblyAgent');
+
+    // 2. 状态机评估：无 PRD 时为 WAITING_FOR_PRD
+    const evalWaiting = GameAssemblyAgent.evaluatePhase(projectId);
+    assert.equal(evalWaiting.phase, 'WAITING_FOR_PRD');
+    assert.equal(evalWaiting.hasPrd, false);
+
+    // 3. 状态机评估：注入 PRD 后为 READY_TO_BUILD
+    store.setArtifact(projectId, 'prd', {
+      clips: [{ id: 'c1', title: '第一幕' }, { id: 'c2', title: '第二幕' }],
+    });
+    const evalReady = GameAssemblyAgent.evaluatePhase(projectId);
+    assert.equal(evalReady.phase, 'READY_TO_BUILD');
+    assert.equal(evalReady.hasPrd, true);
+    assert.equal(evalReady.clipCount, 2);
+
+    // 4. 提案意图解析与参数补齐 (game.assembly build & modify)
+    const buildIntent = (agentViaGame as any).resolveDirectorIntent({
+      action: 'propose',
+      targetTool: 'game.assembly',
+      title: '全量总装互动影游',
+      description: '首次装配可玩站点',
+      params: { mode: 'build' },
+    });
+    assert.equal(buildIntent.action, 'propose');
+    assert.equal(buildIntent.tool, 'game.assembly');
+    assert.equal(buildIntent.params.projectId, projectId);
+    assert.equal(buildIntent.params.mode, 'build');
+
+    const modifyIntent = (agentViaGame as any).resolveDirectorIntent({
+      action: 'propose',
+      targetTool: 'game.assembly',
+      title: '修改主页按钮',
+      description: '把开始游戏按钮改大',
+      params: { mode: 'modify', modifyInstruction: '把开始游戏按钮改大' },
+    });
+    assert.equal(modifyIntent.action, 'propose');
+    assert.equal(modifyIntent.tool, 'game.assembly');
+    assert.equal(modifyIntent.params.mode, 'modify');
+    assert.equal(modifyIntent.params.modifyInstruction, '把开始游戏按钮改大');
+
+    // 5. 意图解析：game.compile_story 纯数据同步
+    const compileIntent = (agentViaGame as any).resolveDirectorIntent({
+      action: 'propose',
+      targetTool: 'game.compile_story',
+      title: '同步最新剧本数据',
+      description: '更新 story.json',
+      params: {},
+    });
+    assert.equal(compileIntent.action, 'propose');
+    assert.equal(compileIntent.tool, 'game.compile_story');
+    assert.equal(compileIntent.params.projectId, projectId);
+
+    // 6. 验证 SOP 后置推演：game.compile_story 完结时必须要求 chat_only 收官，禁止强制顺位推演
+    const compilePrompt = agentViaGame.getPostTaskPrompt(
+      { toolName: 'game.compile_story', projectId } as any,
+      '数据层同步'
+    );
+    assert.ok(compilePrompt.includes('action="chat_only"'), 'compile_story 必须引导以 chat_only 自然收官');
+
+    // 7. 验证 SOP 阶段顺位：game.prd -> game.assembly，落盘后即全流程收敛完工
+    const pipelineStages = (agentViaGame as any).getPipelineStageSequence();
+    assert.equal(pipelineStages.length, 2);
+    assert.equal(pipelineStages[0].tool, 'game.prd');
+    assert.equal(pipelineStages[1].tool, 'game.assembly');
   } finally {
     fs.rmSync(getProjectDir(projectId), { recursive: true, force: true });
   }

@@ -17,6 +17,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { UniversalPrdSpec, ProjectData, TaskRecord } from '../../../../types/index.js';
+import { resolveClientStorySource } from '../../../../lib/storySource.js';
 
 export interface VisualPipelineTopologyProps {
   projectData: ProjectData | null;
@@ -143,7 +144,10 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
   const [lockedToast, setLockedToast] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
 
-  const prd: UniversalPrdSpec | undefined = projectData?.prd || projectData?.artifacts?.gdd?.prd;
+  const prd: UniversalPrdSpec | undefined = useMemo(
+    () => resolveClientStorySource(projectData),
+    [projectData]
+  );
   const entities = projectData?.entities || projectData?.artifacts?.lookdev_entities;
   const characters = entities?.characters || [];
   const locations = entities?.locations || [];

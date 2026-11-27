@@ -89,7 +89,7 @@ ${instruction ? `【创作者动态微调诉求】：\n${instruction}\n` : ''}
 ${getSkillsForStage('motion', { isIdleLoop })}
 
 【H3 Ref2V 视频提示词输出格式要求（高信噪比，严禁静态画质废话）】：
-1. **第一段固定写 \`人物站位：...\`**：用 1~2 句话定死出场人物和关键道具的初始位置、朝向/轴线及主光源方向与光线质感；${previousShot && previousShot.isSameScene && shot.continuityMode !== 'detached' ? '若同场景连续承接前序片段，必须显式衔接前序最后机位的物理站位、视线朝向与动作惯性，避免静止停顿或左右跳轴；' : ''}
+1. **第一段固定写 \`人物站位：...\`**：用 1~2 句话定死所在场景${shot.location ? `（如在 ${shot.location} 内）` : ''}、出场人物和关键道具的初始位置、朝向/轴线及主光源方向与光线质感；${previousShot && previousShot.isSameScene && shot.continuityMode !== 'detached' ? '若同场景连续承接前序片段，必须显式衔接前序最后机位的物理站位、视线朝向与动作惯性，避免静止停顿或左右跳轴；' : ''}
 2. **随后按时间轴拆分机位段落**（总时长严格相加等于 ${totalSec} 秒；单机位写 1 段，需要正反打/情绪递进/动作特写切镜时拆 2~3 个机位）：
    - 格式示例：
      \`镜头1：0—4秒，4秒（共1机位）\`

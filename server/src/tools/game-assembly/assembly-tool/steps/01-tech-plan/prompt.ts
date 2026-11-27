@@ -1,10 +1,10 @@
-/**
+﻿/**
  * tools/game-assembly/steps/01-tech-plan/prompt.ts
  * 技术架构规划提示词体系
  */
 
-import type { UniversalPrdSpec } from '../../../../project-store/contracts/planner/index.js';
-import type { SingleSceneJson, StoryScript } from '../../../../project-store/contracts/game-assembly/index.js';
+import type { UniversalPrdSpec } from '../../../../../project-store/contracts/planner/index.js';
+import type { SingleSceneJson, StoryScript } from '../../../../../project-store/contracts/game-assembly/index.js';
 import {
   buildRuntimeBehaviorRules,
   buildRuntimeFactsSection,

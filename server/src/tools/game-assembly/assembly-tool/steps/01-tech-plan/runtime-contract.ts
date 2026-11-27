@@ -1,9 +1,9 @@
-/**
+﻿/**
  * tools/game-assembly/steps/01-tech-plan/runtime-contract.ts
  * 互动影游运行时契约 (Runtime Contract SSOT)
  */
 
-import type { StoryScript } from '../../../../project-store/contracts/game-assembly/index.js';
+import type { StoryScript } from '../../../../../project-store/contracts/game-assembly/index.js';
 
 export function buildRuntimeFactsSection(facts: {
   sceneCount: number;

@@ -8,6 +8,7 @@ import { createStep } from '@mastra/core/workflows';
 import { Agent } from '@mastra/core/agent';
 import { LLMProvider } from '../../../../../llm/index.js';
 import { ProjectStore } from '../../../../../project-store/ProjectStore.js';
+import { resolveProjectStorySource } from '../../../../../project-store/story-source.js';
 import { generateStructured } from '../../../../../utils/llm-diagnostics.js';
 import type { GlobalEntities } from '../../../../../project-store/contracts/film-production/lookdev.js';
 import { CharacterSpecSchema } from '../../character/index.js';
@@ -32,12 +33,8 @@ export const entitySpecStep = createStep({
     const store = ProjectStore.getInstance();
     const abortSignal = (input as any)?.abortSignal || (input as any)?._context?.abortSignal;
 
-    const prd = input.prd || store.getArtifact(input.projectId, 'universal_prd');
-    const storyMarkdown =
-      input.storyMarkdown ||
-      store.getArtifact<string>(input.projectId, 'screenplay') ||
-      store.getArtifact<string>(input.projectId, 'story') ||
-      '';
+    const storySource = input.prd || resolveProjectStorySource(input.projectId);
+    const storyMarkdown = input.storyMarkdown || storySource?.scriptMarkdown || '';
 
     const entities = store.getArtifact<GlobalEntities>(input.projectId, 'lookdev_entities') || {
       artStyle: '电影实拍质感',
@@ -93,7 +90,7 @@ export const entitySpecStep = createStep({
       roleOrBrief: input.roleOrBrief,
       instruction: input.instruction,
       storyMarkdown,
-      prd,
+      prd: storySource,
       artStyle: entities.artStyle,
       existingSpec: cleanExistingSpec,
       knownCharacters,

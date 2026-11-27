@@ -7,6 +7,7 @@ import { createStep } from '@mastra/core/workflows';
 import { Agent } from '@mastra/core/agent';
 import { LLMProvider } from '../../../../../llm/index.js';
 import { ProjectStore } from '../../../../../project-store/ProjectStore.js';
+import { resolveProjectStorySource } from '../../../../../project-store/story-source.js';
 import { generateStructured } from '../../../../../utils/llm-diagnostics.js';
 import {
   AssetManifestInputSchema,
@@ -27,12 +28,8 @@ export const assetManifestStep = createStep({
     const store = ProjectStore.getInstance();
     const abortSignal = (input as any)?.abortSignal || (input as any)?._context?.abortSignal;
 
-    const prd = input.prd || store.getArtifact(input.projectId, 'universal_prd');
-    const storyMarkdown =
-      input.storyMarkdown ||
-      store.getArtifact<string>(input.projectId, 'screenplay') ||
-      store.getArtifact<string>(input.projectId, 'story') ||
-      '';
+    const storySource = input.prd || resolveProjectStorySource(input.projectId);
+    const storyMarkdown = input.storyMarkdown || storySource?.scriptMarkdown || '';
 
     const project = store.getProject(input.projectId);
     const title = project?.meta?.title || '影视互动剧';
@@ -46,7 +43,7 @@ export const assetManifestStep = createStep({
     const prompt = buildAssetManifestPrompt({
       title,
       storyMarkdown,
-      prd,
+      prd: storySource,
     });
 
     const manifestData = (await generateStructured({

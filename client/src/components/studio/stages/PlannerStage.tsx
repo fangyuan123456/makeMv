@@ -3,16 +3,8 @@
  * 工序 1：剧本与策划工坊 (Planner Studio SSOT)
  *
  * 核心架构与资产职责分工：
- * 1. Tool 1 (planner.screenplay_writer) 产物：
- *    - 【📖 故事原文 (未切分)】：文学创作连贯长篇主干剧本 (screenplay.md / planner_spine.md)；
- *    - 支持高保真阅读视图与在线微调编辑，支持一键「📐 解析为 PRD」；
- * 2. Tool 2 (planner.script_to_prd) 产物：
- *    - 【📊 PRD 策划案】：
- *      - 🗺️ 故事拓扑图 (Topology)：基于 prd.json 纯代码绘制的自上而下交互故事流向图谱，支持拖拽平移、滚轮缩放与节点选中联动；
- *      - 📄 策划案专业文档 (Markdown)：5 章节 PRD 文档 (含第 5 章界面规划与第 3 章接线 JSON)；
- *    - 【🎬 故事分幕切片 (切分后)】：
- *      - 🗂️ 分幕卡片视图：结构化展示 S1~Sn 各分幕剧情正文、转折点与结局走向；
- *      - 📝 切片 Markdown 全文：原汁原味呈现 story.md 分幕清单全文。
+ * 1. 【🗺️ 故事拓扑图】：基于结构化剧本 JSON (screenplay.json) 纯代码绘制的自上而下交互故事流向图谱与 JSON 结构预览；
+ * 2. 【📖 故事剧本】：文学创作连贯主干剧本阅读与在线微调编辑，以及按幕呈现的 S1~Sn 结构化分幕卡片视图。
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -23,13 +15,13 @@ import type {
   PrdClipNode,
   PrdInteractionNode,
   PrdEndingNode,
-  PrdUiPage,
 } from '../../../types/index.js';
 import { PlannerChat } from '../chat/PlannerChat.js';
 import { PlannerTopologyDiagram } from './planner/PlannerTopologyDiagram.js';
 import { ScreenplayReviewActionButton } from './planner/ScreenplayReviewActionButton.js';
 import { useReportFocus } from '../../../hooks/StudioFocusContext.js';
 import { saveScreenplay, triggerScreenplayReview } from '../../../lib/api.js';
+import { resolveClientStorySource } from '../../../lib/storySource.js';
 
 interface PlannerStageProps {
   projectId: string;
@@ -72,6 +64,12 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
 
   // 剧本质量审查与手动修复状态
   const [isSavingScript, setIsSavingScript] = useState(false);
+  const [editingActNumber, setEditingActNumber] = useState<number | null>(null);
+  const [editingSceneHeader, setEditingSceneHeader] = useState('');
+  const [editingNarrativeBody, setEditingNarrativeBody] = useState('');
+  const [editingEndings, setEditingEndings] = useState<
+    Array<{ actNumber: number; outcomeKey: string; title: string; endingType: string; narrativeText: string }>
+  >([]);
   const [isTriggeringReview, setIsTriggeringReview] = useState(false);
   const [isFixingIssues, setIsFixingIssues] = useState(false);
   const [reviewActionError, setReviewActionError] = useState<string | null>(null);
@@ -126,7 +124,6 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
     const remoteScript =
       projectData?.screenplay ||
       projectData?.artifacts?.screenplay ||
-      projectData?.artifacts?.gdd?.spineScript ||
       taskScript ||
       '';
 
@@ -136,22 +133,14 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
       setScreenplayMarkdown('');
     }
 
-    const latestPrdTask = tasks.find(
-      (t) =>
-        (t.toolName === 'planner.script_to_prd' || t.toolName.includes('prd')) &&
-        t.status === 'completed' &&
-        (t.output?.storyMarkdown || t.output?.story)
-    );
-    const taskStory = latestPrdTask?.output?.storyMarkdown || latestPrdTask?.output?.story;
     const remoteStory =
       projectData?.story ||
       projectData?.artifacts?.story ||
-      taskStory ||
       '';
 
     if (remoteStory && typeof remoteStory === 'string') {
       setStoryMarkdown(remoteStory);
-    } else if (!projectData && !taskStory) {
+    } else if (!projectData) {
       setStoryMarkdown('');
     }
   }, [
@@ -161,38 +150,46 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
     projectData?.story,
     projectData?.artifacts?.screenplay,
     projectData?.artifacts?.story,
-    projectData?.artifacts?.gdd?.spineScript,
   ]);
 
+  const latestScreenplayDoc = tasks.find(
+    (t) =>
+      (t.toolName === 'planner.screenplay_writer' || t.toolName.includes('screenplay')) &&
+      t.status === 'completed' &&
+      t.output?.screenplayDocument
+  )?.output?.screenplayDocument;
+
+  const screenplayJson =
+    projectData?.screenplayJson ||
+    projectData?.artifacts?.screenplay_json ||
+    latestScreenplayDoc;
+
   const prd: UniversalPrdSpec | undefined =
-    projectData?.prd || projectData?.artifacts?.prd || projectData?.artifacts?.gdd?.prd;
+    projectData?.prd || projectData?.artifacts?.prd;
   const prdMarkdown: string =
     projectData?.prdMarkdown ||
     projectData?.artifacts?.prdMarkdown ||
-    projectData?.artifacts?.gdd?.markdown ||
     '';
 
-  const clips: PrdClipNode[] = prd?.clips || prd?.scenes || [];
-  const interactions: PrdInteractionNode[] = prd?.interactions || [];
-  const endings: PrdEndingNode[] = prd?.endings || [];
-  const uiPages: PrdUiPage[] = prd?.uiPagesSummary || prd?.uiPages || [
-    { page: '主界面', features: '开始游戏、继续故事、章节选择、设置' },
-    { page: '剧情播放器', features: '无缝视频流、快进/回退、分支倒计时选项' },
-    { page: '分支抉择轮盘', features: '倒计时进度条、选项标签、性格/好感度倾向提示' },
-    { page: '线索与背包档案', features: '关键证物检查、人物情报小传、已解锁成就' },
-    { page: '结局结算页', features: '达成终局评价、故事完成度百分比、节点树回溯' },
-  ];
+  const storySource: UniversalPrdSpec | undefined = useMemo(
+    () => resolveClientStorySource(projectData, screenplayJson),
+    [projectData, screenplayJson]
+  );
 
-  // 智能切页自适应：若只有第一个 Tool 生成的故事原文而尚未生成 PRD，默认直接切到 Story 页签的故事原文！
+  const clips: PrdClipNode[] = storySource?.clips || (storySource as any)?.scenes || [];
+  const interactions: PrdInteractionNode[] = storySource?.interactions || [];
+  const endings: PrdEndingNode[] = storySource?.endings || [];
+
+  // 智能切页自适应：若尚未有结构化分幕拓扑，先切到故事原文
   useEffect(() => {
     const hasOriginal = Boolean(screenplayMarkdown);
-    const hasPrd = Boolean(prd && clips.length > 0);
-    if (hasOriginal && !hasPrd) {
+    const hasTopology = Boolean(storySource && clips.length > 0);
+    if (hasOriginal && !hasTopology) {
       setActiveMainTab('story');
       setStoryTabType('original');
       setOriginalMode('reading');
     }
-  }, [Boolean(screenplayMarkdown), Boolean(prd && clips.length > 0)]);
+  }, [Boolean(screenplayMarkdown), Boolean(storySource && clips.length > 0)]);
 
   // 上报策划工坊当前页签与 PRD 拓扑选中节点焦点
   const plannerFocus = useMemo(() => {
@@ -224,14 +221,6 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
   }, [activeMainTab, storyTabType, originalMode, prdSubMode, selectedNodeId, clips, interactions, endings]);
   useReportFocus(plannerFocus);
 
-  // 故事原文一键解析为 PRD
-  const handleManualGeneratePrd = async () => {
-    setActiveMainTab('prd');
-    await onRunTool('planner.script_to_prd', {
-      scriptMarkdown: screenplayMarkdown,
-    });
-  };
-
   // 保存手动编辑的剧本（不自动触发大模型重审，由系统自动比对指纹标脏）
   const handleSaveEditedScreenplay = async () => {
     if (!screenplayMarkdown.trim()) return;
@@ -243,6 +232,54 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
       onRefreshProject?.();
     } catch (err: any) {
       setReviewActionError(err?.message || '保存剧本失败');
+    } finally {
+      setIsSavingScript(false);
+    }
+  };
+
+  // 开始结构化编辑某一幕卡片
+  const handleStartEditActCard = (actNumber: number) => {
+    const actObj = (screenplayJson?.acts || []).find((a: any) => a.actNumber === actNumber);
+    const clipObj = clips.find((c) => c.id === `c${actNumber}`);
+    const fallbackBody = (clipObj?.narrativeText || '').replace(/^【场景[：:][^\n】]+】\s*/, '').trim();
+    const actEndings = (screenplayJson?.endings || [])
+      .filter((e: any) => e.actNumber === actNumber)
+      .map((e: any) => ({
+        actNumber: e.actNumber,
+        outcomeKey: e.outcomeKey,
+        title: e.title || '专有终局',
+        endingType: e.endingType || 'BE',
+        narrativeText: e.summary || e.narrativeText || '',
+      }));
+
+    setEditingActNumber(actNumber);
+    setEditingSceneHeader(actObj?.sceneHeader || (clipObj as any)?.location || '');
+    setEditingNarrativeBody(actObj?.narrativeBody || fallbackBody);
+    setEditingEndings(actEndings);
+  };
+
+  // 保存结构化单幕修改（直接传结构化字段给服务端更新 screenplay.json）
+  const handleSaveActCard = async () => {
+    if (!editingActNumber) return;
+    setIsSavingScript(true);
+    setReviewActionError(null);
+    try {
+      await saveScreenplay(projectId, {
+        actUpdate: {
+          actNumber: editingActNumber,
+          sceneHeader: editingSceneHeader,
+          narrativeBody: editingNarrativeBody,
+        },
+        endingUpdates: editingEndings.map((e) => ({
+          actNumber: e.actNumber,
+          outcomeKey: e.outcomeKey,
+          narrativeText: e.narrativeText,
+        })),
+      });
+      setEditingActNumber(null);
+      onRefreshProject?.();
+    } catch (err: any) {
+      setReviewActionError(err?.message || '保存分幕修改失败');
     } finally {
       setIsSavingScript(false);
     }
@@ -348,19 +385,11 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <span>📊</span>
-                <span>PRD 策划案</span>
+                <span>🗺️</span>
+                <span>故事拓扑图</span>
                 {clips.length > 0 && (
                   <span className="font-mono text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-50 text-indigo-600 font-semibold">
                     {clips.length}幕
-                  </span>
-                )}
-                {projectData?.staleMap?.prd && (
-                  <span
-                    className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 border border-amber-300 font-semibold"
-                    title={projectData.staleMap.prd.reason}
-                  >
-                    ⚠ 待同步
                   </span>
                 )}
               </button>
@@ -370,8 +399,8 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
             <div className="flex items-center space-x-1.5 flex-nowrap flex-shrink-0">
               {activeMainTab === 'prd' ? (
                 <>
-                  {/* PRD 双视图切换：拓扑图 / 文档全文 */}
-                  {prd && (
+                  {/* 拓扑与结构化 JSON 双视图切换 */}
+                  {storySource && (
                     <div className="flex items-center bg-slate-50 border border-slate-200/80 rounded-lg p-0.5 space-x-0.5 text-[11px] font-medium mr-1 flex-shrink-0">
                       <button
                         type="button"
@@ -393,19 +422,19 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
                             : 'text-slate-500 hover:text-slate-800'
                         }`}
                       >
-                        📄 文档全文
+                        📄 结构化 JSON
                       </button>
                     </div>
                   )}
 
                   <span
                     className={`text-xs px-2.5 py-1 rounded-full font-mono font-medium whitespace-nowrap flex-shrink-0 ${
-                      prd
+                      storySource
                         ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
                         : 'bg-slate-100 text-slate-500 border border-slate-200'
                     }`}
                   >
-                    {prd
+                    {storySource
                       ? `${clips.length} 幕 · ${interactions.length} 互动 · ${endings.length} 结局`
                       : '待生成'}
                   </span>
@@ -450,19 +479,6 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
                       )}
                     </button>
                   </div>
-
-                  {/* 全局操作：解析为 PRD */}
-                  {screenplayMarkdown && (
-                    <button
-                      type="button"
-                      onClick={handleManualGeneratePrd}
-                      disabled={isBusy}
-                      className="px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-lg border border-indigo-200 shadow-2xs transition active:scale-95 disabled:opacity-40 whitespace-nowrap flex-shrink-0"
-                      title="将故事原文切片并解析为 PRD"
-                    >
-                      📐 解析为 PRD
-                    </button>
-                  )}
                 </>
               )}
             </div>
@@ -470,25 +486,25 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
 
           {/* 切页主视窗 */}
           <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-            {/* ══════════════ TAB 1: PRD (策划案) ══════════════ */}
+            {/* ══════════════ TAB 1: 故事拓扑与策划视图 ══════════════ */}
             {activeMainTab === 'prd' && (
               <div className="flex-1 overflow-hidden flex flex-col h-full min-h-0">
-                {!prd && !prdMarkdown ? (
+                {!storySource && !prdMarkdown ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-slate-400 text-xs py-20">
                     <div className="w-14 h-14 rounded-2xl bg-indigo-50/70 border border-indigo-100 flex items-center justify-center text-2xl mb-3 shadow-2xs">
                       📊
                     </div>
-                    <span className="font-semibold text-slate-700 text-sm">尚未生成 PRD 策划案</span>
+                    <span className="font-semibold text-slate-700 text-sm">尚未生成结构化剧本拓扑</span>
                     <span className="text-[11px] text-slate-400 mt-1 max-w-sm text-center leading-relaxed">
-                      请在左侧与故事总监对话推演并确认执行第二个工具（剧本解析为 PRD），或先查看 Story 故事页
+                      请在左侧与故事总监对话推演互动全景剧本，完成后将自动生成分幕故事与因果拓扑图
                     </span>
                   </div>
                 ) : prdSubMode === 'topology' ? (
                   /* 模式 1：原生 SVG 故事流向拓扑图 (全景沉浸有向图谱) */
                   <div className="flex-1 overflow-hidden flex flex-col h-full min-h-0 relative">
-                    {prd ? (
+                    {storySource ? (
                       <PlannerTopologyDiagram
-                        prd={prd}
+                        prd={storySource}
                         storySections={projectData?.storySections}
                         selectedNodeId={selectedNodeId}
                         onSelectNode={(nodeId) => setSelectedNodeId(nodeId)}
@@ -496,11 +512,11 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
                       />
                     ) : (
                       <div className="flex-1 flex items-center justify-center text-slate-400 text-xs">
-                        暂无拓扑图数据，请先生成 PRD
+                        暂无拓扑图数据，请先生成剧本
                       </div>
                     )}
                     {/* 节点点击详情浮层卡片 (现代优雅亮色系) */}
-                    {selectedNodeId && prd && (
+                    {selectedNodeId && storySource && (
                       <div className="absolute bottom-3 left-4 right-4 bg-white/95 border border-slate-200/90 rounded-xl p-3.5 text-xs text-slate-800 shadow-xl backdrop-blur-md flex items-center justify-between z-20">
                         <div className="flex items-center space-x-3 overflow-hidden">
                           <span className="font-mono px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-bold border border-indigo-200/80 shrink-0">
@@ -531,12 +547,13 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
                     )}
                   </div>
                 ) : (
-                  /* 模式 2：专业 5 章节 PRD Markdown 文档全文呈现 */
+                  /* 模式 2：结构化剧本 JSON 呈现 */
                   <div className="flex-1 overflow-y-auto space-y-2 pr-1">
                     <div className="p-4 bg-slate-50/90 rounded-2xl border border-slate-200 text-xs font-mono text-slate-800 leading-relaxed shadow-2xs">
-                      <pre className="whitespace-pre-wrap font-sans text-xs text-slate-800 leading-relaxed">
-                        {prdMarkdown ||
-                          (prd ? JSON.stringify(prd, null, 2) : '暂无 Markdown 文档文本')}
+                      <pre className="whitespace-pre-wrap font-mono text-xs text-slate-800 leading-relaxed">
+                        {screenplayJson
+                          ? JSON.stringify(screenplayJson, null, 2)
+                          : prdMarkdown || (prd ? JSON.stringify(prd, null, 2) : '暂无结构化剧本数据')}
                       </pre>
                     </div>
                   </div>
@@ -699,44 +716,162 @@ export const PlannerStage: React.FC<PlannerStageProps> = ({
                         </div>
                         <span className="font-semibold text-slate-700 text-sm">尚未切分故事分幕</span>
                         <span className="text-[11px] text-slate-400 mt-1 max-w-sm text-center leading-relaxed">
-                          请先在「故事原文」页点击右上角「📐 解析为 PRD」，系统将自动执行切片生成 S1~Sn 故事分幕！
+                          请先在左侧与故事总监对话生成互动全景剧本，系统将自动输出 S1~Sn 结构化分幕卡片！
                         </span>
                       </div>
                     ) : slicedMode === 'cards' ? (
-                      /* 卡片流视图：按幕展示切片剧情正文与转折点 */
+                      /* 卡片流视图：支持结构化按幕编辑正文与终局文案，分支选项锁死只读 */
                       <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-                        {clips.map((c, idx) => (
-                          <div
-                            key={c.id || idx}
-                            className="p-4 bg-slate-50/90 rounded-2xl border border-slate-200 text-xs space-y-2.5 transition hover:border-indigo-200 hover:bg-slate-50 shadow-2xs"
-                          >
-                            <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
-                              <div className="flex items-center space-x-2">
-                                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-indigo-100 text-indigo-700">
-                                  {c.id}
-                                </span>
-                                <span className="font-bold text-slate-900 text-xs">
-                                  《{c.title}》
-                                </span>
+                        {clips.map((c, idx) => {
+                          const actNum = Number(String(c.id || '').replace(/^c/i, '')) || idx + 1;
+                          const isEditingThis = editingActNumber === actNum;
+                          const actEndings = (screenplayJson?.endings || []).filter(
+                            (e: any) => e.actNumber === actNum
+                          );
+                          const clipInteraction = (c as any).interaction;
+                          return (
+                            <div
+                              key={c.id || idx}
+                              className="p-4 bg-slate-50/90 rounded-2xl border border-slate-200 text-xs space-y-2.5 transition hover:border-indigo-200 hover:bg-slate-50 shadow-2xs"
+                            >
+                              <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                                <div className="flex items-center space-x-2">
+                                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-indigo-100 text-indigo-700">
+                                    {c.id}
+                                  </span>
+                                  <span className="font-bold text-slate-900 text-xs">
+                                    《{c.title}》
+                                  </span>
+                                </div>
+                                <div className="flex items-center space-x-1.5">
+                                  <span className="text-[10px] font-mono text-slate-400 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                                    对应视频: {c.video || `${c.id}.mp4`}
+                                  </span>
+                                  {screenplayJson && !isEditingThis && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleStartEditActCard(actNum)}
+                                      disabled={isBusy || isSavingScript}
+                                      className="px-2 py-0.5 bg-white hover:bg-indigo-50 text-indigo-600 text-[11px] font-semibold rounded-md border border-indigo-200 transition disabled:opacity-40"
+                                    >
+                                      ✏️ 编辑
+                                    </button>
+                                  )}
+                                  {isEditingThis && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingActNumber(null)}
+                                        disabled={isSavingScript}
+                                        className="px-2 py-0.5 bg-white hover:bg-slate-100 text-slate-600 text-[11px] font-medium rounded-md border border-slate-200"
+                                      >
+                                        取消
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={handleSaveActCard}
+                                        disabled={isSavingScript}
+                                        className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold rounded-md shadow-2xs disabled:opacity-40"
+                                      >
+                                        {isSavingScript ? '保存中...' : '💾 保存'}
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
                               </div>
-                              <span className="text-[10px] font-mono text-slate-400 bg-white px-2 py-0.5 rounded-md border border-slate-200">
-                                对应视频: {c.video || `${c.id}.mp4`}
-                              </span>
-                            </div>
 
-                            {/* 分幕正文 */}
-                            <div className="text-slate-800 text-xs leading-relaxed font-sans bg-white p-3 rounded-xl border border-slate-200/70 whitespace-pre-wrap">
-                              {c.narrativeText || '（暂无分幕剧情文本）'}
-                            </div>
+                              {isEditingThis ? (
+                                <div className="space-y-2.5">
+                                  <div>
+                                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                                      母场景与光影定调
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={editingSceneHeader}
+                                      onChange={(e) => setEditingSceneHeader(e.target.value)}
+                                      className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-indigo-500"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                                      本幕戏剧正文
+                                    </label>
+                                    <textarea
+                                      rows={6}
+                                      value={editingNarrativeBody}
+                                      onChange={(e) => setEditingNarrativeBody(e.target.value)}
+                                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-indigo-500 leading-relaxed resize-y"
+                                    />
+                                  </div>
+                                  {editingEndings.length > 0 && (
+                                    <div className="space-y-2 pt-1 border-t border-slate-200/70">
+                                      <div className="text-[11px] font-semibold text-slate-500">
+                                        本幕关联终局文案
+                                      </div>
+                                      {editingEndings.map((ed, eIdx) => (
+                                        <div key={`${ed.actNumber}_${ed.outcomeKey}`} className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                                          <div className="text-[11px] font-semibold text-rose-700">
+                                            【终局：{ed.title}（{ed.endingType}）| 触发：{ed.outcomeKey}】
+                                          </div>
+                                          <textarea
+                                            rows={3}
+                                            value={ed.narrativeText}
+                                            onChange={(e) => {
+                                              const next = [...editingEndings];
+                                              next[eIdx] = { ...next[eIdx], narrativeText: e.target.value };
+                                              setEditingEndings(next);
+                                            }}
+                                            className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-indigo-500 leading-relaxed"
+                                          />
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <>
+                                  {/* 分幕正文 */}
+                                  <div className="text-slate-800 text-xs leading-relaxed font-sans bg-white p-3 rounded-xl border border-slate-200/70 whitespace-pre-wrap">
+                                    {c.narrativeText || '（暂无分幕剧情文本）'}
+                                  </div>
 
-                            {/* 互动或结局提示 */}
-                            {c.choices && c.choices.length > 0 && (
-                              <div className="text-[11px] text-indigo-700 bg-indigo-50/60 px-3 py-1.5 rounded-lg border border-indigo-100 flex items-center justify-between">
-                                <span>🔀 尾帧抉择选项：{c.choices.map((ch: any) => ch.text || ch.label).join(' ｜ ')}</span>
-                              </div>
-                            )}
-                          </div>
-                        ))}
+                                  {/* 互动节点只读锁定提示 */}
+                                  {clipInteraction && (
+                                    <div className="text-[11px] text-indigo-700 bg-indigo-50/60 px-3 py-1.5 rounded-lg border border-indigo-100 flex flex-wrap items-center gap-2">
+                                      <span className="font-semibold">
+                                        {clipInteraction.isBranching ? '🔀 命运分支' : '🎯 单线互动'} ({clipInteraction.kind}
+                                        {clipInteraction.timeoutSec ? ` · ${clipInteraction.timeoutSec}s` : ''})：
+                                      </span>
+                                      <span>
+                                        {(clipInteraction.outcomes || [])
+                                          .map((o: any) => `[${o.key}] ${o.label}`)
+                                          .join(' ｜ ')}
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  {/* 终局结算展示 */}
+                                  {actEndings.length > 0 && (
+                                    <div className="space-y-1.5">
+                                      {actEndings.map((ed: any) => (
+                                        <div
+                                          key={ed.id || `${ed.actNumber}_${ed.outcomeKey}`}
+                                          className="text-[11px] bg-rose-50/60 border border-rose-200/70 rounded-xl px-3 py-2 text-slate-700"
+                                        >
+                                          <span className="font-bold text-rose-700 mr-1.5">
+                                            【终局：{ed.title}（{ed.endingType}）】
+                                          </span>
+                                          <span>{ed.summary}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : (
                       /* Markdown 全文视图：原汁原味展示 story.md */

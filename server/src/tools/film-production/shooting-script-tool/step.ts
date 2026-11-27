@@ -7,6 +7,7 @@ import { createStep } from '@mastra/core/workflows';
 import { Agent } from '@mastra/core/agent';
 import { LLMProvider } from '../../../llm/index.js';
 import { ProjectStore } from '../../../project-store/ProjectStore.js';
+import { resolveProjectStorySource } from '../../../project-store/story-source.js';
 import { generateStructured } from '../../../utils/llm-diagnostics.js';
 import { getProjectStorySections } from '../../../project-store/story-sections.js';
 import { buildBranchContext } from '../../../project-store/story-context.js';
@@ -44,8 +45,8 @@ export const shootingScriptStep = createStep({
 
     const entities = store.getArtifact<any>(input.projectId, 'lookdev_entities') || { characters: [], locations: [], items: [] };
 
-    // 宏观全剧故事因果
-    const prd = store.getArtifact<any>(input.projectId, 'universal_prd') || store.getArtifact<any>(input.projectId, 'prd') || {};
+    // 宏观全剧故事因果（优先直读结构化剧本 JSON，兼容旧项目 PRD）
+    const prd = resolveProjectStorySource(input.projectId) || {};
     const branchContext = buildBranchContext(
       {
         clips: prd.clips || [],

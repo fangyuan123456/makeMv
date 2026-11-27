@@ -49,7 +49,7 @@ assert.ok(allTools.length >= 8, '应当至少注册 8 个标准任务工具');
 
 const expectedToolNames = [
   'planner.screenplay_writer',
-  'planner.script_to_prd',
+  'game.prd',
   'film.asset_manifest',
   'film.entity_spec',
   'film.shooting_script',

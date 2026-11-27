@@ -18,9 +18,9 @@ export * from './steps/01-extract/index.js';
 export * from './steps/02-synthesize/index.js';
 export * from './workflow.js';
 
-export class ScriptToPrdTool extends BaseTaskTool<ScriptToPrdInput, ScriptToPrdOutput> {
-  public readonly toolName = 'planner.script_to_prd';
-  public readonly description = '以已物理落盘的剧本正文为唯一基准，出具【Universal PRD 分幕与因果拓扑拆解】的工程执行提案（含图论闭环门禁校验规划），提交给创作者在界面中审阅与授权批准后执行';
+export class GamePrdTool extends BaseTaskTool<ScriptToPrdInput, ScriptToPrdOutput> {
+  public readonly toolName = 'game.prd';
+  public readonly description = '在游戏总装阶段基于结构化剧本生成游戏产品 PRD 规格（含 UI 主题、状态变量字典、6 屏交互规划与工程拓扑）';
   public readonly inputSchema = ScriptToPrdInputSchema;
   public readonly outputSchema = ScriptToPrdOutputSchema;
 
@@ -30,4 +30,4 @@ export class ScriptToPrdTool extends BaseTaskTool<ScriptToPrdInput, ScriptToPrdO
 }
 
 /** 单例导出 */
-export const scriptToPrdTool = new ScriptToPrdTool();
+export const gamePrdTool = new GamePrdTool();

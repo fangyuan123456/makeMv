@@ -19,6 +19,7 @@ import {
   buildScreenplaySystemPrompt,
   buildFullScriptPrompt,
 } from './prompt.js';
+import { buildStructuredScreenplayDocument } from './renderer.js';
 
 export const screenplayStep = createStep({
   id: 'generate-full-screenplay',
@@ -61,9 +62,13 @@ export const screenplayStep = createStep({
       abortSignal,
     })) as FullScriptTextOutput;
 
-    const finalOutput: ScreenplayOutput = {
+    const screenplayDocument = buildStructuredScreenplayDocument(premise, parsed);
+
+    const finalOutput: ScreenplayOutput & { screenplayDocument?: unknown } = {
       ...premise,
-      scriptMarkdown: parsed.scriptMarkdown,
+      scriptMarkdown: screenplayDocument.scriptMarkdown,
+      structuredContent: parsed,
+      screenplayDocument,
     };
 
     return finalOutput;

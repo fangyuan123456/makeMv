@@ -5,10 +5,10 @@ import { ProjectStore } from '../../project-store/ProjectStore.js';
 import { safeReadJsonSync } from '../../utils/atomicFile.js';
 import { hydrateEntitiesWithDiskAssets } from '../../project-store/entity-preservation.js';
 import { computeProjectStaleMap } from '../../project-store/freshness.js';
-import { parseStorySections } from '../../project-store/story-sections.js';
 import { readFrameVersions, readVideoVersions } from '../../project-store/shot-frame-versions.js';
 import { getReviewWithFreshness } from '../../tools/review/shared/review-store.js';
 import { SCREENPLAY_REVIEW_KEY } from '../../tools/review/screenplay-review/index.js';
+import { renderScreenplayMarkdownFromDocument } from '../../project-store/story-source.js';
 import { sendError } from '../helpers.js';
 
 const store = ProjectStore.getInstance();
@@ -44,32 +44,29 @@ export const getProjectSnapshot = (req: Request, res: Response) => {
       safeReadJsonSync(path.join(projectDir, 'scenes', 'entities.json'));
     const entities = hydrateEntitiesWithDiskAssets(projectId, projectDir, rawEntities);
 
-    // 2. 策划案 PRD (结构化数据)
+    // 2. 策划案 PRD (由游戏阶段按需生成)
     const prd = store.getArtifact(projectId, 'prd');
 
-    // 3. 策划案 Markdown 原文 (含第 5 章界面规划与第 3 章接线 JSON)
+    // 3. 策划案 Markdown 原文 (游戏阶段产物)
     const prdMarkdown = store.getArtifact<string>(projectId, 'prd_markdown');
 
-    // 4. 剧本正文与故事原文 (分幕黄金剧情与故事大纲)
-    let screenplay = store.getArtifact<string>(projectId, 'screenplay');
-    if (!screenplay) {
-      const legacySpinePath = path.join(projectDir, '.debug', '01-planner', '01-write-spine-script', 'planner_spine.md');
-      if (fs.existsSync(legacySpinePath)) {
-        screenplay = fs.readFileSync(legacySpinePath, 'utf-8');
+    // 4. 结构化剧本 JSON (策划阶段唯一真源)
+    const screenplayJson =
+      store.getArtifact<any>(projectId, 'screenplay_json') ||
+      safeReadJsonSync(path.join(projectDir, 'screenplay.json'));
+    const storyGraph = screenplayJson?.storyGraph || null;
+    const screenplay = screenplayJson ? renderScreenplayMarkdownFromDocument(screenplayJson) : '';
+
+    const storySections: Record<string, { title: string; narrativeText: string }> = {};
+    if (screenplayJson && Array.isArray(screenplayJson.clips)) {
+      for (const c of screenplayJson.clips) {
+        if (c?.id) {
+          storySections[c.id] = {
+            title: c.title || c.id,
+            narrativeText: c.narrativeText || '',
+          };
+        }
       }
-    }
-
-    // 4.1 分幕切片剧本全文 (Tool 2 产物：story.md)
-    let story = store.getArtifact<string>(projectId, 'story');
-
-    // 从分幕切片剧本或正文中提取故事分幕字典 (storySections) 并补全 clips 中的故事原文
-    const storySections = parseStorySections(story || screenplay || '');
-
-    if (prd && Array.isArray(prd.clips)) {
-      prd.clips = prd.clips.map((c: any) => ({
-        ...c,
-        narrativeText: c.narrativeText || storySections[c.id]?.narrativeText || '',
-      }));
     }
 
     // 5. 分镜列表 (优先 storyboards 字段，或从 film_spec.clips 中自动提取)
@@ -104,8 +101,10 @@ export const getProjectSnapshot = (req: Request, res: Response) => {
       prd,
       prdMarkdown,
       screenplay,
+      screenplayJson,
+      storyGraph,
       screenplayReview,
-      story: story || screenplay,
+      story: screenplay,
       storySections,
       entities,
       storyboards: storyboardsWithVersions,
@@ -115,7 +114,9 @@ export const getProjectSnapshot = (req: Request, res: Response) => {
         prd,
         prdMarkdown,
         screenplay,
-        story: story || screenplay,
+        screenplay_json: screenplayJson,
+        story_graph: storyGraph,
+        story: screenplay,
         storySections,
         lookdev_entities: entities,
         film_spec: filmSpec,

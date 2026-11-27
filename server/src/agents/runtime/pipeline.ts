@@ -17,7 +17,7 @@
 import type { TaskRecord } from '../../task-engine/types.js';
 
 export interface PipelineStageSpec {
-  /** 工序工具唯一标识 (如 film.shot_video, planner.script_to_prd) */
+  /** 工序工具唯一标识 (如 film.shot_video, game.prd) */
   tool: string;
   /** 工序规范中文名称 (如 "段落视频直出", "SeedVR2 高清超分") */
   stageName: string;

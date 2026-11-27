@@ -1,10 +1,10 @@
-/**
+﻿/**
  * tools/game-assembly/steps/01-tech-plan/schema.ts
  * 互动影游技术架构规划契约 (Tech Plan Step Contract)
  */
 
 import { z } from 'zod';
-import { SingleSceneJsonSchema, StoryScriptSchema } from '../../../../project-store/contracts/game-assembly/index.js';
+import { SingleSceneJsonSchema, StoryScriptSchema } from '../../../../../project-store/contracts/game-assembly/index.js';
 
 export const TechMethodSpecSchema = z.object({
   name: z.string().describe('方法名，如 renderScene'),
@@ -41,6 +41,8 @@ export const TechPlanStepInputSchema = z.object({
   scenes: z.array(SingleSceneJsonSchema).optional().describe('已装配好的分幕素材全集'),
   script: StoryScriptSchema.optional().describe('播放表：每幕的介入点 / 岔口 / 终局 / 下一幕'),
   artStyle: z.string().default('').describe('全剧统一美术画风'),
+  mode: z.enum(['build', 'modify']).optional().describe('装配模式：build=全量装配（默认），modify=基于现有工程增量修改'),
+  modifyInstruction: z.string().optional().describe('局部修改指令（mode=modify 时传入具体修改需求）'),
 });
 
 export type TechPlanStepInput = z.infer<typeof TechPlanStepInputSchema>;

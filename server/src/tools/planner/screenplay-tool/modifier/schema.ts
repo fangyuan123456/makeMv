@@ -21,3 +21,23 @@ export const ScreenplayModifierOutputSchema = z.object({
 });
 
 export type ScreenplayModifierOutput = z.infer<typeof ScreenplayModifierOutputSchema>;
+
+export const StructuredActPatchSchema = z.object({
+  actNumber: z.number().int().describe('需要修改的幕次序号'),
+  sceneHeader: z.string().optional().describe('仅当需要调整本幕单母场景或氛围时填写的新场景定调（不含【场景：】前缀）'),
+  narrativeBody: z.string().describe('修改后的本幕纯戏剧正文（严禁包含【互动抉择点】【互动钩子】或【终局】标记）'),
+});
+
+export const StructuredEndingPatchSchema = z.object({
+  actNumber: z.number().int().describe('该终局所属的幕次序号'),
+  outcomeKey: z.string().describe('对应的互动结果键名（如 B / TIMEOUT / A / C）'),
+  narrativeText: z.string().describe('修改后的专有终局定格结算正文（80~150字）'),
+});
+
+export const StructuredScreenplayPatchOutputSchema = z.object({
+  summaryOfChanges: z.string().describe('简要总结本次局部手术的具体改动点 (100 字内)'),
+  actPatches: z.array(StructuredActPatchSchema).default([]).describe('仅列出需要修改的幕次（未修改的幕次不要输出，系统会原封不动保留）'),
+  endingPatches: z.array(StructuredEndingPatchSchema).default([]).describe('仅列出需要修改的终局文案（未修改的终局不要输出，系统会原封不动保留）'),
+});
+
+export type StructuredScreenplayPatchOutput = z.infer<typeof StructuredScreenplayPatchOutputSchema>;

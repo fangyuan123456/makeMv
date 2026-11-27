@@ -36,10 +36,14 @@ export interface EntityMentionTextProps {
 /**
  * 单个实体高亮胶囊 (带 120ms 灵敏 Hover 定妆预览)
  */
-const EntityMentionPill: React.FC<{
+export const EntityMentionPill: React.FC<{
   entity: MentionEntityItem;
   onClick?: (entity: MentionEntityItem) => void;
-}> = ({ entity, onClick }) => {
+  displayText?: string;
+  iconOverride?: string;
+  pillClassName?: string;
+  titleOverride?: string;
+}> = ({ entity, onClick, displayText, iconOverride, pillClassName, titleOverride }) => {
   const [isHovered, setIsHovered] = useState(false);
   const showTimerRef = useRef<any>(null);
   const hideTimerRef = useRef<any>(null);
@@ -85,11 +89,14 @@ const EntityMentionPill: React.FC<{
     >
       <span
         onClick={() => onClick?.(entity)}
-        className={`inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-md border text-[11px] font-semibold cursor-pointer select-text transition-all shadow-2xs ${pillStyle}`}
-        title={`${entity.typeLabel} · 悬停查看定妆图`}
+        className={
+          pillClassName ||
+          `inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-md border text-[11px] font-semibold cursor-pointer select-text transition-all shadow-2xs ${pillStyle}`
+        }
+        title={titleOverride || `${entity.typeLabel} · 悬停查看定妆图`}
       >
-        <span className="text-[10px] opacity-75">{typeIcon}</span>
-        <span>@{entity.name}</span>
+        <span className="text-[10px] opacity-75">{iconOverride || typeIcon}</span>
+        <span>{displayText || `@${entity.name}`}</span>
       </span>
 
       {isHovered && (entity.imageUrl || entity.spatialLayout) && (

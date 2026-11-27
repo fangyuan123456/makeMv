@@ -9,7 +9,7 @@
 
 import React, { useState, useRef } from 'react';
 import type { CanvasShotNode } from '../../../types/index.js';
-import { EntityMentionText } from './EntityMentionText.js';
+import { EntityMentionText, EntityMentionPill, extractSortedEntities } from './EntityMentionText.js';
 
 interface ShotCanvasCardProps {
   node: CanvasShotNode;
@@ -227,19 +227,36 @@ export const ShotCanvasCard: React.FC<ShotCanvasCardProps> = ({
       <div className="px-3 py-2 bg-slate-50/90 border-t border-slate-100 flex flex-col gap-1.5">
         {/* 视听标签栏：场景位置、机位/景别、天气光影约束标签 */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          {node.location && (
-            <span
-              className={`text-[9px] font-medium px-1.5 py-0.5 rounded border shrink-0 flex items-center gap-0.5 ${
-                node.isSceneTransition
-                  ? 'bg-amber-100/90 text-amber-800 border-amber-300/80 font-bold'
-                  : 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
-              }`}
-              title={`场景位置: ${node.location}${node.locationId ? ` (${node.locationId})` : ''}${node.isSceneTransition ? ' [跨场景转换镜头]' : ''}`}
-            >
-              <span>📍</span>
-              <span className="truncate max-w-[120px]">{node.location}</span>
-            </span>
-          )}
+          {node.location && (() => {
+            const matchedLoc = extractSortedEntities(entities).find(
+              (e) =>
+                e.type === 'location' &&
+                ((node.locationId && e.id === node.locationId) || e.name === node.location)
+            );
+            const badgeClass = `text-[9px] font-medium px-1.5 py-0.5 rounded border shrink-0 flex items-center gap-0.5 cursor-pointer ${
+              node.isSceneTransition
+                ? 'bg-amber-100/90 text-amber-800 border-amber-300/80 font-bold'
+                : 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
+            }`;
+            const badgeTitle = `场景位置: ${node.location}${node.locationId ? ` (${node.locationId})` : ''}${node.isSceneTransition ? ' [跨场景转换镜头]' : ''} · 悬停查看场景定妆图`;
+            if (matchedLoc) {
+              return (
+                <EntityMentionPill
+                  entity={matchedLoc}
+                  iconOverride="📍"
+                  displayText={node.location}
+                  pillClassName={badgeClass}
+                  titleOverride={badgeTitle}
+                />
+              );
+            }
+            return (
+              <span className={badgeClass} title={badgeTitle}>
+                <span>📍</span>
+                <span className="truncate max-w-[120px]">{node.location}</span>
+              </span>
+            );
+          })()}
           {node.weatherDirective?.label && (
             <span
               className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200/60 shrink-0"

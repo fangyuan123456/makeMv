@@ -2,4 +2,4 @@ export {
   buildRuntimeFactsSection,
   buildRuntimeBehaviorRules,
   buildScreeningList,
-} from '../../../tools/game-assembly/steps/01-tech-plan/runtime-contract.js';
+} from '../../../tools/game-assembly/assembly-tool/steps/01-tech-plan/runtime-contract.js';

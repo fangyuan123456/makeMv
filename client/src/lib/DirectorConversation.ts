@@ -287,3 +287,14 @@ export class StoryboardConversationClient extends DirectorConversationClient<Sto
     this.clipId = clipId;
   }
 }
+
+/**
+ * 工序 3: 游戏总装与调优专属客户端类 (互动影游独立站点装配与微调)
+ */
+export type GameAssemblyActionIntent = BaseActionIntent;
+
+export class GameAssemblyConversationClient extends DirectorConversationClient<GameAssemblyActionIntent> {
+  constructor(projectId?: string, sessionId: string = 'game') {
+    super({ projectId: projectId || '', sessionId });
+  }
+}

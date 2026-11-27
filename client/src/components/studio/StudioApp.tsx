@@ -250,15 +250,24 @@ export function StudioApp() {
   };
 
   const activeProject = projectData?.meta.projectId === currentProjectId ? projectData : null;
-  const prd = activeProject?.prd || activeProject?.artifacts?.prd || activeProject?.artifacts?.gdd;
-  const hasPrd = Boolean(prd?.startNodeId && prd?.clips?.length && prd?.wiring?.length);
+  const storySource = activeProject?.screenplayJson || activeProject?.artifacts?.screenplay_json;
+  const hasStoryTopology = Boolean(
+    (storySource?.storyGraph?.startNodeId || storySource?.startNodeId) &&
+      Array.isArray(storySource?.clips) &&
+      storySource.clips.length > 0
+  );
   const clips = activeProject?.artifacts?.film_spec?.clips || activeProject?.storyboards || [];
-  const canEnterVisual = hasPrd;
-  const canEnterGame = hasPrd && prd.clips.every((clip: { id: string }) => {
-    const storyboard = clips.find((item: any) => item.clipId === clip.id || item.sourceNodeId === clip.id);
-    return Boolean(storyboard && (storyboard.videoUrl ||
-      (storyboard.shots?.length && storyboard.shots.every((shot: any) => Boolean(shot.videoUrl)))));
-  });
+  const canEnterVisual = hasStoryTopology;
+  const canEnterGame =
+    hasStoryTopology &&
+    storySource.clips.every((clip: { id: string }) => {
+      const storyboard = clips.find((item: any) => item.clipId === clip.id || item.sourceNodeId === clip.id);
+      return Boolean(
+        storyboard &&
+          (storyboard.videoUrl ||
+            (storyboard.shots?.length && storyboard.shots.every((shot: any) => Boolean(shot.videoUrl))))
+      );
+    });
   const allowedStage = (stage: StudioStage): StudioStage => {
     if (stage === 'game' && !canEnterGame) return canEnterVisual ? 'visual' : 'planner';
     if (stage === 'visual' && !canEnterVisual) return 'planner';
@@ -335,7 +344,7 @@ export function StudioApp() {
         onSelectStage={handleSelectStage}
         canEnterVisual={canEnterVisual}
         canEnterGame={canEnterGame}
-        hasPrd={hasPrd}
+        hasPrd={hasStoryTopology}
         hasEntities={hasEntities}
         hasStoryboards={hasStoryboards}
         hasGame={hasGame}
@@ -371,7 +380,9 @@ export function StudioApp() {
           <GameStage
             projectId={currentProjectId}
             projectData={projectData}
+            tasks={tasks}
             onRunTool={handleRunTool}
+            onRefreshProject={() => currentProjectId && refreshCurrentProject(currentProjectId)}
             isBusy={isBusy}
           />
         )}

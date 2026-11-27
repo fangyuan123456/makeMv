@@ -1,13 +1,13 @@
-/**
+﻿/**
  * tools/game-assembly/steps/01-tech-plan/step.ts
  * 互动影游技术架构规划工序执行器 (techPlanStep)
  */
 
 import { createStep } from '@mastra/core/workflows';
-import { ProjectStore } from '../../../../project-store/ProjectStore.js';
+import { ProjectStore } from '../../../../../project-store/ProjectStore.js';
 import { Agent } from '@mastra/core/agent';
-import { LLMProvider } from '../../../../llm/index.js';
-import { generateStructured } from '../../../../utils/llm-diagnostics.js';
+import { LLMProvider } from '../../../../../llm/index.js';
+import { generateStructured } from '../../../../../utils/llm-diagnostics.js';
 import {
   TechPlanStepInputSchema,
   TechPlanStepOutputSchema,
@@ -16,8 +16,8 @@ import {
   type TechPlanStepOutput,
 } from './schema.js';
 import { buildTechPlanSystemPrompt, buildTechPlanUserPrompt } from './prompt.js';
-import type { UniversalPrdSpec } from '../../../../project-store/contracts/planner/index.js';
-import type { StoryScript, SingleSceneJson } from '../../../../project-store/contracts/game-assembly/index.js';
+import type { UniversalPrdSpec } from '../../../../../project-store/contracts/planner/index.js';
+import type { StoryScript, SingleSceneJson } from '../../../../../project-store/contracts/game-assembly/index.js';
 
 const ENTRY_FILE = 'main.js';
 const STYLE_FILE = 'style.css';
@@ -113,65 +113,72 @@ function ensureRequiredFiles(files: TechFileSpec[]): TechFileSpec[] {
 export function buildFallbackTechPlan(): TechPlanStepOutput {
   return {
     architectureSummary:
-      '状态层（StateBlackboard）+ 数据层（SceneLoader）+ 表现层（InteractiveShell）+ 样式（style.css）+ 入口（main.js）的最小分层。',
+      '三层分离架构：系统确定性底座（runtime/engine.js + runtime/player.js）+ 静态剧本（story.json）+ 表现层（js/screens.js 6屏界面 + js/interactions.js 全类型交互 + style.css 定制样式 + js/main.js 串联入口）。',
     files: [
       {
-        fileName: 'StateBlackboard.js',
+        fileName: 'screens.js',
         kind: 'js',
-        responsibility: '持有玩家状态、套用变更、求值前置条件、记录回溯快照',
+        responsibility: '渲染 Loading、Home、Pause、Chapters、Ending 界面及结局图鉴',
         dependencies: [],
         symbols: [
           {
-            name: 'StateBlackboard',
-            kind: 'class',
-            purpose: '全局状态黑板',
-            methods: [
-              { name: 'apply', signature: '(change)', description: '套用状态变更' },
-              { name: 'get', signature: '(key)', description: '读取状态值' },
-            ],
+            name: 'renderLoadingScreen',
+            kind: 'function',
+            purpose: '加载屏渲染',
+            methods: [],
+          },
+          {
+            name: 'renderHomeScreen',
+            kind: 'function',
+            purpose: '主菜单渲染',
+            methods: [],
+          },
+          {
+            name: 'renderPauseModal',
+            kind: 'function',
+            purpose: '暂停弹窗渲染',
+            methods: [],
+          },
+          {
+            name: 'renderChaptersModal',
+            kind: 'function',
+            purpose: '章节回顾与结局图鉴',
+            methods: [],
+          },
+          {
+            name: 'renderEndingScreen',
+            kind: 'function',
+            purpose: '结局结算与回溯',
+            methods: [],
           },
         ],
       },
       {
-        fileName: 'SceneLoader.js',
+        fileName: 'interactions.js',
         kind: 'js',
-        responsibility: '按 sceneId 拉取并缓存 ../scenes/*.json',
+        responsibility: '渲染 SEARCH / TIMED_CHOICE / HOLD / QTE_TAP / TIMING / ACTION_ZONE / CLICK 交互覆盖层',
         dependencies: [],
         symbols: [
           {
-            name: 'SceneLoader',
-            kind: 'class',
-            purpose: '分幕数据加载与缓存',
-            methods: [{ name: 'load', signature: '(sceneId)', description: '加载并缓存一幕' }],
-          },
-        ],
-      },
-      {
-        fileName: 'InteractiveShell.js',
-        kind: 'js',
-        responsibility: '渲染舞台、逐段字幕、互动点、选项、结局与过场',
-        dependencies: ['StateBlackboard.js', 'SceneLoader.js'],
-        symbols: [
-          {
-            name: 'InteractiveShell',
-            kind: 'class',
-            purpose: '播放与交互座舱',
-            methods: [{ name: 'mount', signature: '(host, sceneId)', description: '挂载并播放起始幕' }],
+            name: 'renderInteraction',
+            kind: 'function',
+            purpose: '按 interaction.kind 挂载交互控件与倒计时',
+            methods: [],
           },
         ],
       },
       {
         fileName: STYLE_FILE,
         kind: 'css',
-        responsibility: '舞台、字幕层、按钮、HUD、结局覆盖层的全部样式，纯 CSS/SVG',
+        responsibility: '6 屏界面、舞台安全区、手电筒遮罩、倒计时、HUD 胶囊样式，纯 CSS/SVG',
         dependencies: [],
         symbols: [],
       },
       {
         fileName: ENTRY_FILE,
         kind: 'js',
-        responsibility: '启动入口：装配状态、加载器、座舱并播放首幕',
-        dependencies: ['StateBlackboard.js', 'SceneLoader.js', 'InteractiveShell.js'],
+        responsibility: '启动入口：加载 story.json，初始化 StoryEngine，串联 player.js 与 6 屏 UI',
+        dependencies: ['screens.js', 'interactions.js'],
         symbols: [{ name: 'bootstrap', kind: 'function', purpose: '装配并启动', methods: [] }],
       },
     ],
@@ -199,6 +206,10 @@ export const techPlanStep = createStep({
     const { projectId } = input;
 
     const store = ProjectStore.getInstance();
+    if (input.mode === 'modify') {
+      const existingPlan = store.getArtifact(projectId, 'game_assembly_tech_plan') as TechPlanStepOutput | null;
+      return existingPlan || buildFallbackTechPlan();
+    }
     const effectivePrd: UniversalPrdSpec = input.prd || store.getArtifact(projectId, 'prd');
     if (!effectivePrd) {
       throw new Error(`[TechPlanStep] 项目 [${projectId}] 缺少前序 PRD 策划案，无法规划技术架构`);

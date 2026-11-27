@@ -446,12 +446,14 @@ export function useDirectorChatFlow<TIntent extends BaseActionIntent = BaseActio
         setIsStreaming(false);
         setStreamingContent('');
       },
-      onError: (err) => {
+      onError: async (err) => {
         setIsStreaming(false);
         setStreamingContent('');
-        void reloadHistory();
         console.error('[DirectorChat] 会话请求失败:', err);
         const errMsg = err instanceof Error ? err.message : String(err);
+        try {
+          await reloadHistory();
+        } catch {}
         setMessages((prev) => [
           ...prev,
           {

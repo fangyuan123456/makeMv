@@ -42,10 +42,10 @@
 
 | 领域 | 工序与工具 |
 | --- | --- |
-| 故事策划 | 全景剧本 `planner.screenplay_writer` → PRD 分幕拓扑 `planner.script_to_prd` |
+| 故事策划 | 全景剧本与结构化分幕拓扑 `planner.screenplay_writer`（唯一落盘 `screenplay.json` 与大纲 `outline.json`） |
 | 视觉定妆 | 资产清单 `film.asset_manifest` → 单实体规格 `film.entity_spec` → 定妆出图 `film.lookdev`；按需超分 `film.image_upscale` |
 | 分幕分镜 | 故事剧本升级工业级视听摄制台本（时空锁与全量分镜单一步到位） `film.shooting_script` → 首帧视觉推演 `film.shot_frame_prompt` → 关键帧 `film.shot_keyframe` → 按需超分 `film.image_upscale` → 视频动态推演 `film.shot_motion_prompt` → 视频 `film.shot_video` |
-| 游戏总装 | 注册表包含 `game.assembly`，不代表每个导演会话都具备该能力 |
+| 游戏总装 | 游戏产品 PRD 规格 `game.prd` → 游戏总装 `game.assembly` → 故事编译 `game.compile_story` |
 
 - 分镜会话围绕指定 `clipId` 工作；单实体或单镜修改需保留目标范围，不擅自重做全剧。
 - 全景剧本按“大纲 → 完整正文”两阶段生成，全剧最多两个实际选择节点，不必写满。彻底废除合流（MERGE）机制，抉择即命运；分支走向专有终局结算或推进主线，结局数量随剧情后果产生，不为限制结局数强行合流；不增加 review 或 patch 审查流程。
