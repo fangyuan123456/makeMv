@@ -33,6 +33,9 @@ export function formatGddPrdToMarkdown(prd: UniversalPrdSpec): string {
   const clipLines = clips.map((c) => `  - \`${c.id}\`：《${c.title}》（对应视频：${c.video || `${c.id}.mp4`}）`).join('\n');
   const endingLines = endings.map((e) => `  - \`${e.id}\`：[${e.endingType}] 《${e.title}》（${e.isVictory ? '🏆 胜利通关' : '💀 遗憾终局'} - ${e.summary}）`).join('\n');
 
+  const branchingCount = interactions.filter((i) => i.isBranching !== false).length;
+  const soloCount = interactions.length - branchingCount;
+
   return `# 《${prd.gameTitle}》互动影游 PRD
 
 ## 1. 游戏介绍
@@ -45,7 +48,7 @@ export function formatGddPrdToMarkdown(prd: UniversalPrdSpec): string {
 - **交互规则**：所有互动点的玩法类型（\`kind\`）、开放参数（\`config\`）、限时（\`timeoutSec\`）、结果枚举（\`outcomes\`）及状态变动（\`stateChange: { add, set }\`）统一定义于数据底座；互动本身不关心流程走向，流向与条件判断完全由接线有向图统一处理。
 
 ## 3. 节点接线与流向概览
-全剧共规划 ${clips.length} 个核心视频片段、${interactions.length} 个分支互动抉择点与 ${endings.length} 个分支结局。
+全剧共规划 ${clips.length} 个核心视频片段、${interactions.length} 个互动节点（其中命运分支 ${branchingCount} 个、单线沉浸 ${soloCount} 个）与 ${endings.length} 个分支结局。
 精确的节点接线网络、状态变更字典与跳转条件已收敛于同级规范数据底座 \`prd.json\`（Universal PRD Spec），与本文档双轨一并交付给下游游戏代码生成引擎。
 
 - **起始片段**：\`${startId}\`

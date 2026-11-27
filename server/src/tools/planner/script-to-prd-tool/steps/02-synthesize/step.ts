@@ -220,6 +220,16 @@ export const synthesizePrdStep = createStep({
       });
     });
 
+    const formatEdgeLabel = (onOutcome: string): string => {
+      const upper = String(onOutcome || '').toUpperCase();
+      if (upper === 'ONENDED') return '顺向剧情';
+      if (upper === 'FOUND') return '搜证完成';
+      if (upper === 'SUCCESS') return '挑战成功';
+      if (upper === 'FAIL') return '挑战失败';
+      if (upper === 'TIMEOUT') return '超时后果';
+      return `选项 ${onOutcome}`;
+    };
+
     for (const w of wiring) {
       if (w.onOutcome === 'onEnded' && w.to.startsWith('I_')) {
         continue;
@@ -228,7 +238,7 @@ export const synthesizePrdStep = createStep({
         fromNodeId: w.from.replace(/^I_/, ''),
         toNodeId: w.to,
         edgeType: w.to.startsWith('e_') ? 'CHOICE_BRANCH' : 'MAINLINE_PROGRESS',
-        label: w.onOutcome === 'onEnded' ? '顺向剧情' : `选项 ${w.onOutcome}`,
+        label: formatEdgeLabel(w.onOutcome),
       });
     }
 
