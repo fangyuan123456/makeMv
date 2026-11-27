@@ -12,7 +12,6 @@ import { ProjectStore } from '../src/project-store/ProjectStore.js';
 import { getStoryboardContext } from '../src/agents/storyboard/context.js';
 import { buildBranchContext } from '../src/project-store/story-context.js';
 import { buildSceneAtmospherePrompt } from '../src/tools/film-production/lookdev-tool/location/prompt.js';
-import { buildShotKeyframePrompt } from '../src/tools/film-production/shot-keyframe-tool/steps/01-render/prompt.js';
 
 const specs = [{ toolName: 'test.tool', title: '测试任务', description: '测试任务', schema: z.object({ value: z.number() }) }];
 class TestDirector extends AgentRunner<any> {
@@ -110,13 +109,7 @@ test('scene rendering receives the layout with or without a reference image', ()
   }
 });
 
-test('keyframe edits allow requested camera and lighting changes over the old reference', () => {
-  const result = buildShotKeyframePrompt({ firstFramePrompt: '白天平视庭院' } as any,
-    [{ role: 'base_frame', url: '/frame.png' }], undefined, '改成俯拍夜景');
-  assert.match(result, /改成俯拍夜景/);
-  assert.match(result, /以新要求为准/);
-  assert.doesNotMatch(result, /光影完全一致/);
-});
+
 
 function streamIntent(args: any, beforeReply?: () => void) {
   LLMProvider.setMockModel(new MockLanguageModelV1({ doStream: async () => {

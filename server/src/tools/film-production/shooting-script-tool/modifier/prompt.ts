@@ -11,11 +11,8 @@ export function buildShootingScriptModifyPrompt(params: {
     beatId: string;
     beatTitle: string;
     actionDescription: string;
-    cinematicIntent: string;
     characterIds?: string[];
     itemIds?: string[];
-    dialogue?: string;
-    audioAmbience?: string;
     estimatedSeconds?: number;
   }>;
   instruction: string;
@@ -37,10 +34,7 @@ ${existingActionBeats
   .map(
     (b, idx) =>
       `${idx + 1}. [${b.beatId} · ${b.beatTitle}] (预估 ${b.estimatedSeconds || 3}s):
-   - 物理动作详述: ${b.actionDescription}
-   - 建议视听机位: ${b.cinematicIntent}
-   - 角色对白/同期声: ${b.dialogue || '无'}
-   - 动作与环境拟音: ${b.audioAmbience || '无'}
+   - 动作/对白/拟音详述: ${b.actionDescription}
    - 入画角色: ${b.characterIds?.join(', ') || '无'} | 涉及道具: ${b.itemIds?.join(', ') || '无'}`
   )
   .join('\n')}

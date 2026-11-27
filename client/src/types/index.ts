@@ -146,11 +146,8 @@ export interface ShootingScriptActionBeat {
   locationId?: string;
   isSceneTransition?: boolean;
   actionDescription: string;
-  cinematicIntent: string;
   characterIds?: string[];
   itemIds?: string[];
-  dialogue?: string;
-  audioAmbience?: string;
   estimatedSeconds?: number;
 }
 
@@ -169,7 +166,7 @@ export interface CinematicShotOrder {
   durationSec: number;
   shotType: string;
   cameraMovement: string;
-  generationMode?: 'first_frame' | 'first_last_frame';
+  generationMode?: 'ref2v';
   characters?: string[];
   items?: string[];
   // 视听工业级开放元数据体系 (SSOT，开放无边界)
@@ -195,9 +192,7 @@ export interface CinematicShotOrder {
   lastFrameUpscale?: ImageUpscaleMeta;
   keyframeUrl?: string;
   videoUrl?: string;
-  dialogue?: string;
   characterName?: string;
-  ambience?: string;
   sceneTitle?: string;
   promptZh?: string;
   description?: string;
@@ -429,7 +424,7 @@ export interface CanvasShotNode {
   selectedFirstFrameVersionId?: string;
   selectedLastFrameVersionId?: string;
   selectedVideoVersionId?: string;
-  generationMode?: 'first_frame' | 'first_last_frame';
+  generationMode?: 'ref2v';
   firstFramePrompt?: string;
   lastFramePrompt?: string;
   videoPrompt?: string;
@@ -462,9 +457,6 @@ export interface CanvasShotNode {
   staleVideoReason?: string;
   // 视听摄制台本结构化要素 (Shooting Script Action Beat)
   actionDescription?: string;
-  cinematicIntent?: string;
-  dialogue?: string;
-  audioAmbience?: string;
   shotType?: string;
   cameraMovement?: string;
   // 前序镜头视听连续性模式：auto（智能决策）、linked（强制承接尾帧）、detached（独立机位）

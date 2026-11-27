@@ -660,8 +660,6 @@ export class MockLanguageModel implements LanguageModelV1 {
             shotType: 'CLOSE_UP',
             visualPrompt:
               'close-up shot inside moody steel corridor, commanding security officer pressing hand onto encrypted briefcase lock, tense standoff atmosphere, natural depth of field',
-            audioDialogue: '维克托冷冷道：“凌晨三点带这种重加密箱子，证明给我看。”',
-            audioAmbience: 'rain drumming outside metal corridor, low ambient drone',
             matchCutAnchor: '维克托按住锁扣手部微动，顺向切夜雀沉静瞳孔特写',
           },
         ],

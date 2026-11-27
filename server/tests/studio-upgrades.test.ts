@@ -231,8 +231,8 @@ test('partitionPlanWaves groups independent same-tool steps and separates cross-
   const waves1 = partitionPlanWaves('p1', [
     { tool: 'film.lookdev', params: { targetKind: 'character', targetId: 'c1' } },
     { tool: 'film.lookdev', params: { targetKind: 'character', targetId: 'c2' } },
-    { tool: 'film.image_upscale', params: { targetKind: 'character', targetId: 'c1' } },
-    { tool: 'film.image_upscale', params: { targetKind: 'character', targetId: 'c2' } },
+    { tool: 'film.shot_video', params: { targetKind: 'character', targetId: 'c1' } },
+    { tool: 'film.shot_video', params: { targetKind: 'character', targetId: 'c2' } },
   ]);
   assert.equal(waves1.length, 2);
   assert.deepEqual(waves1[0].map((w) => w.index), [0, 1]);
@@ -259,7 +259,7 @@ test('TaskDispatcher runs independent same-wave entity tasks concurrently and bl
   fs.mkdirSync(projectDir, { recursive: true });
 
   const originalLookdev = taskToolRegistry.getTool('film.lookdev');
-  const originalUpscale = taskToolRegistry.getTool('film.image_upscale');
+  const originalUpscale = taskToolRegistry.getTool('film.shot_video');
 
   let activeCount = 0;
   let maxConcurrent = 0;
@@ -296,7 +296,7 @@ test('TaskDispatcher runs independent same-wave entity tasks concurrently and bl
   }
 
   taskToolRegistry.register(new FakeDelayTool('film.lookdev'));
-  taskToolRegistry.register(new FakeDelayTool('film.image_upscale'));
+  taskToolRegistry.register(new FakeDelayTool('film.shot_video'));
 
   try {
     // Wave 1: 两个不同实体并发
@@ -313,7 +313,7 @@ test('TaskDispatcher runs independent same-wave entity tasks concurrently and bl
     // Wave 2: 依赖 Wave 1 全部完成
     const t3 = await taskDispatcher.dispatch({
       projectId,
-      toolName: 'film.image_upscale',
+      toolName: 'film.shot_video',
       input: { targetKind: 'character', targetId: 'char_1' },
       dependsOnTaskIds: [t1.taskId, t2.taskId],
     });
@@ -332,7 +332,7 @@ test('TaskDispatcher runs independent same-wave entity tasks concurrently and bl
     assert.equal(maxConcurrent >= 2, true, `预期 Wave 1 并发执行，实际最大并发=${maxConcurrent}`);
 
     // Wave 2 必须在 Wave 1 两个任务全部 end 之后才 start
-    const wave2StartIdx = timeline.indexOf('start:film.image_upscale:char_1');
+    const wave2StartIdx = timeline.indexOf('start:film.shot_video:char_1');
     const wave1End1Idx = timeline.indexOf('end:film.lookdev:char_1');
     const wave1End2Idx = timeline.indexOf('end:film.lookdev:char_2');
     assert.ok(wave2StartIdx > wave1End1Idx && wave2StartIdx > wave1End2Idx, `Wave 2 不得抢跑: ${timeline.join(' -> ')}`);

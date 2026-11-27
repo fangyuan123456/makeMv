@@ -96,7 +96,7 @@ export const shootingScriptStep = createStep({
 
     // 服务端通用语义解析器：精准扫描正文对齐角色、道具与场景资产 ID
     let beats = (result.actionBeats || []).map((beat: any, idx: number) => {
-      const textToScan = `${beat.beatTitle || ''} ${beat.actionDescription || ''} ${beat.cinematicIntent || ''}`;
+      const textToScan = `${beat.beatTitle || ''} ${beat.actionDescription || ''}`;
       const resolved = resolveEntityBindingsFromText(textToScan, entities);
 
       const mergedCharIds = Array.from(new Set([...(beat.characterIds || []), ...resolved.characterIds]));
@@ -131,10 +131,7 @@ export const shootingScriptStep = createStep({
             shotNumber: beats.length + 1,
             space: beats[beats.length - 1]?.space || '内景',
             beatTitle: `镜头 ${String(beats.length + 1).padStart(2, '0')}（近景反打 · ${missing.speaker}台词补入 · 4s）`,
-            actionDescription: `${missing.speaker}神情微动，开口发出台词。`,
-            cinematicIntent: `中景正打（对准${missing.speaker}面部，捕捉发言神态）。`,
-            dialogue: `[${missing.speaker}]：“${missing.line}”`,
-            audioAmbience: '环境声景与细微呼吸声。',
+            actionDescription: `${missing.speaker}神情微动，开口说道：“${missing.line}”（伴随细微呼吸与环境声景）。`,
             characterIds: matchedChar ? [matchedChar.characterId] : [],
             itemIds: [],
             estimatedSeconds: 4,

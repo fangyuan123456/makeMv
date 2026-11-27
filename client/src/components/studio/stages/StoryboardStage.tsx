@@ -62,14 +62,6 @@ export const StoryboardStage: React.FC<StoryboardStageProps> = ({
     await onRunTool('film.shooting_script', {});
   };
 
-  const handleBatchKeyframes = async () => {
-    await onRunTool('film.shot_keyframe', { force: false });
-  };
-
-  const handleSingleKeyframe = async (shotId: string) => {
-    await onRunTool('film.shot_keyframe', { shotId, force: true });
-  };
-
   const handleBatchVideos = async () => {
     await onRunTool('film.shot_video', { force: false });
   };
@@ -134,21 +126,14 @@ export const StoryboardStage: React.FC<StoryboardStageProps> = ({
               disabled={isBusy}
               className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 shadow-2xs transition disabled:opacity-50"
             >
-              1. 拆解镜头
-            </button>
-            <button
-              onClick={handleBatchKeyframes}
-              disabled={isBusy || allShots.length === 0}
-              className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 shadow-2xs transition disabled:opacity-50"
-            >
-              2. 批量首帧
+              1. 拆解片段
             </button>
             <button
               onClick={handleBatchVideos}
               disabled={isBusy || allShots.length === 0}
               className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-xs transition disabled:opacity-50"
             >
-              3. 批量视频
+              2. 批量视频
             </button>
           </div>
         </div>
@@ -211,13 +196,6 @@ export const StoryboardStage: React.FC<StoryboardStageProps> = ({
                         {shot.promptZh || shot.firstFramePrompt || '暂无描述'}
                       </p>
                       <div className="flex items-center space-x-1 pt-2 border-t border-slate-100">
-                        <button
-                          onClick={() => handleSingleKeyframe(shot.shotId)}
-                          disabled={isBusy}
-                          className="flex-1 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 text-[11px] font-medium rounded border border-slate-200 transition"
-                        >
-                          重绘首帧
-                        </button>
                         <button
                           onClick={() => handleSingleVideo(shot.shotId)}
                           disabled={isBusy}

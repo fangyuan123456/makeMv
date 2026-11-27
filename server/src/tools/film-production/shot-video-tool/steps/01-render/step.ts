@@ -116,13 +116,53 @@ export const shotVideoStep = createStep({
           if (it) pushRef(it.imageUrl || it.referenceImageUrl, `为道具[${it.name}]实物外观基准`);
         }
 
-        // 若同场景前一段已生成末帧，自动带入作为上一段尾帧延续站位与光色
+        // 兜底从视频提示词正文中解析被 @ 或直呼全名的实体，自动补充对应定妆/场景/道具参考图
+        const cleanTextForScan = rawMotion.replace(/[@＠]/g, '');
+        for (const ch of charList) {
+          if (ch.name && cleanTextForScan.includes(ch.name)) {
+            pushRef(ch.imageUrl || ch.referenceImageUrl, `为角色[${ch.name}]外观与服装基准`);
+          }
+        }
+        for (const loc of locList) {
+          if (loc.name && cleanTextForScan.includes(loc.name)) {
+            pushRef(
+              loc.imageUrl || loc.referenceImageUrl,
+              `为场景[${loc.name}]空间美术参考（参考图不是成品构图，需按本镜机位重新构筑视角与比例）`
+            );
+          }
+        }
+        for (const it of itemList) {
+          if (it.name && cleanTextForScan.includes(it.name)) {
+            pushRef(it.imageUrl || it.referenceImageUrl, `为道具[${it.name}]实物外观基准`);
+          }
+        }
+
+        // 若同场景前一段已生成末帧，结合连续性模式与末机位景别决定是否带入
         const shotList = Array.isArray(targetClip.shots) ? targetClip.shots : [];
         const currIdx = shotList.findIndex((s: any) => (s.shotId || s.id) === (targetShot.shotId || targetShot.id));
         const prevShot = currIdx > 0 ? shotList[currIdx - 1] : undefined;
         const isSameScene = !targetShot.locationId || !prevShot?.locationId || targetShot.locationId === prevShot.locationId;
-        if (prevShot?.videoLastFrameUrl && isSameScene && targetShot.continuityMode !== 'detached') {
-          pushRef(prevShot.videoLastFrameUrl, '为上一段尾帧参考（延续前序站位与光色）');
+        const continuityMode = targetShot.continuityMode || 'auto';
+
+        if (prevShot?.videoLastFrameUrl && isSameScene && continuityMode !== 'detached') {
+          const prevPrompt = String(prevShot.videoPrompt || '');
+          const lastCamSegment = prevPrompt.split(/\[机位[^\]]*\]/).pop() || '';
+          const lastCamHeader = (prevPrompt.match(/\[机位[^\]]*\]/g) || []).pop() || '';
+          const endsWithCloseUp = /(?:大特写|微距|特写|\bCU\b|\bECU\b)/i.test(`${lastCamHeader} ${lastCamSegment.slice(0, 40)}`);
+
+          if (continuityMode === 'auto' && endsWithCloseUp) {
+            console.log(`[ShotVideoTool] 片段 [${targetShot.shotId}] 处于智能连续模式且前序末机位为特写，跳过特写尾帧以避免干扰新构图`);
+          } else if (continuityMode === 'linked') {
+            pushRef(
+              prevShot.videoLastFrameUrl,
+              '为紧接前序的连续起幅参考（严格延续最后一帧的机位、构图与人物姿态）'
+            );
+          } else {
+            pushRef(
+              prevShot.videoLastFrameUrl,
+              '为前序片段氛围与光影参考（具体景别与机位严格按本段正文重新构图）'
+            );
+          }
         }
 
         if (ref2vUrls.length === 0) {
@@ -134,7 +174,7 @@ export const shotVideoStep = createStep({
       // 底层算力硬件提示词（动态装配，仅内存态传给视频生成工具，绝不写回 targetShot 业务实体）
       const baseHardwarePrompt = formatVideoMotionPrompt(rawMotion, false, undefined, true);
       const hardwarePrompt = `${ref2vLegend.join('；')}。\n${baseHardwarePrompt}`;
-      const audioPrompt = targetShot.audioPrompt || targetShot.ambience || '电影级写实环境声与质感氛围';
+      const audioPrompt = targetShot.audioPrompt?.trim() || undefined;
 
       const targetDuration = Math.min(15, Math.max(2, Math.round(durationSec ?? targetShot.durationSec ?? targetShot.estimatedSeconds ?? 5)));
 
@@ -220,10 +260,11 @@ export const shotVideoStep = createStep({
       }
     };
 
-    // 1. 若未提供 shotId，开启全剧批量模式 (遍历全剧已有关键帧但无视频的镜头)
+    // 1. 若未提供 shotId，开启批量模式 (支持按 clipId 过滤或全剧批量，走 Ref2V 定妆参考直出)
     if (!shotId) {
       const allShotPairs: Array<{ clip: any; shot: any }> = [];
       for (const c of filmSpec.clips || []) {
+        if (clipId && c.clipId !== clipId) continue;
         for (const s of c.shots || []) {
           allShotPairs.push({ clip: c, shot: s });
         }
@@ -231,8 +272,7 @@ export const shotVideoStep = createStep({
 
       let renderedCount = 0;
       for (const pair of allShotPairs) {
-        const hasKeyframe = Boolean(pair.shot.firstFrameImageUrl || pair.shot.keyframeUrl);
-        if (hasKeyframe && (force || !pair.shot.videoUrl)) {
+        if (force || !pair.shot.videoUrl) {
           const success = await renderSingleVideo(pair.clip, pair.shot);
           if (success) renderedCount++;
         }

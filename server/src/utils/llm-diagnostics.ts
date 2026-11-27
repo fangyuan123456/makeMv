@@ -299,7 +299,7 @@ export async function generateStructured<S extends ZodTypeAny>(params: {
               lastAnchor = {
                 id: last?.beatId || last?.shotNumber || last?.id || `项 ${allItems.length}`,
                 title: last?.beatTitle || last?.title || last?.name || '',
-                summary: last?.actionDescription || last?.cinematicIntent || last?.description || '',
+                summary: last?.actionDescription || last?.description || '',
               };
             }
 

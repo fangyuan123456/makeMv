@@ -149,17 +149,6 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
       ).replace(/[@＠]{2,}/g, '@'),
       lookdevEntities
     );
-    const rawDialogue = (matchedBeat?.dialogue ?? node.dialogue ?? '').trim();
-    const rawCamera =
-      matchedBeat?.cinematicIntent ||
-      node.cinematicIntent ||
-      node.cameraDirective?.instruction ||
-      '';
-    const rawSound =
-      matchedBeat?.audioAmbience ||
-      node.audioAmbience ||
-      node.audioPrompt ||
-      '';
     const rawDuration = Math.round(
       matchedBeat?.estimatedSeconds || node.durationSec || 4
     );
@@ -168,9 +157,6 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
       beatTitle: rawTitle,
       durationSec: rawDuration,
       actionDescription: rawAction,
-      dialogue: rawDialogue,
-      cinematicIntent: rawCamera,
-      audioAmbience: rawSound,
     };
   }, [matchedBeat, node, lookdevEntities]);
 
@@ -188,7 +174,7 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
 
   // 4. 字段级修改判定 (纯粹内容级比对：统一空白、换行与 @ 符号，打字即修改，删回即还原)
   const isFieldModified = (
-    field: 'actionDescription' | 'dialogue' | 'cinematicIntent' | 'audioAmbience' | 'durationSec' | string
+    field: 'actionDescription' | 'durationSec' | string
   ) => {
     const origVal = original[field as keyof typeof original] ?? '';
     const currVal = form[field as keyof typeof form] ?? '';
@@ -214,10 +200,10 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
     return String(origVal).trim() !== String(currVal).trim();
   };
 
-  // 严格限定在用户真正可编辑的 5 大交互字段上，杜绝因只读系统标题或元数据差异导致卡片整体卡在修改态
+  // 严格限定在用户真正可编辑的 2 大交互字段上，杜绝因只读系统标题或元数据差异导致卡片整体卡在修改态
   const editableFields: Array<
-    'actionDescription' | 'dialogue' | 'cinematicIntent' | 'audioAmbience' | 'durationSec'
-  > = ['actionDescription', 'dialogue', 'cinematicIntent', 'audioAmbience', 'durationSec'];
+    'actionDescription' | 'durationSec'
+  > = ['actionDescription', 'durationSec'];
 
   const isModified = editableFields.some((f) => isFieldModified(f));
 
@@ -264,16 +250,12 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
 
       const storageAction = form.actionDescription.trim();
       const storageTitle = form.beatTitle.trim();
-      const storageCamera = form.cinematicIntent.trim();
 
       const updatedBeatData = {
         beatId: node.shotId || `beat_${node.id}`,
         beatTitle: storageTitle,
         estimatedSeconds: Number(form.durationSec) || 4,
         actionDescription: storageAction,
-        dialogue: form.dialogue,
-        cinematicIntent: storageCamera,
-        audioAmbience: form.audioAmbience,
       };
 
       if (beatIdx >= 0) {
@@ -303,9 +285,6 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
         title: form.beatTitle,
         durationSec: Number(form.durationSec) || 4,
         actionDescription: storageAction,
-        dialogue: form.dialogue,
-        cinematicIntent: storageCamera,
-        audioAmbience: form.audioAmbience,
       });
 
       // 3. 刷新全剧 projectData，确保外部 VisualInspectorPanel 立即感知
@@ -471,83 +450,14 @@ export const ShotScriptCard: React.FC<ShotScriptCardProps> = ({
         </div>
       </div>
 
-      {/* 1. 视听动作流与场面调度编辑器：所见即所得即梦式行内资产编辑器（输入与显示 100% 同体） */}
+      {/* 1. 视听动作流与声画对白统一剧本编辑器（动作 + 对白 + 拟音按时间顺序同框编写） */}
       <TiptapMentionEditor
         value={form.actionDescription}
         entities={lookdevEntities}
         onChange={(val) => setForm({ ...form, actionDescription: val })}
         isModified={isFieldModified('actionDescription')}
-        placeholder="在 @场景 中，@角色 动作走位与 @道具 交互..."
+        placeholder="按时间顺序编写 @场景 内的动作走位、@角色 对白与现场拟音..."
       />
-
-      {/* 2. 角色对白与台词栏 (Dialogue) */}
-      <div className="border-l-[3px] border-indigo-500 pl-2.5 py-0.5 flex items-start gap-2">
-        <span className="text-xs font-semibold text-indigo-600 shrink-0 inline-flex items-center gap-1 select-none pt-1">
-          <span>💬</span>
-          <span>对白:</span>
-        </span>
-        <AutoExpandTextarea
-          minRows={1}
-          value={form.dialogue}
-          onChange={(val) => setForm({ ...form, dialogue: val })}
-          placeholder="角色台词（无对白可留空）"
-          className={`flex-1 rounded-lg px-2.5 py-1.5 text-xs outline-hidden transition border ${
-            isFieldModified('dialogue')
-              ? 'bg-amber-50/70 border-amber-300 text-amber-950 focus:border-amber-500 ring-1 ring-amber-200 font-medium'
-              : 'bg-slate-50/70 border-slate-200/70 focus:bg-white focus:border-indigo-400 text-slate-800'
-          }`}
-        />
-      </div>
-
-      {/* 3. 视听机位建议与运镜设计 (Camera & Cinematics) */}
-      <div
-        className={`rounded-xl p-2.5 border transition ${
-          isFieldModified('cinematicIntent')
-            ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-200'
-            : 'bg-slate-50/80 border-slate-200/70 focus-within:bg-white focus-within:border-indigo-400'
-        }`}
-      >
-        <div className="flex items-start gap-2">
-          <span className="text-xs font-semibold text-slate-700 shrink-0 inline-flex items-center gap-1 select-none pt-0.5">
-            <span>🎥</span>
-            <span>机位:</span>
-          </span>
-          <AutoExpandTextarea
-            minRows={1}
-            value={form.cinematicIntent}
-            onChange={(val) =>
-              setForm({ ...form, cinematicIntent: val })
-            }
-            placeholder="填写机位构图、摄影运镜指令（如：近景甩镜头 Whip Pan）..."
-            className="flex-1 bg-transparent text-xs leading-relaxed text-slate-800 outline-hidden"
-          />
-        </div>
-      </div>
-
-      {/* 4. 现场拟音与动作音效 (Foley & Ambience) */}
-      <div
-        className={`rounded-xl p-2.5 border transition ${
-          isFieldModified('audioAmbience')
-            ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-200'
-            : 'bg-amber-50/40 border-amber-200/60 focus-within:bg-white focus-within:border-amber-400'
-        }`}
-      >
-        <div className="flex items-start gap-2">
-          <span className="text-xs font-semibold text-amber-800 shrink-0 inline-flex items-center gap-1 select-none pt-0.5">
-            <span>🔊</span>
-            <span>拟音:</span>
-          </span>
-          <AutoExpandTextarea
-            minRows={1}
-            value={form.audioAmbience}
-            onChange={(val) =>
-              setForm({ ...form, audioAmbience: val })
-            }
-            placeholder="填写现场物理拟音与环境声音设计（如：脚步声、衣物摩擦、烛灭抽吸声）..."
-            className="flex-1 bg-transparent text-xs leading-relaxed text-amber-950 outline-hidden"
-          />
-        </div>
-      </div>
     </div>
   );
 };

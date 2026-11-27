@@ -158,7 +158,6 @@ export function rescueCompletedPrefix(
     title: lastItem.beatTitle || lastItem.title || lastItem.name || '',
     summary:
       lastItem.actionDescription ||
-      lastItem.cinematicIntent ||
       lastItem.description ||
       '',
   };

@@ -53,11 +53,8 @@ const expectedToolNames = [
   'film.asset_manifest',
   'film.entity_spec',
   'film.shooting_script',
-  'film.shot_frame_prompt',
-  'film.shot_prompt',
   'film.shot_motion_prompt',
   'film.lookdev',
-  'film.shot_keyframe',
   'film.shot_video',
   'game.assembly',
 ];
@@ -68,7 +65,7 @@ for (const name of expectedToolNames) {
   const toolInstance = taskToolRegistry.getTool(name);
   assert.ok(toolInstance, `必须能成功获取工具实例: ${name}`);
 }
-console.log('✅ 测试 1 通过: 8 大标准任务工具全部成功注册并可查！');
+console.log('✅ 测试 1 通过: 标准任务工具全部成功注册并可查！');
 
 // 测试 2: 任务派发与双阶段生命周期
 console.log('\n--- 测试 2: 任务派发同步响应与异步状态流转 (TaskDispatcher & SSE 事件) ---');

@@ -1,17 +1,13 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { ProjectStore } from '../src/project-store/ProjectStore.js';
 import { StoryboardAgent } from '../src/agents/storyboard/agent.js';
 import { getStoryboardContext } from '../src/agents/storyboard/context.js';
-import {
-  buildShotKeyframePrompt,
-  type KeyframeReferenceEntry,
-} from '../src/tools/film-production/shot-keyframe-tool/steps/01-render/prompt.js';
-import { shotKeyframeTool } from '../src/tools/film-production/shot-keyframe-tool/index.js';
+import { shotVideoTool } from '../src/tools/film-production/shot-video-tool/index.js';
 import { shootingScriptTool } from '../src/tools/film-production/shooting-script-tool/index.js';
 
-test('🎬 验证分镜总导演通用意图决策与画面微调闭环 (Universal Shot Intent Decision)', async (t) => {
+test('验证分镜总导演通用意图决策与视频推演闭环 (Universal Shot Intent Decision)', async (t) => {
   const store = ProjectStore.getInstance();
   const projectId = 'test_intent_decision_proj_001';
   const projectDir = store.getProjectDir(projectId);
@@ -34,6 +30,7 @@ test('🎬 验证分镜总导演通用意图决策与画面微调闭环 (Univers
           durationSec: 4,
           characters: ['Athena-K'],
           firstFramePrompt: originalLongPrompt,
+          videoPrompt: 'Ref2V 时间戳多机位动态推演',
           firstFrameImageUrl: '/media/test/c1-01_first.png',
         },
       ],
@@ -56,76 +53,25 @@ test('🎬 验证分镜总导演通用意图决策与画面微调闭环 (Univers
   await t.test('2. 系统提示词规则矩阵：明确影视三级解耦决策漏斗与单一目标派发', () => {
     const sysPrompt = (agent as any).assembleSystemPrompt();
     assert.ok(sysPrompt.includes('诉求精准定位'), '系统提示词中必须包含精准定位');
-    assert.ok(sysPrompt.includes('单镜出图/重绘'), '必须包含单镜出图重绘诉求');
-    assert.ok(sysPrompt.includes(shotKeyframeTool.toolName), '系统提示词必须包含 shotKeyframeTool');
+    assert.ok(sysPrompt.includes('视频动态渲染'), '必须包含视频渲染诉求');
+    assert.ok(sysPrompt.includes(shotVideoTool.toolName), '系统提示词必须包含 shotVideoTool');
     assert.ok(sysPrompt.includes(shootingScriptTool.toolName), '系统提示词必须包含 shootingScriptTool');
   });
 
-  await t.test('3. 单步画面微调意图解析器：当传入 instruction 时自动标准化 force: true 与 clipId', () => {
+  await t.test('3. 单步视频渲染意图解析器：当传入 params 时自动补全 clipId', () => {
     const rawIntent = {
       action: 'propose',
-      targetTool: shotKeyframeTool.toolName,
-      title: '定向微调镜头 c1-01 首帧站姿',
-      description: '保持原画面整体构图与光影，将机器人站姿微调为双脚自然并拢直立，消除交叉腿',
+      targetTool: shotVideoTool.toolName,
+      title: '渲染镜头 c1-01 视频',
+      description: '按当前动态提示词渲染 Ref2V 视频',
       params: {
         shotId: 'c1-01',
-        instruction: '机器人不要双脚交叉，站姿改为双脚自然并拢直立',
+        force: true,
       },
     };
 
     const resolved = (agent as any).resolveDirectorIntent(rawIntent);
-    assert.equal(resolved.tool, shotKeyframeTool.toolName);
+    assert.equal(resolved.tool, shotVideoTool.toolName);
     assert.equal(resolved.params.clipId, 'c1', '应自动补全 clipId');
-    assert.equal(resolved.params.force, true, '微调画面必须强制开启 force: true 以触发重跑');
-    assert.equal(resolved.params.instruction, '机器人不要双脚交叉，站姿改为双脚自然并拢直立');
-  });
-
-  await t.test('4. 关键帧生图 Prompt 装配：存在 instruction 时精准注入定向微调区块，锁定原图基准', () => {
-    const shot = mockStoryboards[0].shots[0] as any;
-    const baseReferences: KeyframeReferenceEntry[] = [
-      { role: 'base_frame', url: '/media/test/c1-01_first.png' },
-    ];
-    const instruction = '保持原机位构图，机器人站姿改为双脚自然直立，消除交叉腿';
-
-    const promptWithInstruction = buildShotKeyframePrompt(shot, baseReferences, shot.firstFramePrompt, instruction);
-    assert.ok(
-      promptWithInstruction.includes('【画面微调要求】'),
-      'Prompt 中必须包含定向微调指导区块'
-    );
-    assert.ok(promptWithInstruction.includes(instruction), 'Prompt 中必须包含具体的微调指令内容');
-    assert.ok(promptWithInstruction.includes(originalLongPrompt), 'Prompt 中应保留本镜基础画面设定');
-
-    // 对比：无 instruction 时绝不产生微调区块
-    const normalPrompt = buildShotKeyframePrompt(shot, baseReferences, shot.firstFramePrompt);
-    assert.ok(
-      !normalPrompt.includes('【画面微调要求】'),
-      '普通出图时不应包含定向微调区块'
-    );
-  });
-
-  await t.test('5. 末帧定向微调对称性：末帧传入 instruction 时同样装配定向微调要求并保留末帧基础画面', () => {
-    const shotWithLast = {
-      ...mockStoryboards[0].shots[0],
-      lastFramePrompt: '中景镜头，机器人微微躬身指向星图右侧，机体散发冷蓝光',
-      lastFrameImageUrl: '/media/test/c1-01_last.png',
-    } as any;
-    const lastBaseReferences: KeyframeReferenceEntry[] = [
-      { role: 'base_frame', url: '/media/test/c1-01_last.png' },
-    ];
-    const lastInstruction = '手指方向稍微偏左下方一点，保持机体光影';
-
-    const lastPrompt = buildShotKeyframePrompt(
-      shotWithLast,
-      lastBaseReferences,
-      shotWithLast.lastFramePrompt,
-      lastInstruction
-    );
-
-    assert.ok(
-      lastPrompt.includes('【画面微调要求】'),
-      '末帧微调必须包含定向微调要求区块'
-    );
-    assert.ok(lastPrompt.includes(lastInstruction), '末帧微调必须包含具体指令内容');
-    assert.ok(lastPrompt.includes(shotWithLast.lastFramePrompt), '末帧微调必须保留末帧基础画面提示词');
   });
 });

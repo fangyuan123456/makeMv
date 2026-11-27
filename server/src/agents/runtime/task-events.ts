@@ -199,7 +199,7 @@ async function ensureSingleTaskSummary(task: TaskRecord): Promise<void> {
 
   try {
     const taskInput = (task.input as any) || {};
-    const targetShotId = taskInput.shotId || (taskInput.targetKind === 'shot_keyframe' ? taskInput.targetId : undefined);
+    const targetShotId = taskInput.shotId;
     const targetEntityId = taskInput.targetId;
     const focusTarget = targetShotId
       ? { kind: 'shot', id: targetShotId, label: `镜头 ${targetShotId}` }

@@ -1,7 +1,7 @@
-/**
+﻿/**
  * tests/three-tier-storyboard-pipeline.test.ts
  * 验证分镜两级正交解耦流水线 (Storyboard Pipeline SSOT)
- * 验证：台本镜头切分、单镜首帧构图分析与动态运镜推演的完全内聚与职责正交
+ * 验证：台本镜头切分、单镜动态运镜推演的完全内聚与职责正交
  */
 
 import { describe, it } from 'node:test';
@@ -12,24 +12,17 @@ import {
   buildShootingScriptModifyPrompt,
 } from '../src/tools/film-production/shooting-script-tool/index.js';
 import {
-  ShotFramePromptTool,
-  ShotPromptTool,
-  buildShotPromptPrompt,
-  buildShotPromptModifyPrompt,
-} from '../src/tools/film-production/shot-frame-prompt-tool/index.js';
-import {
   ShotMotionPromptTool,
   buildShotMotionPromptPrompt,
   buildShotMotionModifierPrompt,
 } from '../src/tools/film-production/shot-motion-prompt-tool/index.js';
 
-describe('Storyboard Pipeline SSOT (Shooting Script & Shot Prompt)', () => {
+describe('Storyboard Pipeline SSOT (Shooting Script & Shot Motion Prompt)', () => {
   it('1. ShootingScriptTool 一步到位生成时空环境锁与全量原子镜头台本', () => {
     const tool = new ShootingScriptTool();
     assert.equal(tool.toolName, 'film.shooting_script');
     assert.ok(tool.description.includes('演绎剧本') || tool.description.includes('摄制台本'));
 
-    // 检查 outputSchema 的属性定义包含 environmentLock 与 actionBeats
     const outputShape = tool.outputSchema.shape;
     assert.ok(outputShape.environmentLock);
     assert.ok(outputShape.actionBeats);
@@ -38,29 +31,9 @@ describe('Storyboard Pipeline SSOT (Shooting Script & Shot Prompt)', () => {
     assert.ok(beatShape.space);
     assert.ok(beatShape.beatTitle);
     assert.ok(beatShape.actionDescription);
-    assert.ok(beatShape.cinematicIntent);
-    assert.ok(beatShape.dialogue);
-    assert.ok(beatShape.audioAmbience);
   });
 
-  it('2. ShotFramePromptTool 与 ShotMotionPromptTool 正交解耦，挂载独立并发键', () => {
-    // 2.1 首帧推演工具验证
-    const frameTool = new ShotFramePromptTool();
-    assert.equal(frameTool.toolName, 'film.shot_frame_prompt');
-    const frameKey = frameTool.resolveConcurrencyKey('proj_1', { clipId: 'c1', shotId: 'c1-01' });
-    assert.equal(frameKey, 'proj_1:c1:c1-01');
-
-    const frameOutputShape = frameTool.outputSchema.shape;
-    assert.ok(frameOutputShape.firstFramePrompt);
-
-    const framePrompt = buildShotPromptPrompt({
-      shot: { shotId: 'c1-01', title: '门前定场', sceneSubject: '独身一人在门前' },
-      clipTitle: '夜归老宅',
-    });
-    assert.ok(framePrompt.includes('100% 纯正向肯定句'));
-    assert.ok(framePrompt.includes('五层体系'));
-
-    // 2.2 视频时序动态推演工具验证
+  it('2. ShotMotionPromptTool 生成 Ref2V 视频提示词', () => {
     const motionTool = new ShotMotionPromptTool();
     assert.equal(motionTool.toolName, 'film.shot_motion_prompt');
     const motionKey = motionTool.resolveConcurrencyKey('proj_1', { clipId: 'c1', shotId: 'c1-01' });
@@ -74,7 +47,6 @@ describe('Storyboard Pipeline SSOT (Shooting Script & Shot Prompt)', () => {
         shotId: 'c1-01',
         title: '门前定场',
         sceneSubject: '独身一人在门前',
-        firstFramePrompt: '中景侧拍，主体立于门前...',
       },
       clipTitle: '夜归老宅',
     });
@@ -97,7 +69,6 @@ describe('Storyboard Pipeline SSOT (Shooting Script & Shot Prompt)', () => {
           beatId: 'b1',
           beatTitle: '停在界碑前戒备',
           actionDescription: '在风化界碑前驻足收步',
-          cinematicIntent: '全景推镜头',
         },
       ],
       instruction: '将天气改为暴雨夜，主角动作更激烈警惕',
@@ -107,28 +78,12 @@ describe('Storyboard Pipeline SSOT (Shooting Script & Shot Prompt)', () => {
     assert.ok(scriptModPrompt.includes('将天气改为暴雨夜'));
     assert.ok(scriptModPrompt.includes('锁定保留未受影响内容'));
 
-    // 3.2 shot prompt modifier prompt
-    const shotPromptMod = buildShotPromptModifyPrompt({
-      shot: {
-        shotId: 'c1-01',
-        title: '镜01',
-        sceneSubject: '推门',
-        firstFramePrompt: '五层体系原有生图词',
-      },
-      clipTitle: '第一幕',
-      instruction: '将色温调整为青冷调',
-    });
-    assert.ok(shotPromptMod.includes('基准底稿'));
-    assert.ok(shotPromptMod.includes('五层体系原有生图词'));
-    assert.ok(shotPromptMod.includes('将色温调整为青冷调'));
-
-    // 3.3 shot motion modifier prompt
+    // 3.2 shot motion modifier prompt
     const motionModPrompt = buildShotMotionModifierPrompt({
       shot: {
         shotId: 'c1-01',
         title: '镜01',
         videoPrompt: '原有视频动作流...',
-        firstFramePrompt: '原有首帧起幅...',
       },
       instruction: '让主角手部动作放慢一倍，配角视线同步下移',
     });
@@ -138,8 +93,7 @@ describe('Storyboard Pipeline SSOT (Shooting Script & Shot Prompt)', () => {
     assert.ok(motionModPrompt.includes('Ref2V'));
   });
 
-  it('4. 全剧故事因果与前后镜头接戏 (Continuity) 上下文正确注入各级提示词与契约', () => {
-    // 4.1 shooting script 支持全剧背景、前序承接与后幕走向
+  it('4. 全剧故事因果与前后镜头接戏上下文正确注入各级提示词', () => {
     const shootingPrompt = buildShootingScriptPrompt({
       clipId: 'c2',
       clipTitle: '老宅惊魂',
@@ -151,21 +105,6 @@ describe('Storyboard Pipeline SSOT (Shooting Script & Shot Prompt)', () => {
     assert.ok(shootingPrompt.includes('民国悬疑古宅探秘之旅'));
     assert.ok(shootingPrompt.includes('衣袖被门框铁钉划破'));
     assert.ok(shootingPrompt.includes('密室对决'));
-
-    // 4.2 shot prompt 支持上一镜头视线轴线与身体姿态接戏
-    const shotPrompt = buildShotPromptPrompt({
-      shot: { shotId: 'c1-02', title: '近景推门', sceneSubject: '右手握紧门环' },
-      clipTitle: '夜归老宅',
-      previousShot: {
-        shotId: 'c1-01',
-        title: '远景定场',
-        sceneSubject: '快步走向老宅大门',
-        firstFramePrompt: '35mm全景，背影快步前行',
-      },
-    });
-    assert.ok(shotPrompt.includes('上一镜头接戏基准'));
-    assert.ok(shotPrompt.includes('c1-01 · 远景定场'));
-    assert.ok(shotPrompt.includes('空间视锥独立换算'));
   });
 
   it('5. ShootingScriptTool 专门深化纯物理动作表演流与时空环境锁', () => {
@@ -182,19 +121,5 @@ describe('Storyboard Pipeline SSOT (Shooting Script & Shot Prompt)', () => {
     assert.ok(shootingPrompt.includes('时空与光影环境锁'));
     assert.ok(shootingPrompt.includes('专业电影文学语言与法定标准名称'));
     assert.ok(shootingPrompt.includes('专注客观可视的物理表演与场面调度'));
-
-    // 验证推演工具成功接收 weatherDirective
-    const shotPromptWithWeather = buildShotPromptPrompt({
-      shot: {
-        shotId: 'c1-01',
-        title: '界碑定场',
-        sceneSubject: '在界碑前停步',
-        weatherDirective: { label: '黄昏薄雾', instruction: '深秋黄昏，薄雾笼罩' },
-      },
-      clipTitle: '村口初探',
-    });
-    assert.ok(shotPromptWithWeather.includes('既定天气与环境光影硬约束'));
-    assert.ok(shotPromptWithWeather.includes('黄昏薄雾'));
-    assert.ok(shotPromptWithWeather.includes('环境与天气光影首位定调'));
   });
 });

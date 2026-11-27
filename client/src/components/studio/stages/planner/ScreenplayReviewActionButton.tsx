@@ -163,8 +163,8 @@ export const ScreenplayReviewActionButton: React.FC<ScreenplayReviewActionButton
         )}
       </button>
 
-      {/* 悬停审查浮层卡片 (Hover Popover，右对齐向左展开避免右侧溢出裁剪) */}
-      {isHovered && (
+      {/* 悬停审查浮层卡片 (仅在存在待修复问题或修复/审查失败时展示) */}
+      {isHovered && (buttonState === 'actionable' || buttonState === 'failed') && (
         <div
           className="absolute right-0 top-full mt-2 w-[420px] max-w-[85vw] bg-white rounded-xl shadow-2xl border border-slate-200 z-50 p-4 space-y-3 text-slate-800 animate-in fade-in zoom-in-95 duration-150"
           onMouseEnter={handleMouseEnter}
@@ -185,16 +185,6 @@ export const ScreenplayReviewActionButton: React.FC<ScreenplayReviewActionButton
             </div>
 
             {/* 顶部胶囊标签 */}
-            {buttonState === 'fixing' && (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 animate-pulse">
-                ⏳ 局部手术中
-              </span>
-            )}
-            {buttonState === 'reviewing' && (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200 animate-pulse">
-                🔍 逐幕审查中
-              </span>
-            )}
             {buttonState === 'actionable' && (
               <span
                 className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
@@ -209,11 +199,6 @@ export const ScreenplayReviewActionButton: React.FC<ScreenplayReviewActionButton
             {buttonState === 'failed' && (
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
                 ❌ 修复异常
-              </span>
-            )}
-            {buttonState === 'passed' && (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                ✅ 校验达标
               </span>
             )}
           </div>
@@ -288,12 +273,9 @@ export const ScreenplayReviewActionButton: React.FC<ScreenplayReviewActionButton
               })}
             </div>
           ) : (
-            !fixError &&
-            buttonState !== 'reviewing' && (
+            !fixError && (
               <div className="text-xs text-slate-500 py-3 text-center">
-                {buttonState === 'passed'
-                  ? '✨ 剧本未发现可生成性硬伤，符合 AI 影视摄制规范。'
-                  : '剧本已发生修改，点击按钮可立即发起全面审查。'}
+                剧本审查异常，点击按钮可重新尝试。
               </div>
             )
           )}
@@ -301,11 +283,7 @@ export const ScreenplayReviewActionButton: React.FC<ScreenplayReviewActionButton
           {/* Popover 底部快捷操作引导 */}
           <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
             <span className="text-slate-400">
-              {buttonState === 'actionable'
-                ? '👆 点击按钮直接一键修复全部'
-                : buttonState === 'passed'
-                ? '已就绪，可继续进行分幕切片'
-                : '点击按钮重新审查'}
+              {buttonState === 'actionable' ? '👆 点击按钮直接一键修复全部' : '点击按钮重试修复或重新审查'}
             </span>
             <div className="flex items-center space-x-1.5">
               <button
@@ -314,8 +292,7 @@ export const ScreenplayReviewActionButton: React.FC<ScreenplayReviewActionButton
                   e.stopPropagation();
                   onTriggerReview();
                 }}
-                disabled={buttonState === 'fixing' || buttonState === 'reviewing'}
-                className="px-2 py-0.5 text-[10px] font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition disabled:opacity-40"
+                className="px-2 py-0.5 text-[10px] font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition"
               >
                 🔄 重新审查
               </button>

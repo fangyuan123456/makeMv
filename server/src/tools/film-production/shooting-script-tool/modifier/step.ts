@@ -82,7 +82,6 @@ export const shootingScriptModifierStep = createStep({
               beatId: newBeatId,
               beatTitle: mod.beat?.beatTitle || `新动作节拍 ${newIndex}`,
               actionDescription: mod.beat?.actionDescription || '',
-              cinematicIntent: mod.beat?.cinematicIntent || '中景定场',
               characterIds: mod.beat?.characterIds || [],
               itemIds: mod.beat?.itemIds || [],
               estimatedSeconds: mod.beat?.estimatedSeconds || 3,

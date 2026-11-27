@@ -193,7 +193,6 @@ export const VisualPipelineTopology: React.FC<VisualPipelineTopologyProps> = ({
       if (!targetClipId) return false;
       if (
         t.toolName === 'film.shooting_script' ||
-        t.toolName === 'film.shot_keyframe' ||
         t.toolName === 'film.shot_video'
       ) {
         return targetClipId === clipId;

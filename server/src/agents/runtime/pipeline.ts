@@ -17,9 +17,9 @@
 import type { TaskRecord } from '../../task-engine/types.js';
 
 export interface PipelineStageSpec {
-  /** 工序工具唯一标识 (如 film.shot_keyframe, planner.script_to_prd) */
+  /** 工序工具唯一标识 (如 film.shot_video, planner.script_to_prd) */
   tool: string;
-  /** 工序规范中文名称 (如 "首帧关键帧渲染", "SeedVR2 高清超分") */
+  /** 工序规范中文名称 (如 "段落视频直出", "SeedVR2 高清超分") */
   stageName: string;
   /** 工序职责说明与核心产出 (可选) */
   description?: string;
@@ -31,7 +31,7 @@ export interface PipelineStageSpec {
  * 格式化实体在中文对话中的统一可读标识
  */
 export function formatPipelineEntityLabel(input: Record<string, any>): string {
-  const shotId = input.shotId || (input.targetKind === 'shot_keyframe' ? input.targetId : undefined);
+  const shotId = input.shotId;
   if (shotId) {
     const rawNumber = String(shotId).replace(/^[^-]+-0?/, '').replace(/^shot-0?/, '');
     return `镜${rawNumber.padStart(2, '0')}`;

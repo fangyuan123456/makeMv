@@ -19,9 +19,7 @@ import type {
 } from '../../../types/index.js';
 import { ShotCanvasCard } from './ShotCanvasCard.js';
 import { LookdevRootCanvasCard } from './LookdevRootCanvasCard.js';
-import { ShotFocusDrawer } from './ShotFocusDrawer.js';
-import { ShotProcessCanvas } from './ShotProcessCanvas.js';
-import { ShotScriptCard } from './ShotScriptCard.js';
+import { ShotSideDrawerPanel } from './ShotSideDrawerPanel.js';
 import { SubCanvasSwitcher, type SubCanvasOption } from './SubCanvasSwitcher.js';
 import type { MediaLightboxItem } from '../stages/visual/MediaLightboxModal.js';
 import { useReportFocus } from '../../../hooks/StudioFocusContext.js';
@@ -189,18 +187,14 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
   const [canvasData, setCanvasData] = useState<StoryboardCanvasData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [focusDrawerNode, setFocusDrawerNode] = useState<CanvasShotNode | null>(null);
-  const [processCanvasNode, setProcessCanvasNode] = useState<CanvasShotNode | null>(null);
 
   const lookdevEntities = useMemo(() => {
     return projectData?.entities || projectData?.artifacts?.lookdev_entities || null;
   }, [projectData]);
 
-  // 切换分幕时自动重置选中与打开的检视抽屉
+  // 切换分幕时自动重置选中抽屉
   useEffect(() => {
     setSelectedNodeId(null);
-    setFocusDrawerNode(null);
-    setProcessCanvasNode(null);
   }, [clipId]);
 
   // 视口变换参数
@@ -286,9 +280,6 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
         title: shot.title || shot.name || matchedBeat?.beatTitle || `镜头 ${String(index + 1).padStart(2, '0')}`,
         // 摄制台本视听要素真实直通绑定 (零硬编码)
         actionDescription: matchedBeat?.actionDescription || shot.actionDescription || shot.sceneSubject,
-        cinematicIntent: matchedBeat?.cinematicIntent || shot.cinematicIntent || shot.cameraDirective?.instruction,
-        dialogue: matchedBeat?.dialogue !== undefined ? matchedBeat.dialogue : shot.dialogue,
-        audioAmbience: matchedBeat?.audioAmbience || shot.audioAmbience || shot.audioPrompt,
         shotType: matchedBeat?.shotType || shot.shotType || shot.cameraDirective?.label,
         cameraMovement: matchedBeat?.cameraMovement || shot.cameraMovement,
         location: currentLocation,
@@ -491,9 +482,6 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
       await selectCanvasCandidate(projectId, nodeId, taskId);
       const updated = scopeCanvasToClip(await fetchStoryboardCanvas(projectId));
       setCanvasData(updated);
-      if (updated.nodes?.[nodeId]) {
-        setFocusDrawerNode(updated.nodes[nodeId]);
-      }
     } catch (err) {
       console.error('[StoryboardCanvas] 切换候选失败:', err);
     }
@@ -853,23 +841,6 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
           projectShot?.actionDescription ||
           projectShot?.sceneSubject ||
           node.actionDescription,
-        cinematicIntent:
-          actionBeat?.cinematicIntent ||
-          projectShot?.cinematicIntent ||
-          (projectShot?.cameraMovement ? `${projectShot?.shotType || ''} · ${projectShot?.cameraMovement}`.trim() : undefined) ||
-          node.cinematicIntent,
-        dialogue:
-          actionBeat?.dialogue !== undefined
-            ? actionBeat.dialogue
-            : projectShot?.dialogue !== undefined
-            ? projectShot.dialogue
-            : node.dialogue,
-        audioAmbience:
-          actionBeat?.audioAmbience ||
-          projectShot?.audioAmbience ||
-          projectShot?.audioPrompt ||
-          projectShot?.ambience ||
-          node.audioAmbience,
         shotType: actionBeat?.shotType || projectShot?.shotType || node.shotType,
         cameraMovement: actionBeat?.cameraMovement || projectShot?.cameraMovement || node.cameraMovement,
         firstFrameVersions: firstVersions,
@@ -899,11 +870,46 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
 
   const nodesList = Object.values(decoratedNodesMap);
   const selectedCanvasNode = selectedNodeId ? decoratedNodesMap[selectedNodeId] : null;
-  const activeProcessNode = processCanvasNode
-    ? decoratedNodesMap[processCanvasNode.id] || processCanvasNode
-    : null;
+  const triggeredMotionShotsRef = useRef<Set<string>>(new Set());
 
-  // 上报分镜画布自身焦点（必须位于所有条件 return 之前，严格遵守 React Hooks 顺序；下钻 ShotProcessCanvas 时子页自动压栈覆盖）
+  useEffect(() => {
+    triggeredMotionShotsRef.current.clear();
+  }, [clipId]);
+
+  // 解锁即自动触发视频动态提示词提取（涵盖：刚进画布已解锁镜头、台本生成完成、上一镜完成解锁下一镜）
+  useEffect(() => {
+    if (!canvasData?.nodes || !clipId || isLoading) return;
+    for (const node of nodesList) {
+      if (node.type === 'lookdev_root') continue;
+      if (node.isUnlocked === false) continue;
+      if (!node.shotId) continue;
+      if (node.videoPrompt && node.videoPrompt.trim().length > 0) continue;
+
+      const dedupeKey = `${clipId}:${node.shotId}`;
+      if (triggeredMotionShotsRef.current.has(dedupeKey)) continue;
+
+      const alreadyRunning = tasks.some(
+        (t) =>
+          (t.status === 'running' || t.status === 'pending') &&
+          (t.toolName === 'film.shot_motion_prompt' || t.toolName === 'film.shot_prompt') &&
+          t.input?.shotId === node.shotId
+      );
+      if (alreadyRunning) {
+        triggeredMotionShotsRef.current.add(dedupeKey);
+        continue;
+      }
+
+      triggeredMotionShotsRef.current.add(dedupeKey);
+      void onRunTool('film.shot_motion_prompt', {
+        clipId: node.clipId || clipId,
+        shotId: node.shotId,
+      }).catch((err) => {
+        console.warn(`[StoryboardCanvas] 自动触发镜头 [${node.shotId}] 动态提示词推演失败:`, err);
+      });
+    }
+  }, [canvasData, nodesList, clipId, isLoading, tasks, onRunTool]);
+
+  // 上报分镜画布自身焦点（必须位于所有条件 return 之前，严格遵守 React Hooks 顺序）
   const canvasFocus = useMemo(
     () => ({
       location: clipTitle ? `演绎片段画布 · ${clipTitle}` : '演绎片段画布',
@@ -928,36 +934,6 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
           <span className="text-xs text-slate-500 font-medium">加载视听无限画布中...</span>
         </div>
       </div>
-    );
-  }
-
-  if (activeProcessNode) {
-    return (
-      <ShotProcessCanvas
-        node={activeProcessNode}
-        allNodes={nodesList}
-        onSelectNode={(targetNode) => {
-          setProcessCanvasNode(targetNode);
-          setSelectedNodeId(targetNode.id);
-        }}
-        projectId={projectId}
-        projectData={projectData}
-        tasks={tasks}
-        onClose={() => {
-          setProcessCanvasNode(null);
-          setSelectedNodeId(null);
-        }}
-        onRunTool={onRunTool}
-        onRefreshProject={refreshShotAssets}
-        onEnlargeMedia={onEnlargeMedia}
-        subCanvasOptions={subCanvasOptions}
-        onSwitchSubCanvas={(option) => {
-          setProcessCanvasNode(null);
-          setSelectedNodeId(null);
-          onSwitchSubCanvas?.(option);
-        }}
-        isBusy={isBusy}
-      />
     );
   }
 
@@ -1009,7 +985,7 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
                   node={node}
                   isSelected={selectedNodeId === node.id}
                   onSelect={() => setSelectedNodeId(node.id)}
-                  onOpenDrillDown={(n) => setFocusDrawerNode(n)}
+                  onOpenDrillDown={() => setSelectedNodeId(node.id)}
                 />
               ) : (
                 <ShotCanvasCard
@@ -1019,13 +995,11 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
                   isExtractingPrompt={tasks.some(
                     (t) =>
                       (t.status === 'running' || t.status === 'pending') &&
-                      (t.toolName === 'film.shot_frame_prompt' ||
-                        t.toolName === 'film.shot_motion_prompt' ||
-                        t.toolName === 'film.shot_prompt') &&
+                      t.toolName === 'film.shot_motion_prompt' &&
                       t.input?.shotId === node.shotId
                   )}
                   onSelect={() => setSelectedNodeId(node.id)}
-                  onOpenDrillDown={(n) => setProcessCanvasNode(n)}
+                  onOpenDrillDown={() => setSelectedNodeId(node.id)}
                 />
               )}
             </div>
@@ -1165,145 +1139,44 @@ export const StoryboardCanvas: React.FC<StoryboardCanvasProps> = ({
         </button>
       </div>
 
-      {/* 单击节点后的轻量检视栏；生成操作留在双击进入的下一级。 */}
-      {selectedCanvasNode && (
-        <aside
-          className="absolute top-4 right-4 bottom-4 z-40 w-[420px] max-w-[calc(100vw-2rem)] bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-3xl shadow-xl flex flex-col overflow-hidden overscroll-contain animate-in slide-in-from-right-4 duration-200 select-none"
-          onMouseDown={(e) => e.stopPropagation()}
-          onWheel={(e) => e.stopPropagation()}
-        >
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
-            <div className="flex items-center space-x-2.5 overflow-hidden">
-              <span className="text-lg">🎬</span>
-              <div className="truncate">
-                <h3 className="text-sm font-bold text-slate-800 truncate">{selectedCanvasNode.title}</h3>
-                <span className="text-[11px] text-slate-500 font-medium">镜头节点 · 属性检视</span>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSelectedNodeId(null)}
-              className="w-7 h-7 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              title="关闭检视栏"
-            >
-              ×
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-5 space-y-5 text-slate-700">
-            <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 group">
-              {selectedCanvasNode.videoUrl ? (
-                <video src={selectedCanvasNode.videoUrl} controls muted playsInline className="w-full h-full object-cover" />
-              ) : selectedCanvasNode.keyframeUrl ? (
-                <img src={selectedCanvasNode.keyframeUrl} alt={selectedCanvasNode.title} className="w-full h-full object-cover" />
-              ) : (
-                <div className="h-full flex items-center justify-center text-xs text-slate-400">暂无视觉资产</div>
-              )}
-              {(selectedCanvasNode.videoUrl || selectedCanvasNode.keyframeUrl) && onEnlargeMedia && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const gallery: MediaLightboxItem[] = nodesList
-                      .filter((n) => Boolean(n.videoUrl || n.keyframeUrl))
-                      .map((n) => ({
-                        title: `${n.title} · ${n.videoUrl ? '视频' : '首帧'}`,
-                        imageUrl: n.videoUrl ? undefined : n.keyframeUrl,
-                        videoUrl: n.videoUrl || undefined,
-                      }));
-                    onEnlargeMedia({
-                      title: `${selectedCanvasNode.title} · ${selectedCanvasNode.videoUrl ? '视频' : '首帧'}`,
-                      imageUrl: selectedCanvasNode.videoUrl ? undefined : selectedCanvasNode.keyframeUrl,
-                      videoUrl: selectedCanvasNode.videoUrl || undefined,
-                      gallery: gallery.length > 0 ? gallery : undefined,
-                    });
-                  }}
-                  className="absolute top-2.5 right-2.5 px-2 py-1 rounded-lg bg-black/65 hover:bg-black/85 backdrop-blur-xs text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer z-10"
-                  title="全屏放大查看"
-                >
-                  ⛶
-                </button>
-              )}
-            </div>
-            {/* 视听资产状态条 */}
-            <div className="flex items-center justify-between text-xs px-1">
-              <span
-                className={`inline-flex items-center gap-1.5 font-medium ${
-                  selectedCanvasNode.videoUrl
-                    ? 'text-emerald-600'
-                    : selectedCanvasNode.keyframeUrl
-                    ? 'text-indigo-600'
-                    : 'text-slate-400'
-                }`}
-              >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    selectedCanvasNode.videoUrl
-                      ? 'bg-emerald-500 ring-2 ring-emerald-200'
-                      : selectedCanvasNode.keyframeUrl
-                      ? 'bg-indigo-500 ring-2 ring-indigo-200'
-                      : 'bg-slate-300'
-                  }`}
-                />
-                {selectedCanvasNode.videoUrl
-                  ? '动态视频已生成'
-                  : selectedCanvasNode.keyframeUrl
-                  ? '首帧关键帧已就绪'
-                  : '视觉资产待生成'}
-              </span>
-              <span className="text-[11px] text-slate-400 font-mono">
-                {selectedCanvasNode.continuityMode === 'linked'
-                  ? '强制接戏尾帧'
-                  : selectedCanvasNode.continuityMode === 'detached'
-                  ? '独立自由机位'
-                  : '智能时空连续性'}
-              </span>
-            </div>
-
-            {/* 工业级视听摄制台本卡片 (结构化四维要素，支持直接打字修改并与全剧摄制单 SSOT 联动) */}
-            <ShotScriptCard
-              node={selectedCanvasNode}
-              projectId={projectId}
-              clipId={clipId}
-              projectData={projectData}
-              onRefreshProject={onRefreshProject}
-              onNodeUpdate={(updatedNode) => {
-                setCanvasData((prev) => {
-                  if (!prev) return prev;
-                  return {
-                    ...prev,
-                    nodes: {
-                      ...prev.nodes,
-                      [updatedNode.id]: updatedNode,
-                    },
-                  };
-                });
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => setProcessCanvasNode(selectedCanvasNode)}
-              className="w-full px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition flex items-center justify-center gap-1.5"
-            >
-              <span>进入镜头处理</span>
-              <span>→</span>
-            </button>
-          </div>
-        </aside>
+      {/* 外层扁平化侧边抽屉：上方关键播映与操作，下方标签切换剧本与提示词 */}
+      {selectedCanvasNode && selectedCanvasNode.type !== 'lookdev_root' && (
+        <ShotSideDrawerPanel
+          node={selectedCanvasNode}
+          allNodes={nodesList}
+          projectId={projectId}
+          clipId={clipId || selectedCanvasNode.clipId || ''}
+          projectData={projectData}
+          tasks={tasks}
+          isBusy={isBusy}
+          onClose={() => setSelectedNodeId(null)}
+          onRefreshProject={onRefreshProject}
+          onNodeUpdate={(updatedNode) => {
+            setCanvasData((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                nodes: {
+                  ...prev.nodes,
+                  [updatedNode.id]: updatedNode,
+                },
+              };
+            });
+          }}
+          onRenderVideo={handleRenderSingleVideo}
+          onExtractMotionPrompt={async (shotId, targetClipId) => {
+            await onRunTool('film.shot_motion_prompt', {
+              clipId: targetClipId || clipId,
+              shotId,
+              force: true,
+            });
+            await loadCanvas();
+          }}
+          onSelectCandidate={handleSelectCandidate}
+          onToggleContinuity={handleToggleContinuity}
+          onEnlargeMedia={onEnlargeMedia}
+        />
       )}
-
-      {/* 递进式镜头演播工作舱抽屉 */}
-      <ShotFocusDrawer
-        node={focusDrawerNode}
-        projectId={projectId}
-        projectData={projectData}
-        onClose={() => setFocusDrawerNode(null)}
-        onSelectCandidate={handleSelectCandidate}
-        onRenderVideo={handleRenderSingleVideo}
-        onRenderKeyframe={async (shotId) => {
-          await onRunTool('film.shot_keyframe', { shotId, force: true });
-          await loadCanvas();
-        }}
-        isBusy={isBusy}
-      />
     </div>
   );
 };

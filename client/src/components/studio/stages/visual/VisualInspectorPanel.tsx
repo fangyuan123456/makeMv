@@ -126,6 +126,9 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
   onRefreshProject,
 }) => {
   const [activeScriptTab, setActiveScriptTab] = React.useState<'story' | 'performance'>('story');
+  const [activeVideoIdx, setActiveVideoIdx] = React.useState(0);
+  const [autoAdvancePlay, setAutoAdvancePlay] = React.useState(false);
+  const clipVideoRef = React.useRef<HTMLVideoElement | null>(null);
 
   // 1. 提取定妆视觉实体
   const entities = projectData?.entities || projectData?.artifacts?.lookdev_entities;
@@ -195,6 +198,38 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
     : undefined;
   const shootingScript = matchedFilmClip?.shootingScript || matchedRawClip?.shootingScript;
 
+  // 收集当前幕下所有已生成视频的片段，用于按顺序连播整幕预览
+  const clipVideos = React.useMemo(() => {
+    const list = (shots || [])
+      .filter((s: any) => Boolean(s?.videoUrl))
+      .map((s: any, idx: number) => ({
+        shotId: s.shotId || s.id || `s_${idx + 1}`,
+        title: s.sliceSummary || s.title || `片段 ${idx + 1}`,
+        videoUrl: s.videoUrl as string,
+      }));
+    if (list.length === 0 && node.videoUrl) {
+      list.push({
+        shotId: node.id,
+        title: node.title,
+        videoUrl: node.videoUrl,
+      });
+    }
+    return list;
+  }, [shots, node.videoUrl, node.id, node.title]);
+
+  React.useEffect(() => {
+    setActiveVideoIdx(0);
+    setAutoAdvancePlay(false);
+  }, [currentClipId]);
+
+  React.useEffect(() => {
+    if (activeVideoIdx >= clipVideos.length && clipVideos.length > 0) {
+      setActiveVideoIdx(0);
+    }
+  }, [activeVideoIdx, clipVideos.length]);
+
+  const activeClipVideo = clipVideos[activeVideoIdx] || clipVideos[0];
+
   // 自动从 shootingScript 同步到直接可编辑的 beats 状态（基准文本经由 toMentionText 标准化，与输入态严格对齐）
   React.useEffect(() => {
     const rawBeats = Array.isArray(shootingScript?.actionBeats)
@@ -252,9 +287,6 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
       const checkFields = [
         'beatTitle',
         'actionDescription',
-        'cinematicIntent',
-        'dialogue',
-        'audioAmbience',
         'estimatedSeconds',
         'space',
       ];
@@ -289,9 +321,6 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
         space: refBeat?.space || '空间一',
         beatTitle: '新增镜头',
         actionDescription: '',
-        dialogue: '',
-        audioAmbience: '',
-        cinematicIntent: '中景固定机位',
         estimatedSeconds: 4,
       };
       const next = [...prev];
@@ -611,39 +640,82 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
         {/* ────────────── B. 单幕剧情切片属性检视 ────────────── */}
         {node.kind === 'clip' && (
           <div className="space-y-4">
-            {/* 1. 视听预览窗 (视频直接播放或关键帧大图) */}
-            <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-900 border border-slate-800 shadow-inner group">
-              {node.videoUrl ? (
-                <video
-                  src={node.videoUrl}
-                  controls
-                  playsInline
-                  className="w-full h-full object-cover"
-                />
-              ) : node.keyframeUrl ? (
-                <>
-                  <img
-                    src={node.keyframeUrl}
-                    alt={node.title}
-                    className="w-full h-full object-cover"
-                  />
-                  <button
-                    onClick={() =>
-                      onEnlargeMedia?.({
-                        title: node.title,
-                        imageUrl: node.keyframeUrl,
-                        videoUrl: node.videoUrl,
-                      })
-                    }
-                    className="absolute bottom-2.5 right-2.5 px-2.5 py-1 rounded-lg bg-black/60 hover:bg-black/80 backdrop-blur-xs text-[11px] font-medium text-white flex items-center space-x-1 transition-opacity opacity-0 group-hover:opacity-100"
-                  >
-                    <span>⛶ 放大查看</span>
-                  </button>
-                </>
-              ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 text-xs">
-                  <span className="text-2xl mb-1.5">🎬</span>
-                  <span>本幕分镜镜头待规划生成</span>
+            {/* 1. 视听预览窗 (整幕多片段顺序连播或关键帧大图) */}
+            <div className="space-y-2">
+              <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-900 border border-slate-800 shadow-inner group">
+                {activeClipVideo ? (
+                  <>
+                    <video
+                      ref={clipVideoRef}
+                      key={activeClipVideo.videoUrl}
+                      src={activeClipVideo.videoUrl}
+                      controls
+                      autoPlay={autoAdvancePlay}
+                      playsInline
+                      onEnded={() => {
+                        if (activeVideoIdx < clipVideos.length - 1) {
+                          setAutoAdvancePlay(true);
+                          setActiveVideoIdx((prev) => prev + 1);
+                        } else {
+                          setAutoAdvancePlay(false);
+                        }
+                      }}
+                      className="w-full h-full object-cover"
+                    />
+                    {clipVideos.length > 1 && (
+                      <div className="pointer-events-none absolute top-2.5 left-2.5 px-2 py-0.5 rounded-md bg-black/65 backdrop-blur-xs text-[10px] font-medium text-white">
+                        片段 {activeVideoIdx + 1}/{clipVideos.length} · {activeClipVideo.title}
+                      </div>
+                    )}
+                  </>
+                ) : node.keyframeUrl ? (
+                  <>
+                    <img
+                      src={node.keyframeUrl}
+                      alt={node.title}
+                      className="w-full h-full object-cover"
+                    />
+                    <button
+                      onClick={() =>
+                        onEnlargeMedia?.({
+                          title: node.title,
+                          imageUrl: node.keyframeUrl,
+                          videoUrl: node.videoUrl,
+                        })
+                      }
+                      className="absolute bottom-2.5 right-2.5 px-2.5 py-1 rounded-lg bg-black/60 hover:bg-black/80 backdrop-blur-xs text-[11px] font-medium text-white flex items-center space-x-1 transition-opacity opacity-0 group-hover:opacity-100"
+                    >
+                      <span>⛶ 放大查看</span>
+                    </button>
+                  </>
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 text-xs">
+                    <span className="text-2xl mb-1.5">🎬</span>
+                    <span>本幕分镜镜头待规划生成</span>
+                  </div>
+                )}
+              </div>
+
+              {clipVideos.length > 1 && (
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                  {clipVideos.map((cv, idx) => (
+                    <button
+                      key={`${cv.shotId}_${idx}`}
+                      type="button"
+                      onClick={() => {
+                        setAutoAdvancePlay(true);
+                        setActiveVideoIdx(idx);
+                      }}
+                      className={`shrink-0 px-2 py-1 rounded-lg text-[11px] font-medium border transition ${
+                        idx === activeVideoIdx
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                      title={cv.title}
+                    >
+                      片段 {idx + 1}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
@@ -765,10 +837,6 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
                           const beatModified = isBeatModified(bIdx);
                           const titleModified = isFieldModified(bIdx, 'beatTitle');
                           const descModified = isFieldModified(bIdx, 'actionDescription');
-                          const dialogueModified = isFieldModified(bIdx, 'dialogue');
-                          const intentModified = isFieldModified(bIdx, 'cinematicIntent');
-                          const audioModified = isFieldModified(bIdx, 'audioAmbience');
-                          const secModified = isFieldModified(bIdx, 'estimatedSeconds');
 
                           return (
                             <React.Fragment key={beat.beatId || `beat_${bIdx}`}>
@@ -824,22 +892,6 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
                                         </button>
                                       )}
 
-                                      <div className={`flex items-center gap-0.5 text-[10px] font-mono rounded-md px-1.5 py-0.5 border transition-colors ${
-                                        secModified
-                                          ? 'bg-amber-100 border-amber-300 text-amber-900 font-bold'
-                                          : 'text-slate-500 bg-slate-50 hover:bg-slate-100 border-slate-200'
-                                      }`} title="点击直接修改时长">
-                                        <input
-                                          type="number"
-                                          min={1}
-                                          max={20}
-                                          value={beat.estimatedSeconds || 4}
-                                          onChange={(e) => handleUpdateBeat(bIdx, 'estimatedSeconds', parseInt(e.target.value, 10) || 4)}
-                                          className="w-5 text-center font-bold text-slate-700 bg-transparent outline-none focus:outline-none"
-                                        />
-                                        <span className="text-slate-400 font-sans">秒</span>
-                                      </div>
-
                                       {/* 删除镜头：内联二次确认，防止误触 */}
                                       {deletingBeatIndex === bIdx ? (
                                         <div className="flex items-center gap-1 text-[10px] bg-rose-50 border border-rose-200 rounded px-1.5 py-0.5 animate-in fade-in duration-100">
@@ -879,63 +931,8 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
                                     entities={entities}
                                     onChange={(val) => handleUpdateBeat(bIdx, 'actionDescription', val)}
                                     isModified={descModified}
-                                    placeholder="在 @场景 中，@角色 动作走位与 @道具 交互..."
+                                    placeholder="在 @场景 中，@角色 动作走位、内联对白与物理拟音/环境声景..."
                                   />
-
-                                  {/* 角色对白：影视剧本竖线优雅排版 + 修改黄色高亮 */}
-                                  <div className="border-l-2 border-indigo-500 pl-2 py-0.5 my-1 flex items-start gap-1.5">
-                                    <span className="text-[10px] text-indigo-600 font-semibold shrink-0 pt-0.5">💬 对白:</span>
-                                    <AutoResizeTextarea
-                                      minRows={1}
-                                      value={beat.dialogue || ''}
-                                      onChange={(val) => handleUpdateBeat(bIdx, 'dialogue', val)}
-                                      placeholder="角色台词（无对白可留空）"
-                                      className={`text-xs rounded-md px-2 py-0.5 flex-1 min-w-0 leading-relaxed outline-none focus:outline-none focus:ring-0 transition-colors ${
-                                        dialogueModified
-                                          ? 'bg-amber-100/60 border border-amber-300 text-amber-950 font-semibold'
-                                          : 'text-indigo-950 font-medium bg-indigo-50/30 hover:bg-indigo-50/70 focus:bg-white border border-indigo-100/80 focus:border-indigo-400'
-                                      }`}
-                                    />
-                                  </div>
-
-                                  {/* 视听机位与拟音参数行：直接可编辑 + 修改黄色高亮 */}
-                                  <div className="pt-1 space-y-1.5">
-                                    <div className={`flex items-start gap-1.5 rounded-lg px-2 py-1.5 transition-colors border ${
-                                      intentModified
-                                        ? 'bg-amber-100/60 border-amber-300 ring-1 ring-amber-200/50 text-amber-950'
-                                        : 'bg-slate-50 hover:bg-slate-100/70 focus-within:bg-white border-slate-200/80 focus-within:border-indigo-400 text-slate-700'
-                                    }`}>
-                                      <span className="text-[10px] font-medium shrink-0 pt-0.5 flex items-center gap-0.5">
-                                        <span>🎥</span>
-                                        <span className={intentModified ? 'text-amber-900' : 'text-slate-600'}>机位:</span>
-                                      </span>
-                                      <AutoResizeTextarea
-                                        minRows={1}
-                                        value={beat.cinematicIntent || ''}
-                                        onChange={(val) => handleUpdateBeat(bIdx, 'cinematicIntent', val)}
-                                        placeholder="机位镜头调度与运镜描述..."
-                                        className="w-full text-[10px] bg-transparent outline-none focus:outline-none focus:ring-0 leading-relaxed"
-                                      />
-                                    </div>
-
-                                    <div className={`flex items-start gap-1.5 rounded-lg px-2 py-1.5 transition-colors border ${
-                                      audioModified
-                                        ? 'bg-amber-200/50 border-amber-400 ring-1 ring-amber-300/50 text-amber-950'
-                                        : 'bg-amber-50/60 hover:bg-amber-50 focus-within:bg-white border-amber-200/60 focus-within:border-amber-400 text-amber-900'
-                                    }`}>
-                                      <span className="text-[10px] font-medium shrink-0 pt-0.5 flex items-center gap-0.5">
-                                        <span>🔊</span>
-                                        <span className="text-amber-900">拟音:</span>
-                                      </span>
-                                      <AutoResizeTextarea
-                                        minRows={1}
-                                        value={beat.audioAmbience || ''}
-                                        onChange={(val) => handleUpdateBeat(bIdx, 'audioAmbience', val)}
-                                        placeholder="动作拟音与环境声音效..."
-                                        className="w-full text-[10px] bg-transparent outline-none focus:outline-none focus:ring-0 leading-relaxed"
-                                      />
-                                    </div>
-                                  </div>
                                 </div>
 
                                 {/* 卡片之间的优雅横线与+号插入点（hover 时显现，点击直接插入） */}

@@ -342,58 +342,6 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
         break;
       }
 
-      case 'film.image_upscale': {
-        const targetKind = output.targetKind || task.input?.targetKind;
-        const targetId = output.targetId || task.input?.targetId;
-        if (targetKind === 'shot_keyframe' && targetId) {
-          const isLastFrame = output.frame === 'last' || task.input?.frame === 'last';
-          const multiplier = Number(output.multiplier || task.input?.multiplier || 2);
-          const upscaledAt = new Date().toISOString();
-          const mediaUrl =
-            (isLastFrame ? output.lastFrameImageUrl : output.firstFrameImageUrl) || output.mediaUrl;
-
-          // 同步更新分镜画布节点的高清地址与超分元数据，确保画布与 storyboards SSOT 一致
-          const canvas = store.getArtifact<any>(projectId, 'storyboard_canvas');
-          if (canvas?.nodes) {
-            let updated = false;
-            for (const n of Object.values<any>(canvas.nodes)) {
-              if (n.shotId === targetId || n.id === `node_${targetId}`) {
-                if (isLastFrame) {
-                  if (mediaUrl) n.lastFrameUrl = mediaUrl;
-                  n.lastFrameUpscale = { multiplier, upscaledAt };
-                } else {
-                  if (mediaUrl) n.keyframeUrl = mediaUrl;
-                  n.firstFrameUpscale = { multiplier, upscaledAt };
-                }
-                updated = true;
-              }
-            }
-            if (updated) {
-              store.setArtifact(projectId, 'storyboard_canvas', canvas);
-              atomicWriteJsonSync(path.join(projectDir, 'storyboard_canvas.json'), canvas);
-            }
-          }
-
-          recordShotKeyframeUpdated(projectId, targetId, isLastFrame ? 'last' : 'first');
-        } else if (targetKind && targetId && ['character', 'location', 'item'].includes(targetKind)) {
-          const entitiesPath = path.join(projectDir, 'scenes', 'entities.json');
-          const entities =
-            safeReadJsonSync<any>(entitiesPath) || store.getArtifact<any>(projectId, 'lookdev_entities');
-          if (entities) store.setArtifact(projectId, 'lookdev_entities', entities);
-          const list =
-            targetKind === 'character'
-              ? entities?.characters
-              : targetKind === 'location'
-              ? entities?.locations
-              : entities?.items;
-          const matched = Array.isArray(list)
-            ? list.find((e: any) => (e.characterId || e.locationId || e.itemId || e.id) === targetId)
-            : undefined;
-          recordEntityUpdated(projectId, { kind: targetKind, id: targetId, label: matched?.name || targetId });
-        }
-        break;
-      }
-
       case 'film.shooting_script': {
         const { clipId, clipTitle, environmentLock, actionBeats } = output;
         if (clipId) {
@@ -433,20 +381,15 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
                 clipId,
                 shotIndex: idx,
                 durationSec: beat.estimatedSeconds || 8,
-                shotType: beat.cinematicIntent || 'MEDIUM_SHOT',
+                shotType: 'MEDIUM_SHOT',
                 cameraMovement: 'locked-off',
-                generationMode:
-                  beat.generationMode ||
-                  old.generationMode ||
-                  'ref2v',
+                generationMode: 'ref2v',
                 location: beat.location || targetClip.location || old.location,
                 locationId: beat.locationId || targetClip.locationId || old.locationId,
                 characters: beat.characterIds || [],
                 items: beat.itemIds || [],
                 sceneSubject: beat.actionDescription,
                 sliceSummary: beat.beatTitle,
-                dialogue: beat.dialogue || '',
-                audioPrompt: beat.audioAmbience || '',
                 weatherDirective: environmentLock?.weatherDirective,
                 firstFramePrompt: old.firstFramePrompt || '',
                 videoPrompt: old.videoPrompt || '',
@@ -488,91 +431,6 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
         break;
       }
 
-      case 'film.shot_frame_prompt':
-      case 'film.shot_prompt': {
-        const {
-          clipId,
-          shotId,
-          firstFramePrompt,
-          videoPrompt,
-          cameraDirective,
-          colorDirective,
-          poseDirective,
-          motionDirective,
-          dynamicDirective,
-          focusDirective,
-        } = output;
-        if (clipId && shotId) {
-          const filmSpec = store.getArtifact<any>(projectId, 'film_spec') || { clips: [] };
-          const clip = (filmSpec.clips || []).find((c: any) => c.clipId === clipId);
-          if (clip && Array.isArray(clip.shots)) {
-            const targetShot = clip.shots.find((s: any) => s.shotId === shotId);
-            if (targetShot) {
-              const activeMode = output.continuityMode || task.input?.continuityMode || targetShot.continuityMode;
-              if (activeMode) {
-                targetShot.continuityMode = activeMode;
-              }
-              if (firstFramePrompt) {
-                targetShot.firstFramePrompt = firstFramePrompt;
-                if (!targetShot.continuityPrompts) {
-                  targetShot.continuityPrompts = {};
-                }
-                if (activeMode === 'detached') {
-                  targetShot.continuityPrompts.detached = firstFramePrompt;
-                } else {
-                  targetShot.continuityPrompts.linked = firstFramePrompt;
-                }
-              }
-              if (videoPrompt) targetShot.videoPrompt = videoPrompt;
-              if (cameraDirective) targetShot.cameraDirective = cameraDirective;
-              if (colorDirective) targetShot.colorDirective = colorDirective;
-              if (poseDirective) targetShot.poseDirective = poseDirective;
-              if (motionDirective) targetShot.motionDirective = motionDirective;
-              if (dynamicDirective) targetShot.dynamicDirective = dynamicDirective;
-              if (focusDirective) targetShot.focusDirective = focusDirective;
-
-              store.setArtifact(projectId, 'film_spec', filmSpec);
-              store.setArtifact(projectId, 'storyboards', filmSpec.clips);
-              atomicWriteJsonSync(path.join(projectDir, 'storyboards.json'), filmSpec.clips);
-
-              // 标记首帧生图词已更新
-              recordShotPromptUpdated(projectId, [shotId]);
-              // 若同时推演出同相视频运镜词，同步标记视频过期
-              if (videoPrompt) {
-                recordShotVideoUpdated(projectId, shotId);
-              }
-
-              // 同步更新分镜画布节点
-              const canvas = store.getArtifact<any>(projectId, 'storyboard_canvas');
-              if (canvas?.nodes) {
-                let updated = false;
-                for (const n of Object.values<any>(canvas.nodes)) {
-                  if (n.shotId === shotId || n.id === `node_${shotId}`) {
-                    if (activeMode) n.continuityMode = activeMode;
-                    if (firstFramePrompt) {
-                      n.firstFramePrompt = firstFramePrompt;
-                      if (!n.continuityPrompts) n.continuityPrompts = {};
-                      if (activeMode === 'detached') {
-                        n.continuityPrompts.detached = firstFramePrompt;
-                      } else {
-                        n.continuityPrompts.linked = firstFramePrompt;
-                      }
-                    }
-                    if (videoPrompt) n.videoPrompt = videoPrompt;
-                    updated = true;
-                  }
-                }
-                if (updated) {
-                  store.setArtifact(projectId, 'storyboard_canvas', canvas);
-                  atomicWriteJsonSync(path.join(projectDir, 'storyboard_canvas.json'), canvas);
-                }
-              }
-            }
-          }
-        }
-        break;
-      }
-
       case 'film.shot_motion_prompt': {
         const { clipId, shotId, videoPrompt, audioPrompt } = output;
         if (clipId && shotId && videoPrompt) {
@@ -609,141 +467,6 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
               }
             }
           }
-        }
-        break;
-      }
-
-      case 'film.shot_keyframe': {
-        const { shotId, firstFrameImageUrl, lastFrameImageUrl } = output;
-        const storyboardsPath = path.join(projectDir, 'storyboards.json');
-        const shots = store.getArtifact<any[]>(projectId, 'storyboards') || safeReadJsonSync(storyboardsPath) || [];
-        // 工具输出里总是同时带首尾帧地址，但只有本次真正重绘的那一帧才该清 HD 标记；
-        // 否则「只重绘末帧」会把首帧的 SeedVR2 历史版本标记误删。
-        const renderedFrame = task.input?.frame as 'first' | 'last' | undefined;
-        const renderedFirst = !renderedFrame || renderedFrame === 'first';
-        const renderedLast = !renderedFrame || renderedFrame === 'last';
-
-        if (shotId && (firstFrameImageUrl || lastFrameImageUrl)) {
-          for (const item of shots) {
-            const matched = item.shotId === shotId
-              ? item
-              : Array.isArray(item.shots)
-              ? item.shots.find((s: any) => s.shotId === shotId)
-              : undefined;
-            if (matched) {
-              if (firstFrameImageUrl && renderedFirst) {
-                matched.keyframeUrl = firstFrameImageUrl;
-                matched.firstFrameImageUrl = firstFrameImageUrl;
-                delete matched.firstFrameUpscale;
-              }
-              if (lastFrameImageUrl && renderedLast) {
-                matched.lastFrameImageUrl = lastFrameImageUrl;
-                delete matched.lastFrameUpscale;
-              }
-            }
-          }
-
-          // 同步更新分镜画布节点（重绘覆盖后仅清除本次渲染帧的旧超分标记）
-          const canvas = store.getArtifact<any>(projectId, 'storyboard_canvas');
-          if (canvas?.nodes) {
-            let updated = false;
-            for (const n of Object.values<any>(canvas.nodes)) {
-              if (n.shotId === shotId || n.id === `node_${shotId}`) {
-                if (firstFrameImageUrl && renderedFirst) {
-                  n.keyframeUrl = firstFrameImageUrl;
-                  delete n.firstFrameUpscale;
-                }
-                if (lastFrameImageUrl && renderedLast) {
-                  n.lastFrameUrl = lastFrameImageUrl;
-                  delete n.lastFrameUpscale;
-                }
-                updated = true;
-              }
-            }
-            if (updated) {
-              store.setArtifact(projectId, 'storyboard_canvas', canvas);
-              atomicWriteJsonSync(path.join(projectDir, 'storyboard_canvas.json'), canvas);
-            }
-          }
-        }
-        store.setArtifact(projectId, 'storyboards', shots);
-        atomicWriteJsonSync(storyboardsPath, shots);
-        const filmSpec = store.getArtifact<any>(projectId, 'film_spec');
-        if (filmSpec) {
-          filmSpec.clips = shots;
-          store.setArtifact(projectId, 'film_spec', filmSpec);
-          atomicWriteJsonSync(path.join(projectDir, 'film_spec.json'), filmSpec);
-        }
-        if (shotId && (firstFrameImageUrl || lastFrameImageUrl)) {
-          recordShotKeyframeUpdated(projectId, shotId, renderedFrame || 'both');
-        }
-        break;
-      }
-
-      case 'film.image_upscale': {
-        const { targetKind, targetId, frame = 'first', multiplier = 2 } = task.input || {};
-        const effectiveMediaUrl = output.mediaUrl || output.firstFrameImageUrl || output.lastFrameImageUrl;
-
-        if (targetKind === 'shot_keyframe' && targetId && effectiveMediaUrl) {
-          const storyboardsPath = path.join(projectDir, 'storyboards.json');
-          const shots = store.getArtifact<any[]>(projectId, 'storyboards') || safeReadJsonSync(storyboardsPath) || [];
-          const upscaledAt = new Date().toISOString();
-          const isFirst = frame !== 'last';
-
-          for (const item of shots) {
-            const matched = item.shotId === targetId
-              ? item
-              : Array.isArray(item.shots)
-              ? item.shots.find((s: any) => s.shotId === targetId)
-              : undefined;
-
-            if (matched) {
-              if (isFirst) {
-                matched.firstFrameImageUrl = effectiveMediaUrl;
-                matched.keyframeUrl = effectiveMediaUrl;
-                matched.imageUrl = effectiveMediaUrl;
-                matched.firstFrameUpscale = { multiplier, upscaledAt };
-              } else {
-                matched.lastFrameImageUrl = effectiveMediaUrl;
-                matched.lastFrameUrl = effectiveMediaUrl;
-                matched.lastFrameUpscale = { multiplier, upscaledAt };
-              }
-            }
-          }
-
-          // 同步分镜大画布节点
-          const canvas = store.getArtifact<any>(projectId, 'storyboard_canvas');
-          if (canvas?.nodes) {
-            let updated = false;
-            for (const n of Object.values<any>(canvas.nodes)) {
-              if (n.shotId === targetId || n.id === `node_${targetId}`) {
-                if (isFirst) {
-                  n.keyframeUrl = effectiveMediaUrl;
-                  n.firstFrameUpscale = { multiplier, upscaledAt };
-                } else {
-                  n.lastFrameUrl = effectiveMediaUrl;
-                  n.lastFrameUpscale = { multiplier, upscaledAt };
-                }
-                updated = true;
-              }
-            }
-            if (updated) {
-              store.setArtifact(projectId, 'storyboard_canvas', canvas);
-              atomicWriteJsonSync(path.join(projectDir, 'storyboard_canvas.json'), canvas);
-            }
-          }
-
-          store.setArtifact(projectId, 'storyboards', shots);
-          atomicWriteJsonSync(storyboardsPath, shots);
-
-          const filmSpec = store.getArtifact<any>(projectId, 'film_spec');
-          if (filmSpec) {
-            filmSpec.clips = shots;
-            store.setArtifact(projectId, 'film_spec', filmSpec);
-            atomicWriteJsonSync(path.join(projectDir, 'film_spec.json'), filmSpec);
-          }
-
-          recordShotKeyframeUpdated(projectId, targetId, isFirst ? 'first' : 'last');
         }
         break;
       }

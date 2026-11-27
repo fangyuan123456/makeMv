@@ -131,9 +131,7 @@ export function getStoryboardContext(projectId: string, clipId: string, targetSh
       `色彩倾向: ${env?.colorTone?.label || '无'}`,
     ];
     const beatsLines = (shootingScript.actionBeats || []).map((b: any, bIdx: number) => {
-      const dialogueText = b.dialogue ? ` | 对白: ${b.dialogue}` : '';
-      const sfxText = b.audioAmbience ? ` | 拟音: ${b.audioAmbience}` : '';
-      return `    ${bIdx + 1}. [${b.beatTitle}] (${b.estimatedSeconds || 3}s): ${b.actionDescription}${dialogueText}${sfxText}`;
+      return `    ${bIdx + 1}. [${b.beatTitle}] (${b.estimatedSeconds || 3}s): ${b.actionDescription}`;
     });
     shootingScriptSummary = `  - 场景时空与光影环境锁：\n    ${envLines.join(' | ')}\n  - 场面调度与对白表演流 (${shootingScript.actionBeats.length} 个场面情境):\n${beatsLines.join('\n')}`;
   }
@@ -174,8 +172,7 @@ export function getStoryboardContext(projectId: string, clipId: string, targetSh
       const mediaStatus = `${firstStatus}${lastStatus}`;
       const firstPrompt = (shot.firstFramePrompt || '').trim();
       const promptSnippet = firstPrompt ? `\n    首帧画面原词: "${firstPrompt}"` : ' (首帧尚未编写提示词)';
-      const dialoguePart = shot.dialogue ? ` | 台词: "${shot.dialogue}"` : '';
-      return `  - 镜号 ${index + 1} (${shot.shotId}): [${shot.cameraDirective?.label || shot.shotType || '中景'}] 运镜: ${shot.cameraMovement || '推进'} | 角色: ${chars}${dialoguePart} | 时长: ${shot.durationSec || 4}s | 状态: ${mediaStatus}${promptSnippet}`;
+      return `  - 镜号 ${index + 1} (${shot.shotId}): [${shot.cameraDirective?.label || shot.shotType || '中景'}] 运镜: ${shot.cameraMovement || '推进'} | 角色: ${chars} | 时长: ${shot.durationSec || 4}s | 状态: ${mediaStatus}${promptSnippet}`;
     }).join('\n'),
   };
 }

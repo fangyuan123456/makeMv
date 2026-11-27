@@ -20,28 +20,35 @@ export function buildShotMotionPromptPrompt(params: {
     shotType?: string;
     location?: string;
     sceneSubject: string;
-    firstFramePrompt?: string;
-    firstFrameImageUrl?: string;
     cameraDirective?: any;
     motionDirective?: any;
     dynamicDirective?: any;
     focusDirective?: any;
     durationSec?: number;
-    dialogue?: string;
     continuityMode?: string;
+  };
+  previousShot?: {
+    shotId: string;
+    title: string;
+    sceneSubject?: string;
+    videoPrompt?: string;
+    isSameScene: boolean;
   };
   clipTitle: string;
   narrativeText?: string;
   instruction?: string;
-  characters?: Array<{ characterId: string; name: string }>;
+  characters?: Array<{ characterId?: string; id?: string; name: string }>;
+  items?: Array<{ itemId?: string; id?: string; name: string }>;
   storyOverview?: string;
 }): string {
   const {
     shot,
+    previousShot,
     clipTitle,
     narrativeText,
     instruction,
     characters = [],
+    items = [],
     storyOverview,
   } = params;
 
@@ -55,7 +62,7 @@ export function buildShotMotionPromptPrompt(params: {
 
 ${storyOverview ? `【全剧核心基调】：${storyOverview}\n` : ''}
 【所属分幕】：${clipTitle}
-${narrativeText ? `【分幕剧情脉络】：\n${narrativeText}\n` : ''}
+${narrativeText ? `【兜底剧情参考】：\n${narrativeText}\n` : ''}
 
 【当前演绎片段规格】：
 - 所在场景：${shot.location || '沿用分幕主场景'}
@@ -65,23 +72,30 @@ ${narrativeText ? `【分幕剧情脉络】：\n${narrativeText}\n` : ''}
 - 既定运镜基调：${formatDirective(shot.motionDirective, '按剧情节奏自然调度')}
 - 既定运动幅度：${formatDirective(shot.dynamicDirective, '电影级平缓 5/10')}
 - 既定焦点跟踪：${formatDirective(shot.focusDirective, '锁定主体')}
-${shot.dialogue ? `- 角色台词：${shot.dialogue}\n` : ''}
 
-【出场角色名单（统一使用法定标准全名）】：
-${characters.map((c) => `- 角色【${c.name}】(ID: ${c.characterId})`).join('\n') || '当前出场人物'}
+【出场资产名单（必须严格使用以下法定标准全名，便于前端高亮与参考图对齐）】：
+${shot.location ? `- 场景【${shot.location}】\n` : ''}${characters.map((c) => `- 角色【${c.name}】(ID: ${c.characterId || c.id || ''})`).join('\n') || '- 当前出场人物'}
+${items.length > 0 ? items.map((it) => `- 道具【${it.name}】(ID: ${it.itemId || it.id || ''})`).join('\n') : ''}
 
+${
+  previousShot
+    ? `【前序片段落幅上下文（用于动接动与站位接力）】：
+- 前序片段：【${previousShot.shotId} · ${previousShot.title}】(${previousShot.isSameScene ? '同场景' : '跨场景'})
+${previousShot.sceneSubject ? `- 前序事件：${previousShot.sceneSubject}\n` : ''}${previousShot.videoPrompt ? `- 前序视频提示词落幅参考：\n${previousShot.videoPrompt}\n` : ''}`
+    : ''
+}
 ${instruction ? `【创作者动态微调诉求】：\n${instruction}\n` : ''}
 
 ${getSkillsForStage('motion', { isIdleLoop })}
 
 【H3 Ref2V 视频提示词输出格式要求（高信噪比，严禁静态画质废话）】：
-1. **第一段固定写 \`人物站位：...\`**：用 1~2 句话定死拍摄朝向/轴线、主光源方向与光线质感，以及出场人物和关键道具的初始位置；
+1. **第一段固定写 \`人物站位：...\`**：用 1~2 句话定死出场人物和关键道具的初始位置、朝向/轴线及主光源方向与光线质感；${previousShot && previousShot.isSameScene && shot.continuityMode !== 'detached' ? '若同场景连续承接前序片段，必须显式衔接前序最后机位的物理站位、视线朝向与动作惯性，避免静止停顿或左右跳轴；' : ''}
 2. **随后按时间轴拆分机位段落**（总时长严格相加等于 ${totalSec} 秒；单机位写 1 段，需要正反打/情绪递进/动作特写切镜时拆 2~3 个机位）：
    - 格式示例：
      \`镜头1：0—4秒，4秒（共1机位）\`
-     \`[机位A·0—4秒·35mm·低机位微仰推进]：物理动作与关键音效。\`
-   - 若同一镜头内需切机位，则写 \`（共2机位）\` 并依次列出 \`[机位A·...]\`、\`[机位B·...]\`（明确焦段 35mm/50mm/65mm/85mm 与角度/运镜）；
+     \`[机位A·0—4秒·全景跟拍]：物理动作与关键音效。\`
+   - 若同一镜头内需切机位，则写 \`（共2机位）\` 并依次列出 \`[机位A·...]\`、\`[机位B·...]\`（仅标明景别与叙事焦点，如全景/中景/近景/特写/正反打，具体构图与运镜由视频模型按叙事自然演绎）；
    - 有台词时单独另起一行写 \`角色名：（语气）台词内容\`；
-3. **高信噪比瘦身铁律**：角色长相、服装、场景陈设与道具外观已由 Ref2V 的 \`<Picture N>\` 定妆图锁定，**绝对禁止在视频提示词里重复描写衣着细节、冷暖光比数值、电影质感、超清细节等静态词**，把字数全留给**站位 + 机位焦段角度 + 物理动作 + 声音/台词**；
+3. **高信噪比瘦身铁律**：角色长相、服装、场景陈设与道具外观已由 Ref2V 的 \`<Picture N>\` 定妆图锁定，本段全部篇幅专注描写**站位 + 景别切镜节奏 + 物理动作 + 声音/台词**；
 4. 输出符合 ShotMotionPromptOutputSchema 的 JSON。`;
 }

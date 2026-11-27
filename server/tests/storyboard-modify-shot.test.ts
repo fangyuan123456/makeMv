@@ -1,19 +1,19 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ProjectStore } from '../src/project-store/ProjectStore.js';
 import { shootingScriptModifierStep } from '../src/tools/film-production/shooting-script-tool/index.js';
 import { shotPromptModifierStep } from '../src/tools/film-production/shot-frame-prompt-tool/index.js';
 import type { FilmAdapterArtifact } from '../src/project-store/contracts/film-production/film-spec.js';
 
-test('🎬 验证分镜解耦三工具定向微调模式 (ShootingScript/Prompt/Motion Modifier)', async (t) => {
+test('馃幀 楠岃瘉鍒嗛暅瑙ｈ€︿笁宸ュ叿瀹氬悜寰皟妯″紡 (ShootingScript/Prompt/Motion Modifier)', async (t) => {
   const projectId = 'test_modify_shot_proj_001';
   const store = ProjectStore.getInstance();
 
-  // 1. 初始化模拟的 film_spec
+  // 1. 鍒濆鍖栨ā鎷熺殑 film_spec
   const mockFilmSpec: FilmAdapterArtifact = {
     projectId,
     schemaVersion: '2.0.0',
-    projectTitle: '测试分镜修改短剧',
+    projectTitle: '娴嬭瘯鍒嗛暅淇敼鐭墽',
     clips: [
       {
         clipId: 'c1',
@@ -21,29 +21,27 @@ test('🎬 验证分镜解耦三工具定向微调模式 (ShootingScript/Prompt/
         targetDurationSec: 8,
         shootingScript: {
           clipId: 'c1',
-          clipTitle: '第1幕',
+          clipTitle: '绗?骞?,
           environmentLock: {
-            timeOfDay: '日间',
-            weatherDirective: { label: '自然光照', instruction: '自然漫反射光影' },
-            lightingDirective: { label: '主光柔和', instruction: '写实柔和照明' },
+            timeOfDay: '鏃ラ棿',
+            weatherDirective: { label: '鑷劧鍏夌収', instruction: '鑷劧婕弽灏勫厜褰? },
+            lightingDirective: { label: '涓诲厜鏌斿拰', instruction: '鍐欏疄鏌斿拰鐓ф槑' },
           },
           actionBeats: [
             {
               beatId: 'b1',
               shotNumber: 1,
-              space: '空间一',
-              beatTitle: '镜头 01（全景 · 4s）',
-              actionDescription: '原版旧动作：全景，林航站在控制台前',
-              cinematicIntent: '全景机位',
+              space: '绌洪棿涓€',
+              beatTitle: '闀滃ご 01锛堝叏鏅?路 4s锛?,
+              actionDescription: '鍘熺増鏃у姩浣滐細鍏ㄦ櫙锛屾灄鑸珯鍦ㄦ帶鍒跺彴鍓?,
               estimatedSeconds: 4,
             },
             {
               beatId: 'b2',
               shotNumber: 2,
-              space: '空间一',
-              beatTitle: '镜头 02（近景 · 4s）',
-              actionDescription: '原版第二动作',
-              cinematicIntent: '近景机位',
+              space: '绌洪棿涓€',
+              beatTitle: '闀滃ご 02锛堣繎鏅?路 4s锛?,
+              actionDescription: '鍘熺増绗簩鍔ㄤ綔',
               estimatedSeconds: 4,
             },
           ],
@@ -56,14 +54,13 @@ test('🎬 验证分镜解耦三工具定向微调模式 (ShootingScript/Prompt/
             durationSec: 4,
             shotType: 'WIDE_SHOT',
             cameraMovement: 'locked-off',
-            generationMode: 'first_frame',
+            generationMode: 'ref2v',
             characters: ['char_lin'],
             items: [],
-            firstFramePrompt: '原版旧首帧提示词：全景，林航站在控制台前',
-            videoPrompt: '原版旧视频词：林航不动',
-            audioPrompt: '警报声',
-            dialogue: '',
-            transitionAnchor: '锚点1',
+            firstFramePrompt: '鍘熺増鏃ч甯ф彁绀鸿瘝锛氬叏鏅紝鏋楄埅绔欏湪鎺у埗鍙板墠',
+            videoPrompt: '鍘熺増鏃ц棰戣瘝锛氭灄鑸笉鍔?,
+            audioPrompt: '璀︽姤澹?,
+            transitionAnchor: '閿氱偣1',
           },
           {
             shotId: 'c1-02',
@@ -72,14 +69,13 @@ test('🎬 验证分镜解耦三工具定向微调模式 (ShootingScript/Prompt/
             durationSec: 4,
             shotType: 'CLOSE_UP',
             cameraMovement: 'dolly in',
-            generationMode: 'first_frame',
+            generationMode: 'ref2v',
             characters: ['char_lin'],
             items: [],
-            firstFramePrompt: '原版第二镜提示词',
-            videoPrompt: '原版第二镜视频词',
-            audioPrompt: '心跳声',
-            dialogue: '',
-            transitionAnchor: '锚点2',
+            firstFramePrompt: '鍘熺増绗簩闀滄彁绀鸿瘝',
+            videoPrompt: '鍘熺増绗簩闀滆棰戣瘝',
+            audioPrompt: '蹇冭烦澹?,
+            transitionAnchor: '閿氱偣2',
           },
         ],
       },
@@ -88,11 +84,11 @@ test('🎬 验证分镜解耦三工具定向微调模式 (ShootingScript/Prompt/
 
   store.setArtifact(projectId, 'film_spec', mockFilmSpec);
   store.setArtifact(projectId, 'universal_prd', {
-    gameTitle: '测试短剧',
-    clips: [{ id: 'c1', title: '第1幕', narrativeText: '舰桥爆发警报，林航查看屏幕' }],
+    gameTitle: '娴嬭瘯鐭墽',
+    clips: [{ id: 'c1', title: '绗?骞?, narrativeText: '鑸版ˉ鐖嗗彂璀︽姤锛屾灄鑸煡鐪嬪睆骞? }],
   });
 
-  await t.test('1. ShootingScriptModifier 执行台本节拍结构化更新 (0 LLM 开销)', async () => {
+  await t.test('1. ShootingScriptModifier 鎵ц鍙版湰鑺傛媿缁撴瀯鍖栨洿鏂?(0 LLM 寮€閿€)', async () => {
     const res = await shootingScriptModifierStep.execute({
       context: {
         projectId,
@@ -103,7 +99,7 @@ test('🎬 验证分镜解耦三工具定向微调模式 (ShootingScript/Prompt/
             beatId: 'b1',
             beat: {
               estimatedSeconds: 5,
-              actionDescription: '林航紧急按下闭锁阀',
+              actionDescription: '鏋楄埅绱ф€ユ寜涓嬮棴閿侀榾',
             },
           },
         ],
@@ -113,11 +109,11 @@ test('🎬 验证分镜解耦三工具定向微调模式 (ShootingScript/Prompt/
     assert.equal(res.actionBeats.length, 2);
     const updatedBeat = res.actionBeats.find((b: any) => b.beatId === 'b1');
     assert.equal(updatedBeat?.estimatedSeconds, 5);
-    assert.equal(updatedBeat?.actionDescription, '林航紧急按下闭锁阀');
+    assert.equal(updatedBeat?.actionDescription, '鏋楄埅绱ф€ユ寜涓嬮棴閿侀榾');
   });
 
-  await t.test('2. ShotPromptModifier 执行单镜首帧词自定义极速覆盖 (0 LLM 开销)', async () => {
-    const customFirstFrame = '35mm变形宽银幕微仰拍，冷蓝屏幕光映照，林航双手撑在控制台上面向画右紧盯生命红线';
+  await t.test('2. ShotPromptModifier 鎵ц鍗曢暅棣栧抚璇嶈嚜瀹氫箟鏋侀€熻鐩?(0 LLM 寮€閿€)', async () => {
+    const customFirstFrame = '35mm鍙樺舰瀹介摱骞曞井浠版媿锛屽喎钃濆睆骞曞厜鏄犵収锛屾灄鑸弻鎵嬫拺鍦ㄦ帶鍒跺彴涓婇潰鍚戠敾鍙崇揣鐩敓鍛界孩绾?;
     const res = await shotPromptModifierStep.execute({
       context: {
         projectId,
@@ -130,8 +126,8 @@ test('🎬 验证分镜解耦三工具定向微调模式 (ShootingScript/Prompt/
     assert.equal(res.firstFramePrompt, customFirstFrame);
   });
 
-  await t.test('3. ShotPromptModifier 执行单镜视频运镜词自定义极速覆盖 (0 LLM 开销)', async () => {
-    const customVideo = '0~1.5s 镜头微推 ➔ 1.5~3.5s 林航猛按闭锁阀 ➔ 3.5~5s 警报红光扫射定势';
+  await t.test('3. ShotPromptModifier 鎵ц鍗曢暅瑙嗛杩愰暅璇嶈嚜瀹氫箟鏋侀€熻鐩?(0 LLM 寮€閿€)', async () => {
+    const customVideo = '0~1.5s 闀滃ご寰帹 鉃?1.5~3.5s 鏋楄埅鐚涙寜闂攣闃€ 鉃?3.5~5s 璀︽姤绾㈠厜鎵皠瀹氬娍';
     const res = await shotPromptModifierStep.execute({
       context: {
         projectId,

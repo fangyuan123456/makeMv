@@ -2,9 +2,9 @@ import { z } from 'zod';
 import {
   assetManifestTool,
   entitySpecTool,
-  imageUpscaleTool,
   lookdevTool,
 } from '../../tools/film-production/index.js';
+import { imageUpscaleTool } from '../../tools/media/index.js';
 import type { SubmittableToolSpec } from '../runtime/types.js';
 
 export function lookdevCapabilities(): SubmittableToolSpec[] {

@@ -425,9 +425,9 @@ test('createIntentTools narrows actions without pending proposal and enforces ta
       schema: z.object({ projectId: z.string(), targetKind: z.string(), targetId: z.string() }),
     },
     {
-      toolName: 'film.image_upscale',
-      title: '超分',
-      description: '高清超分',
+      toolName: 'film.shot_video',
+      title: '视频渲染',
+      description: '渲染镜头视频',
       schema: z.object({ projectId: z.string(), targetKind: z.string(), targetId: z.string() }),
     },
   ];

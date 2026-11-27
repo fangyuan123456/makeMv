@@ -11,7 +11,6 @@ describe('ContinuationStitcher (接力缝合器)', () => {
     beatId: z.string(),
     beatTitle: z.string(),
     actionDescription: z.string(),
-    cinematicIntent: z.string(),
   });
 
   it('正确识别截断错误 (finishReason === length)', () => {

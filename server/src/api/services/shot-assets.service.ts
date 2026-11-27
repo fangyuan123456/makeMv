@@ -343,56 +343,8 @@ export const updateShotContinuity = (req: Request, res: Response) => {
 };
 
 /** POST /api/projects/:id/shots/refine */
-export const refineShotImage = async (req: Request, res: Response) => {
-  try {
-    const projectId = req.params.id;
-    const { shotId, frame: rawFrame, instruction, baseImageUrl } = req.body || {};
-    if (!shotId || !instruction?.trim()) {
-      return sendError(res, 400, '缺少必要参数: shotId, instruction');
-    }
-    if (rawFrame === 'video') {
-      return sendError(res, 400, '视频不支持基于当前图定向微调，请选择首帧或末帧');
-    }
-    const frame = parseFrame(rawFrame);
-    const located = locateShot(projectId, shotId);
-    if (!located) return sendError(res, 404, `未在分镜中找到镜头 [${shotId}]`);
-
-    const effectiveBaseImage = (baseImageUrl || activeFrameUrl(located.shot, frame)).split('?')[0].trim();
-    if (!effectiveBaseImage) {
-      return sendError(res, 400, '该镜头尚未生成图片，请先生成首帧再进行微调');
-    }
-
-    const { directedPrompt, negativePrompt } = await compileVisualEditPrompt({
-      entityType: 'shot',
-      name: located.shot.title || located.shot.shotId || shotId,
-      originalDescription:
-        (frame === 'last' ? located.shot.lastFramePrompt : located.shot.firstFramePrompt) ||
-        located.shot.videoPrompt ||
-        located.shot.prompt ||
-        '',
-      instruction: instruction.trim(),
-    });
-
-    const task = await taskDispatcher.dispatch({
-      projectId,
-      toolName: 'film.shot_keyframe',
-      input: {
-        projectId,
-        shotId,
-        clipId: located.clip?.clipId || located.clip?.id,
-        frame,
-        customPrompt: directedPrompt,
-        customNegativePrompt: negativePrompt || undefined,
-        referenceImageUrls: [effectiveBaseImage],
-        instruction: instruction.trim(),
-        force: true,
-      },
-    });
-
-    res.json({ success: true, directedPrompt, baseImageUrl: effectiveBaseImage, task });
-  } catch (err: any) {
-    sendError(res, 500, `镜头定向微调失败: ${err.message}`);
-  }
+export const refineShotImage = async (_req: Request, res: Response) => {
+  return sendError(res, 410, '当前已全面切换为 H3 Ref2V 全能参考直出，不再单独生成或微调首帧关键帧图');
 };
 
 /**
@@ -445,15 +397,13 @@ export const updateShootingScript = async (req: Request, res: Response) => {
           clipId,
           shotIndex: idx,
           durationSec: beat.estimatedSeconds || 4,
-          shotType: beat.cinematicIntent || 'MEDIUM_SHOT',
+          shotType: 'MEDIUM_SHOT',
           cameraMovement: 'locked-off',
-          generationMode: 'first_frame',
+          generationMode: 'ref2v',
           characters: beat.characterIds || [],
           items: beat.itemIds || [],
           sceneSubject: beat.actionDescription,
           sliceSummary: beat.beatTitle,
-          dialogue: beat.dialogue || '',
-          audioPrompt: beat.audioAmbience || '',
           weatherDirective: shootingScript.environmentLock?.weatherDirective,
           firstFramePrompt: old.firstFramePrompt || '',
           videoPrompt: old.videoPrompt || '',

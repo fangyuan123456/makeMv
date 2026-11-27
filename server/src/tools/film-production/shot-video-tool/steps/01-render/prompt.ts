@@ -50,6 +50,6 @@ export function buildShotCinematographyPrompt(shot: CinematicShotOrder): {
     shot.videoPrompt || `${shot.cameraMovement || '中速稳健运镜'}, 保持既定风格与主体状态，动作连贯`;
   const hasLast = Boolean(shot.lastFrameImageUrl || (shot as any).lastFrameUrl);
   const videoPrompt = formatVideoMotionPrompt(baseMotion, hasLast);
-  const audioPrompt = shot.audioPrompt || shot.ambience || '电影级写实环境声与质感氛围，无多余杂音';
+  const audioPrompt = shot.audioPrompt?.trim() || '';
   return { videoPrompt, audioPrompt };
 }

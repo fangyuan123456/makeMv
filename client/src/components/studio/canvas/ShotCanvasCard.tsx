@@ -56,10 +56,6 @@ export const ShotCanvasCard: React.FC<ShotCanvasCardProps> = ({
   return (
     <div
       onClick={() => isUnlocked && onSelect?.()}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        if (isUnlocked) onOpenDrillDown?.(node);
-      }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       style={{
@@ -149,14 +145,21 @@ export const ShotCanvasCard: React.FC<ShotCanvasCardProps> = ({
         ) : isExtractingPrompt ? (
           <div className="flex flex-col items-center justify-center space-y-1.5 text-indigo-600 p-3 text-center animate-pulse">
             <span className="w-5 h-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin mb-1" />
-            <span className="text-[11px] font-bold text-indigo-700">推演片段中...</span>
-            <span className="text-[9px] text-slate-400">双击进入查看详情</span>
+            <span className="text-[11px] font-bold text-indigo-700">推演动态提示词中...</span>
+            <span className="text-[9px] text-slate-400">正在生成视频动作与运镜词</span>
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center space-y-1.5 text-slate-400 p-3 text-center">
             <span className="text-2xl opacity-70">🎬</span>
             <span className="text-[11px] font-semibold text-slate-500">待生成演绎片段</span>
-            <span className="text-[9px] text-slate-400">双击卡片下钻制作</span>
+            <span className="text-[9px] text-slate-400">双击打开播映与生成</span>
+          </div>
+        )}
+
+        {isExtractingPrompt && (hasVideo || hasKeyframe) && (
+          <div className="absolute inset-0 z-10 bg-white/75 backdrop-blur-2xs flex flex-col items-center justify-center space-y-1.5 text-indigo-600 p-3 text-center">
+            <span className="w-5 h-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+            <span className="text-[11px] font-bold text-indigo-700">推演动态提示词中...</span>
           </div>
         )}
 
@@ -235,14 +238,6 @@ export const ShotCanvasCard: React.FC<ShotCanvasCardProps> = ({
             >
               <span>📍</span>
               <span className="truncate max-w-[120px]">{node.location}</span>
-            </span>
-          )}
-          {node.cameraDirective?.label && (
-            <span
-              className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200/60 shrink-0"
-              title={`机位景别: ${node.cameraDirective.instruction}`}
-            >
-              🎥 {node.cameraDirective.label}
             </span>
           )}
           {node.weatherDirective?.label && (

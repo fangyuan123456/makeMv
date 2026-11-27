@@ -56,7 +56,6 @@ export const shotMotionPromptModifierStep = createStep({
         shotId: currentShot.shotId,
         title: currentShot.title || `镜头 ${currentShot.shotId}`,
         videoPrompt: currentShot.videoPrompt,
-        firstFramePrompt: currentShot.firstFramePrompt,
       },
       instruction: input.instruction,
     });

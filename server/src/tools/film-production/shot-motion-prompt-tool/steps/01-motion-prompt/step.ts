@@ -44,20 +44,36 @@ export const shotMotionPromptStep = createStep({
     const prd = store.getArtifact<any>(input.projectId, 'universal_prd') || store.getArtifact<any>(input.projectId, 'prd') || {};
     const storyOverview = input.storyOverview || prd?.oneSentenceSummary || prd?.logline || prd?.premise || prd?.title || '';
 
-    // 优先读取传入的首帧信息，其次读取契约中已有的首帧
-    const firstFramePrompt = input.firstFramePrompt || currentShot.firstFramePrompt || '';
-    const firstFrameImageUrl = input.firstFrameImageUrl || currentShot.firstFrameImageUrl || '';
-
-    const allCharacters = store.getArtifact<any[]>(input.projectId, 'characters') || [];
+    const lookdevEntities = store.getArtifact<any>(input.projectId, 'lookdev_entities') || {};
+    const allCharacters = Array.isArray(lookdevEntities.characters) && lookdevEntities.characters.length > 0
+      ? lookdevEntities.characters
+      : store.getArtifact<any[]>(input.projectId, 'characters') || [];
     const shotCharIds = currentShot.characters || [];
-    const characters = allCharacters.filter((c: any) =>
-      shotCharIds.includes(c.id || c.characterId)
-    );
+    const characters = shotCharIds.length > 0
+      ? allCharacters.filter((c: any) => shotCharIds.includes(c.id || c.characterId || c.name))
+      : allCharacters;
+
+    const allItems = Array.isArray(lookdevEntities.items) ? lookdevEntities.items : [];
+    const shotItemIds = currentShot.items || [];
+    const items = shotItemIds.length > 0
+      ? allItems.filter((it: any) => shotItemIds.includes(it.id || it.itemId || it.name))
+      : [];
 
     const storySections = getProjectStorySections(input.projectId);
     const sectionMeta = storySections[input.clipId];
     const clipTitle = sectionMeta?.title || currentClip.title || input.clipId;
-    const narrativeText = sectionMeta?.narrativeText || currentClip.screenplay || currentClip.summary || '';
+    const rawNarrative = sectionMeta?.narrativeText || currentClip.screenplay || currentClip.summary || '';
+    const sceneSubject = currentShot.sceneSubject || currentShot.description || '';
+    // 仅当片段本身缺失核心事件描述时才回退分幕全文，避免把其他片段的台词带入当前片段
+    const narrativeText = sceneSubject.trim() ? '' : rawNarrative;
+
+    const prevShot = shotIdx > 0 ? shotList[shotIdx - 1] : undefined;
+    const isSameSceneAsPrev = Boolean(
+      prevShot &&
+        (!currentShot.locationId ||
+          !prevShot.locationId ||
+          currentShot.locationId === prevShot.locationId)
+    );
 
     const promptText = buildShotMotionPromptPrompt({
       shot: {
@@ -66,20 +82,27 @@ export const shotMotionPromptStep = createStep({
         shotType: currentShot.shotType || currentShot.sliceSummary || '',
         location: currentShot.location || currentClip.location || '',
         sceneSubject: currentShot.sceneSubject || currentShot.description || '',
-        firstFramePrompt,
-        firstFrameImageUrl,
         cameraDirective: currentShot.cameraDirective,
         motionDirective: currentShot.motionDirective,
         dynamicDirective: currentShot.dynamicDirective,
         focusDirective: currentShot.focusDirective,
         durationSec: input.durationSec || currentShot.durationSec || currentShot.estimatedSeconds || 8,
-        dialogue: currentShot.dialogue,
         continuityMode: currentShot.continuityMode,
       },
+      previousShot: prevShot
+        ? {
+            shotId: prevShot.shotId,
+            title: prevShot.title || `片段 ${prevShot.shotId}`,
+            sceneSubject: prevShot.sceneSubject || prevShot.description || '',
+            videoPrompt: prevShot.videoPrompt || '',
+            isSameScene: isSameSceneAsPrev,
+          }
+        : undefined,
       clipTitle,
       narrativeText,
       instruction: input.instruction,
       characters,
+      items,
       storyOverview,
     });
 

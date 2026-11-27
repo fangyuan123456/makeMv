@@ -1,7 +1,8 @@
 import { AgentRunner } from '../runtime/runner.js';
 import { ProjectStore } from '../../project-store/ProjectStore.js';
 import type { VisionImageRef } from '../../llm/vision-perception.js';
-import { imageUpscaleTool, lookdevTool } from '../../tools/film-production/index.js';
+import { lookdevTool } from '../../tools/film-production/index.js';
+import { imageUpscaleTool } from '../../tools/media/index.js';
 import type { AgentFocusContext, SubmittableToolSpec } from '../runtime/types.js';
 import { lookdevCapabilities } from './capabilities.js';
 import { getActiveEntityUpscale, getLookdevContext } from './context.js';

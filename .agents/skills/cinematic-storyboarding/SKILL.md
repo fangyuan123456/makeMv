@@ -115,17 +115,12 @@ description: 工业级电影分镜设计、景别系统、机位角度、机位�
 
 ## 6. 工业级分镜单要素清单 (Shot List Elements) · 【阶段 A 上游输出契约】
 
-分镜摄制台本工具（`film.shooting_script`）输出每个镜头时必须具备以下核心字段：
+分镜摄制台本工具（`film.shooting_script`）输出每个演绎片段时必须具备以下核心字段：
 
-1. **镜号与景别 (shotType)**：EWS / WS / FS / MWS / MS / MCU / CU / ECU；
-2. **视角与摄影高度 (cameraMovement / angle)**：Eye-Level / Low / High / OTS / Dutch；
-3. **运镜类型 (cameraMovement)**：推/移/摇/定/跟随；
-4. **纯物理动作流 (actionDescription)**：严禁抽象心理词，交代重力受力、身体动向与道具交互；
-5. **视线与朝向 (gazeDirection)**：看画左、看画右、看特定地标；
-6. **角色完整台词与对白 (dialogue)**：100% 刚性继承文学剧本原句，杜绝压缩丢失；
-7. **现场拟音与声景 (soundEffects / audioAmbience)**：物理碰撞、脚步、开门与环境底噪；
-8. **出场角色与道具清单 (characters / items)**：精确列出本镜在场实体，跟踪道具持握状态；
-9. **预期时长 (durationSec)**：定场 2~3s，大动作 4~5s，台词 3~4s，反应 2~3s。
+1. **片段标识与归属空间 (`beatTitle` / `space` / `location` / `locationId`)**：明确所属空间场景与资产 ID；
+2. **声画合一正文 (`actionDescription`)**：严格使用法定标准名称，将物理动作、表演时序、角色完整台词（如 `[角色]：“台词”`）与关键拟音/声景（如 `（脚步声渐近、铜铃轻响）`）按真实时间顺序融为一段正文，不在本阶段提前拆写微观机位、景别或焦段参数；
+3. **出场角色与道具清单 (`characterIds` / `itemIds`)**：精确列出本片段在场实体，跟踪道具持握状态；
+4. **预期时长 (`estimatedSeconds`)**：段落级全能参考直出通常为 6~15 秒，纯单镜特写/转场为 3~5 秒。
 
 ---
 

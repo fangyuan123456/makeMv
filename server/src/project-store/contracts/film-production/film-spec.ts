@@ -36,13 +36,9 @@ export const ShootingScriptActionBeatSchema = z.object({
   location: z.string().optional().describe('所属场景中文全名'),
   locationId: z.string().optional().describe('所属场景资产 ID，如 loc_xxx'),
   shotNumber: z.number().int().positive().optional().describe('对应镜头序号，如 1, 2, ...'),
-  shotType: z.string().optional().describe('景别与机位，如 远景定场 / 中景跟拍 / 微距特写'),
-  actionDescription: z.string().describe('画面纯粹的物理动作与表演时序（角色走位、视线、手势与道具交互细节）'),
-  cinematicIntent: z.string().describe('视听机位与运镜设计（选择固定机位或推拉摇移等运镜；可复合如先摇后推，但固定与移动运镜互斥）'),
+  actionDescription: z.string().describe('画面物理动作、表演时序、内联对白与物理拟音/环境声景（按时间顺序融为一段完整描述）'),
   characterIds: z.array(z.string()).default([]).describe('入画角色 ID 清单'),
   itemIds: z.array(z.string()).default([]).describe('交互道具 ID 清单'),
-  dialogue: z.string().optional().describe('角色对白或台词（严格保留原剧情台词）'),
-  audioAmbience: z.string().optional().describe('环境底噪与画面中实际发生动作的物理拟音（静止镜头仅写环境底噪）'),
   estimatedSeconds: z.number().positive().default(8).describe('预估拍摄时长（秒；段落级全能参考直出通常为 6~15 秒，纯单镜特写/转场为 3~5 秒）'),
 });
 
@@ -66,7 +62,7 @@ export const CinematicShotOrderSchema = z.object({
   durationSec: z.number().positive().describe('镜头目标时长（秒）'),
   shotType: z.string().describe('景别与机位，如 CLOSE_UP / MEDIUM_SHOT / WIDE_SHOT'),
   cameraMovement: z.string().describe('拍摄方式与运镜，如 locked-off / dolly in / tracking'),
-  generationMode: z.enum(['first_frame', 'first_last_frame', 'ref2v']).describe('关键帧/视频生成模式（ref2v 为跳过首帧全能参考直出）'),
+  generationMode: z.enum(['ref2v']).default('ref2v').describe('视频生成模式（MiniMax H3 Ref2V 全能参考直出）'),
   location: z.string().optional().describe('本镜头所属场景名称'),
   locationId: z.string().optional().describe('本镜头所属场景清单资产 ID'),
   characters: z.array(z.string()).default([]).describe('本镜头出场角色 ID'),
@@ -116,8 +112,6 @@ export const CinematicShotOrderSchema = z.object({
   videoVersions: z.array(z.any()).optional().describe('多版本视频记录'),
   firstFrameVersions: z.array(z.any()).optional().describe('多版本首帧记录'),
   videoUrl: z.string().optional().describe('生成后的镜头视频 URL'),
-  dialogue: z.string().default('').describe('本镜头对白或旁白'),
-  ambience: z.string().default('').describe('本镜头环境声与氛围音'),
   transitionAnchor: z.string().describe('与前后镜头衔接的动作、视线或构图锚点'),
 });
 

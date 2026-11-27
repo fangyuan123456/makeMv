@@ -10,7 +10,6 @@ export function buildShotMotionModifierPrompt(params: {
     shotId: string;
     title: string;
     videoPrompt?: string;
-    firstFramePrompt?: string;
   };
   instruction?: string;
   customVideoPrompt?: string;
@@ -29,7 +28,7 @@ ${customVideoPrompt ? `【创作者指定提示词雏形】：\n${customVideoPro
 ${getSkillsForStage('motion')}
 
 【微调输出准则（适配 H3 Ref2V 段落多机位直出）】：
-1. 保留「人物站位：...」与时间戳机位格式（\`[机位A·起—止秒·焦段·机位与运镜]：动作与音效\`），仅按导演指令精准调整指定机位、动作或台词；
-2. 严禁写入“电影质感、超清细节、冷暖光比、外貌服饰描写”等静态画质套话，把全部篇幅留给站位、焦段角度、物理动作与声音；
+1. 保留「人物站位：...」与时间戳机位格式（\`[机位A·起—止秒·景别]：动作与音效\`），仅按导演指令精准调整指定机位、景别节奏、动作或台词，具体角度与运镜由视频模型自然演绎；
+2. 角色外貌服饰与场景静态质感已由定妆参考图锁定，全部篇幅专注描写站位、景别切镜节奏、物理动作与声音；
 3. 输出符合 ShotMotionPromptOutputSchema 的 JSON。`;
 }

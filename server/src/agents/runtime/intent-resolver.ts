@@ -35,10 +35,6 @@ export class DirectorIntentResolver {
     if (ctx.clipId && !params.clipId) {
       params.clipId = ctx.clipId;
     }
-    // 若镜头重绘指定了微调 instruction 且未显式指定 force，自动标注 force 为 true
-    if (toolName === 'film.shot_keyframe' && params.instruction && params.force === undefined) {
-      params.force = true;
-    }
     return params;
   }
 
@@ -82,8 +78,8 @@ export class DirectorIntentResolver {
       return { ok: true, data: params };
     }
 
-    // 2. 镜头关键帧与镜头视频
-    if (toolName === 'film.shot_keyframe' || toolName === 'film.shot_video') {
+    // 2. 镜头视频
+    if (toolName === 'film.shot_video') {
       const shotId = params?.shotId;
       if (allowPendingUpstream || !ctx.clipId) {
         return { ok: true, data: params };
@@ -101,32 +97,9 @@ export class DirectorIntentResolver {
 
     // 3. 高清超分 (film.image_upscale)
     if (toolName === 'film.image_upscale') {
-      const { targetKind, targetId, frame = 'first', multiplier = 2, force = false } = params || {};
+      const { targetKind, targetId, multiplier = 2, force = false } = params || {};
       if (!targetKind || !targetId) {
         return { ok: false, message: '高清超分参数不完整，请指明目标类型 targetKind 与目标编号 targetId。' };
-      }
-
-      // 3.1 镜头关键帧超分
-      if (targetKind === 'shot_keyframe') {
-        if (allowPendingUpstream || !ctx.clipId) {
-          return { ok: true, data: params, alreadyProcessed: false };
-        }
-        const { shots } = getStoryboardContext(ctx.projectId, ctx.clipId);
-        const matchedShot = shots.find((s: any) => s.shotId === targetId);
-        if (!matchedShot) {
-          const validShots = shots.map((s: any) => s.shotId).join('、');
-          return { ok: false, message: `本分幕未找到镜头 [${targetId}]，当前分幕合法镜头编号为：${validShots || '暂无'}` };
-        }
-        const hasImage = frame === 'last'
-          ? Boolean(matchedShot.lastFrameImageUrl || matchedShot.lastFrameUrl)
-          : Boolean(matchedShot.firstFrameImageUrl || matchedShot.keyframeUrl || matchedShot.imageUrl);
-        if (!hasImage) {
-          const frameLabel = frame === 'last' ? '末帧' : '首帧';
-          return { ok: false, message: `镜头【${matchedShot.title || targetId}】尚未生成${frameLabel}图片，无法执行高清超分，请先生成${frameLabel}。` };
-        }
-        const existingUpscale = frame === 'last' ? matchedShot.lastFrameUpscale : matchedShot.firstFrameUpscale;
-        const alreadyProcessed = Boolean(!force && existingUpscale && existingUpscale.multiplier >= multiplier);
-        return { ok: true, data: params, alreadyProcessed };
       }
 
       // 3.2 角色/场景/道具 定妆超分
@@ -216,7 +189,6 @@ export class DirectorIntentResolver {
       const filteredOps: Array<{ tool: string; title: string; params: any }> = [];
       let skippedCount = 0;
       let plannedReplan = false;
-      const plannedKeyframeShotIds = new Set<string>();
       const plannedLookdevIds = new Set<string>();
 
       for (const operation of rawOperations) {
@@ -230,12 +202,6 @@ export class DirectorIntentResolver {
         // 2. 状态与依赖拓扑记录
         if (operationTool === 'film.shooting_script') {
           plannedReplan = true;
-        } else if (operationTool === 'film.shot_keyframe') {
-          if (hydrated.shotId) {
-            plannedKeyframeShotIds.add(hydrated.shotId);
-          } else {
-            plannedReplan = true;
-          }
         } else if (operationTool === 'film.lookdev') {
           if (hydrated.targetId) {
             plannedLookdevIds.add(hydrated.targetId);
@@ -244,8 +210,7 @@ export class DirectorIntentResolver {
 
         // 3. 底座统一刚性实体与状态门禁 (Entity Existence Guard)
         const allowUpstream = plannedReplan ||
-          Boolean(hydrated.shotId && plannedKeyframeShotIds.has(hydrated.shotId)) ||
-          Boolean(hydrated.targetId && (plannedKeyframeShotIds.has(hydrated.targetId) || plannedLookdevIds.has(hydrated.targetId)));
+          Boolean(hydrated.targetId && plannedLookdevIds.has(hydrated.targetId));
 
         const check = DirectorIntentResolver.checkEntityAndState(operationTool, hydrated, ctx, allowUpstream);
         if (!check.ok) {

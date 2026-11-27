@@ -1,7 +1,6 @@
 /**
  * tests/universal-pipeline-engine.test.ts
- * 验证通用底层流水线引擎 (Pipeline SOP Engine) 与 Agent 声明式顺位架构
- */
+ * 楠岃瘉閫氱敤搴曞眰娴佹按绾垮紩鎿?(Pipeline SOP Engine) 涓?Agent 澹版槑寮忛『浣嶆灦鏋? */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
@@ -14,11 +13,11 @@ import { AgentRunner } from '../src/agents/runtime/runner.js';
 import { storyboardCapabilities } from '../src/agents/storyboard/capabilities.js';
 import { plannerCapabilities } from '../src/agents/planner/capabilities.js';
 
-describe('通用底层工序流水线 SOP 微内核 (Universal Pipeline SOP Engine)', () => {
-  it('1. StoryboardAgent 注入工序执行顺序与严禁阶段之外提议的通用铁律', () => {
+describe('閫氱敤搴曞眰宸ュ簭娴佹按绾?SOP 寰唴鏍?(Universal Pipeline SOP Engine)', () => {
+  it('1. StoryboardAgent 娉ㄥ叆宸ュ簭鎵ц椤哄簭涓庝弗绂侀樁娈典箣澶栨彁璁殑閫氱敤閾佸緥', () => {
     const agent = new StoryboardAgent({ projectId: 'test_p1', clipId: 'c1' });
     const mockTask: any = {
-      toolName: 'film.shot_keyframe',
+      toolName: 'film.shot_video',
       input: {
         projectId: 'test_p1',
         clipId: 'c1',
@@ -27,17 +26,16 @@ describe('通用底层工序流水线 SOP 微内核 (Universal Pipeline SOP Engi
       },
     };
 
-    const prompt = agent.getPostTaskPrompt(mockTask, '首帧关键帧渲染');
-    assert.match(prompt, /镜02/);
-    assert.match(prompt, /本工序导演标准执行顺序（SOP）/);
-    assert.match(prompt, /SeedVR2 高清超分/);
-    assert.match(prompt, /修改作用域精确内聚/);
-    assert.match(prompt, /人类意愿第一位准则/);
-    assert.match(prompt, /严禁阶段之外的伪提议/);
-    assert.match(prompt, /绝对严禁将“复盘”、“自愈”、“待审确认”等元指令作为卡片发起/);
+    const prompt = agent.getPostTaskPrompt(mockTask, '棣栧抚鍏抽敭甯ф覆鏌?);
+    assert.match(prompt, /闀?2/);
+    assert.match(prompt, /鏈伐搴忓婕旀爣鍑嗘墽琛岄『搴忥紙SOP锛?);
+    assert.match(prompt, /淇敼浣滅敤鍩熺簿纭唴鑱?);
+    assert.match(prompt, /浜虹被鎰忔効绗竴浣嶅噯鍒?);
+    assert.match(prompt, /涓ョ闃舵涔嬪鐨勪吉鎻愯/);
+    assert.match(prompt, /缁濆涓ョ灏嗏€滃鐩樷€濄€佲€滆嚜鎰堚€濄€佲€滃緟瀹＄‘璁も€濈瓑鍏冩寚浠や綔涓哄崱鐗囧彂璧?);
   });
 
-  it('2. LookdevAgent 注入 4 步定妆顺序与通用推演铁律', () => {
+  it('2. LookdevAgent 娉ㄥ叆 4 姝ュ畾濡嗛『搴忎笌閫氱敤鎺ㄦ紨閾佸緥', () => {
     const agent = new LookdevAgent({ projectId: 'test_p1' });
     const mockTask: any = {
       toolName: 'film.entity_spec',
@@ -45,20 +43,20 @@ describe('通用底层工序流水线 SOP 微内核 (Universal Pipeline SOP Engi
         projectId: 'test_p1',
         targetKind: 'character',
         targetId: 'char_linxiu',
-        name: '林修',
+        name: '鏋椾慨',
       },
     };
 
-    const prompt = agent.getPostTaskPrompt(mockTask, '单实体视觉规格推演');
-    assert.match(prompt, /林修/);
-    assert.match(prompt, /视觉资产定妆/);
-    assert.match(prompt, /修改作用域精确内聚/);
-    assert.match(prompt, /人类意愿第一位准则/);
-    assert.match(prompt, /严禁阶段之外的伪提议/);
-    assert.match(prompt, /终态自知/);
+    const prompt = agent.getPostTaskPrompt(mockTask, '鍗曞疄浣撹瑙夎鏍兼帹婕?);
+    assert.match(prompt, /鏋椾慨/);
+    assert.match(prompt, /瑙嗚璧勪骇瀹氬/);
+    assert.match(prompt, /淇敼浣滅敤鍩熺簿纭唴鑱?);
+    assert.match(prompt, /浜虹被鎰忔効绗竴浣嶅噯鍒?);
+    assert.match(prompt, /涓ョ闃舵涔嬪鐨勪吉鎻愯/);
+    assert.match(prompt, /缁堟€佽嚜鐭?);
   });
 
-  it('3. PlannerAgent 注入策划两步顺序与通用推演铁律', () => {
+  it('3. PlannerAgent 娉ㄥ叆绛栧垝涓ゆ椤哄簭涓庨€氱敤鎺ㄦ紨閾佸緥', () => {
     const agent = new PlannerAgent({ projectId: 'test_p1' });
     const mockTask: any = {
       toolName: 'planner.screenplay_writer',
@@ -67,21 +65,21 @@ describe('通用底层工序流水线 SOP 微内核 (Universal Pipeline SOP Engi
       },
     };
 
-    const prompt = agent.getPostTaskPrompt(mockTask, '全景剧本推演');
-    assert.match(prompt, /全景剧本推演/);
-    assert.match(prompt, /全剧分幕拓扑拆解/);
-    assert.match(prompt, /修改作用域精确内聚/);
-    assert.match(prompt, /人类意愿第一位准则/);
-    assert.match(prompt, /严禁阶段之外的伪提议/);
+    const prompt = agent.getPostTaskPrompt(mockTask, '鍏ㄦ櫙鍓ф湰鎺ㄦ紨');
+    assert.match(prompt, /鍏ㄦ櫙鍓ф湰鎺ㄦ紨/);
+    assert.match(prompt, /鍏ㄥ墽鍒嗗箷鎷撴墤鎷嗚В/);
+    assert.match(prompt, /淇敼浣滅敤鍩熺簿纭唴鑱?);
+    assert.match(prompt, /浜虹被鎰忔効绗竴浣嶅噯鍒?);
+    assert.match(prompt, /涓ョ闃舵涔嬪鐨勪吉鎻愯/);
   });
 
-  it('4. DirectorIntentResolver 刚性防伪门禁：彻底净化“复盘/自愈”伪标题', () => {
+  it('4. DirectorIntentResolver 鍒氭€ч槻浼棬绂侊細褰诲簳鍑€鍖栤€滃鐩?鑷剤鈥濅吉鏍囬', () => {
     const specs = storyboardCapabilities('c1');
     const resolved = DirectorIntentResolver.resolve({
       args: {
         action: 'propose',
-        tool: 'film.shot_keyframe',
-        title: '镜02已完成 · 复盘与自愈提案',
+        tool: 'film.shot_video',
+        title: '闀?2宸插畬鎴?路 澶嶇洏涓庤嚜鎰堟彁妗?,
         params: {
           shotId: 'c1-02',
           frame: 'first',
@@ -94,17 +92,17 @@ describe('通用底层工序流水线 SOP 微内核 (Universal Pipeline SOP Engi
 
     assert.ok(resolved);
     assert.strictEqual(resolved.action, 'propose');
-    assert.strictEqual(resolved.title, '镜02 · 首帧关键帧渲染');
-    assert.doesNotMatch(resolved.title, /复盘/);
-    assert.doesNotMatch(resolved.title, /自愈/);
+    assert.strictEqual(resolved.title, '闀?2 路 棣栧抚鍏抽敭甯ф覆鏌?);
+    assert.doesNotMatch(resolved.title, /澶嶇洏/);
+    assert.doesNotMatch(resolved.title, /鑷剤/);
   });
 
-  it('5. AgentRunner 意图漏斗与 P0 压轴置底验证', () => {
+  it('5. AgentRunner 鎰忓浘婕忔枟涓?P0 鍘嬭酱缃簳楠岃瘉', () => {
     const funnel = AgentRunner.renderFunnelPromptMatrix();
-    assert.match(funnel, /最高优先级 P0 · 待审提案裁决/);
-    assert.match(funnel, /修改作用域精确内聚公理/);
-    assert.match(funnel, /全局单阶段推进与人类意志第一位准则/);
-    assert.match(funnel, /严禁阶段之外的伪提议/);
-    assert.match(funnel, /工序自治、权能边界与终态自知公理/);
+    assert.match(funnel, /鏈€楂樹紭鍏堢骇 P0 路 寰呭鎻愭瑁佸喅/);
+    assert.match(funnel, /淇敼浣滅敤鍩熺簿纭唴鑱氬叕鐞?);
+    assert.match(funnel, /鍏ㄥ眬鍗曢樁娈垫帹杩涗笌浜虹被鎰忓織绗竴浣嶅噯鍒?);
+    assert.match(funnel, /涓ョ闃舵涔嬪鐨勪吉鎻愯/);
+    assert.match(funnel, /宸ュ簭鑷不銆佹潈鑳借竟鐣屼笌缁堟€佽嚜鐭ュ叕鐞?);
   });
 });

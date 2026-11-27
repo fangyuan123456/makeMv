@@ -74,21 +74,16 @@ export function verifyDialogueCoverage(
     return { isFullyCovered: true, missingLines: [] };
   }
 
-  const beatsDialogueText = beats
-    .map((b) => b.dialogue || '')
-    .filter(Boolean)
-    .join('\n');
-
   const missingLines: Array<{ speaker: string; line: string }> = [];
 
   for (const expected of expectedLines) {
-    // 采用语义模糊匹配（台词核心字词重合）
+    // 采用语义模糊匹配（台词核心字词重合），直接检索内联了台词与拟音的 actionDescription
     const cleanLine = expected.line.replace(/[“”"''，。？！…—]/g, '').trim();
     if (!cleanLine) continue;
 
     const isCovered = beats.some((b) => {
-      const bDialogue = (b.dialogue || '').replace(/[“”"''，。？！…—]/g, '').trim();
-      return bDialogue.includes(cleanLine) || cleanLine.includes(bDialogue);
+      const text = (b.actionDescription || '').replace(/[“”"''，。？！…—]/g, '').trim();
+      return Boolean(text) && (text.includes(cleanLine) || cleanLine.includes(text));
     });
 
     if (!isCovered) {

@@ -12,13 +12,9 @@ import {
   assetManifestTool,
   entitySpecTool,
   shootingScriptTool,
-  shotFramePromptTool,
-  shotPromptTool,
   shotMotionPromptTool,
   lookdevTool,
-  shotKeyframeTool,
   shotVideoTool,
-  imageUpscaleTool,
 } from '../src/tools/film-production/index.js';
 
 console.log('🎬 开始验证影视制作工坊公开任务工具架构 (Film Production Task Tools)...\n');
@@ -30,12 +26,9 @@ function testToolDefinitions() {
     { tool: assetManifestTool, expectedId: 'film.asset_manifest' },
     { tool: entitySpecTool, expectedId: 'film.entity_spec' },
     { tool: shootingScriptTool, expectedId: 'film.shooting_script' },
-    { tool: shotFramePromptTool, expectedId: 'film.shot_frame_prompt' },
     { tool: shotMotionPromptTool, expectedId: 'film.shot_motion_prompt' },
     { tool: lookdevTool, expectedId: 'film.lookdev' },
-    { tool: shotKeyframeTool, expectedId: 'film.shot_keyframe' },
     { tool: shotVideoTool, expectedId: 'film.shot_video' },
-    { tool: imageUpscaleTool, expectedId: 'film.image_upscale' },
   ];
 
   for (const { tool, expectedId } of tools) {
