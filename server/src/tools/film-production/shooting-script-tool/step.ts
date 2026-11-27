@@ -126,15 +126,16 @@ export const shootingScriptStep = createStep({
         );
         for (const missing of coverage.missingLines) {
           const matchedChar = (entities.characters || []).find((c: any) => c.name === missing.speaker);
+          const healSeconds = Math.min(15, Math.max(5, Math.ceil((missing.line || '').length / 3) + 2));
           beats.push({
             beatId: `b_heal_${beats.length + 1}`,
             shotNumber: beats.length + 1,
             space: beats[beats.length - 1]?.space || '内景',
-            beatTitle: `镜头 ${String(beats.length + 1).padStart(2, '0')}（近景反打 · ${missing.speaker}台词补入 · 4s）`,
+            beatTitle: `镜头 ${String(beats.length + 1).padStart(2, '0')}（近景反打 · ${missing.speaker}台词补入 · ${healSeconds}s）`,
             actionDescription: `${missing.speaker}神情微动，开口说道：“${missing.line}”（伴随细微呼吸与环境声景）。`,
             characterIds: matchedChar ? [matchedChar.characterId] : [],
             itemIds: [],
-            estimatedSeconds: 4,
+            estimatedSeconds: healSeconds,
           });
         }
       }

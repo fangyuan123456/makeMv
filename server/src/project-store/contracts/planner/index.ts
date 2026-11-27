@@ -29,6 +29,43 @@ export const PrdClipNodeSchema = z.object({
 
 export type PrdClipNode = z.infer<typeof PrdClipNodeSchema>;
 
+export const InteractionKindSchema = z.enum([
+  'CHOICE',
+  'TIMED_CHOICE',
+  'SEARCH',
+  'HOLD',
+  'QTE_TAP',
+  'TIMING',
+  'CLICK',
+  'ACTION_ZONE',
+]);
+
+export type InteractionKind = z.infer<typeof InteractionKindSchema>;
+
+export const InteractionSearchTargetSchema = z.object({
+  name: z.string().describe('道具/线索显示名称'),
+  imageUrl: z.string().optional().describe('关联的定妆道具图 URL（总装时可自动匹配注入）'),
+  feedback: z.string().optional().describe('点击该物件后的即时气泡反馈'),
+  stateTag: z.string().optional().describe('收集后写入的状态标签，如 +ledger'),
+});
+
+export type InteractionSearchTarget = z.infer<typeof InteractionSearchTargetSchema>;
+
+export const InteractionConfigSchema = z
+  .object({
+    targets: z.array(InteractionSearchTargetSchema).optional().describe('SEARCH 搜证目标物证列表'),
+    decoys: z.array(InteractionSearchTargetSchema).optional().describe('SEARCH 搜证干扰/背景线索列表'),
+    searchMode: z.enum(['SCATTER', 'FLASHLIGHT']).optional().describe('SEARCH 呈现模式：散落微光或暗场探照'),
+    holdDurationMs: z.number().int().positive().optional().describe('HOLD 长按蓄力所需毫秒数'),
+    targetTaps: z.number().int().positive().optional().describe('QTE_TAP 连点目标次数'),
+    sweetSpotPct: z.tuple([z.number(), z.number()]).optional().describe('TIMING 靶区百分比区间，如 [40, 62]'),
+    zoneLayout: z.enum(['LEFT_RIGHT', 'TOP_BOTTOM']).optional().describe('ACTION_ZONE 空间热区布局'),
+    allowRetry: z.boolean().optional().describe('失败或松手时是否允许原地重试（单线沉浸模式常用）'),
+  })
+  .passthrough();
+
+export type InteractionConfig = z.infer<typeof InteractionConfigSchema>;
+
 export const PrdInteractionOutcomeSchema = z.object({
   key: z.string(),
   label: z.string(),
@@ -40,10 +77,11 @@ export type PrdInteractionOutcome = z.infer<typeof PrdInteractionOutcomeSchema>;
 
 export const PrdInteractionNodeSchema = z.object({
   id: z.string(),
-  kind: z.string(),
+  kind: InteractionKindSchema.or(z.string()),
+  isBranching: z.boolean().optional(),
   prompt: z.string(),
   timeoutSec: z.number().nullable().optional(),
-  config: z.record(z.unknown()).optional(),
+  config: InteractionConfigSchema.optional(),
   outcomes: z.array(PrdInteractionOutcomeSchema),
 });
 

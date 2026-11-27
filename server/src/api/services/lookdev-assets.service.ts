@@ -116,6 +116,9 @@ export const updateEntity = (req: Request, res: Response) => {
     if (updates.appearanceSummary !== undefined) {
       target.appearanceSummary = updates.appearanceSummary;
     }
+    if (updates.voiceStyle !== undefined) {
+      target.voiceStyle = updates.voiceStyle;
+    }
     if (updates.atmosphere !== undefined) {
       target.atmosphere = updates.atmosphere;
     }

@@ -37,7 +37,7 @@ export function buildShotMotionPromptPrompt(params: {
   clipTitle: string;
   narrativeText?: string;
   instruction?: string;
-  characters?: Array<{ characterId?: string; id?: string; name: string }>;
+  characters?: Array<{ characterId?: string; id?: string; name: string; voiceStyle?: string }>;
   items?: Array<{ itemId?: string; id?: string; name: string }>;
   storyOverview?: string;
 }): string {
@@ -74,7 +74,7 @@ ${narrativeText ? `【兜底剧情参考】：\n${narrativeText}\n` : ''}
 - 既定焦点跟踪：${formatDirective(shot.focusDirective, '锁定主体')}
 
 【出场资产名单（必须严格使用以下法定标准全名，便于前端高亮与参考图对齐）】：
-${shot.location ? `- 场景【${shot.location}】\n` : ''}${characters.map((c) => `- 角色【${c.name}】(ID: ${c.characterId || c.id || ''})`).join('\n') || '- 当前出场人物'}
+${shot.location ? `- 场景【${shot.location}】\n` : ''}${characters.map((c) => `- 角色【${c.name}】(ID: ${c.characterId || c.id || ''}${c.voiceStyle ? ` | 声色基准: ${c.voiceStyle}` : ''})`).join('\n') || '- 当前出场人物'}
 ${items.length > 0 ? items.map((it) => `- 道具【${it.name}】(ID: ${it.itemId || it.id || ''})`).join('\n') : ''}
 
 ${
@@ -94,8 +94,9 @@ ${getSkillsForStage('motion', { isIdleLoop })}
    - 格式示例：
      \`镜头1：0—4秒，4秒（共1机位）\`
      \`[机位A·0—4秒·全景跟拍]：物理动作与关键音效。\`
-   - 若同一镜头内需切机位，则写 \`（共2机位）\` 并依次列出 \`[机位A·...]\`、\`[机位B·...]\`（仅标明景别与叙事焦点，如全景/中景/近景/特写/正反打，具体构图与运镜由视频模型按叙事自然演绎）；
-   - 有台词时单独另起一行写 \`角色名：（语气）台词内容\`；
+   - 若同一镜头内需切机位，则写 \`（共2机位）\` 并依次列出 \`[机位A·...]\`、\`[机位B·...]\`（仅标明景别与叙事焦点，如贴身过肩/近景正反打/特写/全景，优先以近距离贴身与正反打强化临场代入感，具体构图与运镜由视频模型按叙事自然演绎）；
+   - 有台词时单独另起一行写 \`角色名：（声色基准+当下语气）台词内容\`，让视频配音稳定保持角色声线；
+   - **【⭐ 节奏留白与防抢词铁律】**：按真实物理耗时分配每个机位秒数（对白按 3~3.5 字/秒估算，首尾各留约 0.5 秒起幅/落幅呼吸），禁止把密集动作与长台词强行压缩进同一秒，避免视频模型倍速抢词或截断收尾；
 3. **高信噪比瘦身铁律**：角色长相、服装、场景陈设与道具外观已由 Ref2V 的 \`<Picture N>\` 定妆图锁定，本段全部篇幅专注描写**站位 + 景别切镜节奏 + 物理动作 + 声音/台词**；
 4. 输出符合 ShotMotionPromptOutputSchema 的 JSON。`;
 }

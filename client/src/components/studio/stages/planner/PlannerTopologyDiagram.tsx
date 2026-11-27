@@ -108,7 +108,13 @@ function formatInteractionKindLabel(kind: string): string {
   const upper = (kind || 'INTERACT').toUpperCase();
   const map: Record<string, string> = {
     CHOICE: '分支抉择',
+    TIMED_CHOICE: '限时抉择',
+    SEARCH: '搜证寻物',
     HOLD: '长按互动',
+    QTE_TAP: '连点破局',
+    TIMING: '时机靶区',
+    CLICK: '关键触发',
+    ACTION_ZONE: '方位热区',
     TAP_HOTSPOT: '热点点击',
     WIPE: '擦拭探索',
     INPUT: '文本输入',

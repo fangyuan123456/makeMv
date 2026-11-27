@@ -39,6 +39,7 @@ export const CharacterSpecSchema = z.object({
   name: z.string().describe('角色姓名'),
   identity: z.string().describe('身份定位与背景'),
   appearanceSummary: z.string().describe('角色基础外貌特征概况（年龄、体态、面部特征、服饰）'),
+  voiceStyle: z.string().optional().describe('角色专属声色与说话风格（如年龄音域、嗓音质感、语速节奏，专供下游视频台词配音保持音色一致）'),
   promptZh: z.string().describe('角色本体纯净物理特征（严格80~120汉字，一段纯中文连贯自然语言）：生理年龄、五官骨相、发型发色、标志服装款式与剪裁面料、常驻随身配饰。严禁包含任何姿态动作（如立姿、站姿、双手下垂）、严禁包含任何构图背景与排版外壳、严禁输出任何结构小标题或标号。'),
   poseConstraint: PoseConstraintSchema.optional(),
   referenceImageUrl: z.string().optional(),

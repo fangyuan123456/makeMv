@@ -13,6 +13,7 @@ import type { MediaLightboxItem } from '../stages/visual/MediaLightboxModal.js';
 import { ShotScriptCard } from './ShotScriptCard.js';
 import { TiptapMentionEditor } from './TiptapMentionEditor.js';
 import { toMentionText } from './EntityMentionText.js';
+import { updateShotPrompt } from '../../../lib/api.js';
 
 interface ShotSideDrawerPanelProps {
   node: CanvasShotNode;
@@ -52,6 +53,9 @@ export const ShotSideDrawerPanel: React.FC<ShotSideDrawerPanelProps> = ({
   const [activeTab, setActiveTab] = useState<'script' | 'prompt'>('script');
   const [customPrompt, setCustomPrompt] = useState('');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [isSavingPrompt, setIsSavingPrompt] = useState(false);
+  const [savePromptSuccess, setSavePromptSuccess] = useState(false);
+  const [savePromptError, setSavePromptError] = useState<string | null>(null);
 
   const lookdevEntities = useMemo(() => {
     return (
@@ -68,7 +72,33 @@ export const ShotSideDrawerPanel: React.FC<ShotSideDrawerPanelProps> = ({
       toMentionText((node.videoPrompt || '').replace(/[@＠]{2,}/g, '@'), lookdevEntities)
     );
     setSelectedTaskId(node.activeTaskId || node.candidateTaskIds?.[0] || null);
+    setSavePromptError(null);
   }, [node.id, node.videoPrompt, node.activeTaskId, node.candidateTaskIds, lookdevEntities]);
+
+  const normalizedOriginalPrompt = (node.videoPrompt || '').replace(/[@＠]/g, '').trim();
+  const normalizedCurrentPrompt = customPrompt.replace(/[@＠]/g, '').trim();
+  const isPromptModified = normalizedCurrentPrompt !== normalizedOriginalPrompt;
+
+  const handleSavePrompt = async () => {
+    const sid = node.shotId || node.id;
+    if (!projectId || !sid) return;
+    setIsSavingPrompt(true);
+    setSavePromptError(null);
+    try {
+      await updateShotPrompt(projectId, sid, 'video', normalizedCurrentPrompt);
+      onNodeUpdate({
+        ...node,
+        videoPrompt: normalizedCurrentPrompt,
+      });
+      onRefreshProject?.();
+      setSavePromptSuccess(true);
+      setTimeout(() => setSavePromptSuccess(false), 2000);
+    } catch (err: any) {
+      setSavePromptError(err?.message || '保存视频提示词失败');
+    } finally {
+      setIsSavingPrompt(false);
+    }
+  };
 
   const candidates = node.candidateTaskIds || [];
   const selectedTask = useMemo(
@@ -324,7 +354,57 @@ export const ShotSideDrawerPanel: React.FC<ShotSideDrawerPanelProps> = ({
             onNodeUpdate={onNodeUpdate}
           />
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
+            {isPromptModified && (
+              <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 animate-in fade-in duration-150">
+                <span className="text-[11px] font-medium flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  <span>视频提示词已修改</span>
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCustomPrompt(
+                        toMentionText((node.videoPrompt || '').replace(/[@＠]{2,}/g, '@'), lookdevEntities)
+                      )
+                    }
+                    className="px-2 py-0.5 rounded-md border border-amber-200 bg-white hover:bg-amber-100/60 text-[11px] font-medium text-amber-800 transition"
+                  >
+                    ↺ 还原
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSavingPrompt}
+                    onClick={handleSavePrompt}
+                    className="px-2.5 py-0.5 rounded-md bg-amber-600 hover:bg-amber-700 text-[11px] font-semibold text-white transition disabled:opacity-50"
+                  >
+                    {isSavingPrompt ? '保存中...' : '💾 保存'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {savePromptSuccess && (
+              <div className="px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium flex items-center gap-1.5">
+                <span>✓</span>
+                <span>视频提示词已保存</span>
+              </div>
+            )}
+
+            {savePromptError && (
+              <div className="px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+                ⚠ {savePromptError}
+              </div>
+            )}
+
+            {(isExtractingPrompt || isRenderingVideo) && (
+              <div className="px-3 py-1.5 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 text-[11px] font-medium flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping" />
+                <span>{isExtractingPrompt ? '正在推演视频提示词，完成后将自动刷新...' : '正在渲染视频中，编辑区暂锁...'}</span>
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-800">
                 H3 Ref2V 视频动态提示词
@@ -342,16 +422,19 @@ export const ShotSideDrawerPanel: React.FC<ShotSideDrawerPanelProps> = ({
               </button>
             </div>
 
-            <TiptapMentionEditor
-              value={customPrompt}
-              onChange={(val) => setCustomPrompt(val)}
-              entities={lookdevEntities}
-              minRows={9}
-              placeholder="点击上方“推演提示词”自动生成，或输入 @ 快速插入角色/场景/道具并编辑「人物站位 + 时间戳多机位」视频提示词..."
-            />
+            <div className={isExtractingPrompt || isRenderingVideo ? 'pointer-events-none opacity-65 transition-opacity' : ''}>
+              <TiptapMentionEditor
+                value={customPrompt}
+                onChange={(val) => setCustomPrompt(val)}
+                entities={lookdevEntities}
+                minRows={9}
+                isModified={isPromptModified}
+                placeholder="点击上方“推演提示词”自动生成，或输入 @ 快速插入角色/场景/道具并编辑「人物站位 + 时间戳多机位」视频提示词..."
+              />
+            </div>
 
             <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100 text-[11px] text-indigo-900 leading-relaxed">
-              支持输入 <span className="font-mono font-semibold">@</span> 引用角色/场景/道具；送往视频生成时会自动剥离 `@` 符号并补齐对应参考图。
+              支持输入 <span className="font-mono font-semibold">@</span> 引用角色/场景/道具；修改后可先点右上角保存，也可直接点击顶部“生成视频”。
             </div>
           </div>
         )}

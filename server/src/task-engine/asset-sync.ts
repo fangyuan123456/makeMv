@@ -75,26 +75,28 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
                   (a.turningPoint ? `* **幕末转折**：${a.turningPoint}\n` : '') +
                   (a.suspense ? `* **悬念核心**：${a.suspense}\n` : '')
               ),
-              `\n## 三、全剧 2 个核心互动分支抉择点规划`,
-              ...(Array.isArray(output.branchPoints)
-                ? output.branchPoints.map(
-                    (bp: any) => {
-                      const aDest = bp.choiceA?.targetType === 'ENDING'
-                        ? `终局【${bp.choiceA?.endingTitle || '终局'}】(${bp.choiceA?.endingType || 'BE'})`
-                        : '推进主线';
-                      const bDest = bp.choiceB?.targetType === 'ENDING'
-                        ? `终局【${bp.choiceB?.endingTitle || '终局'}】(${bp.choiceB?.endingType || 'BE'})`
-                        : '推进主线';
-
-                      return (
-                        `### 【互动抉择点 ${bp.pointIndex}】（位于第 ${bp.actNumber} 幕）\n` +
-                        `* **场景情境**：${bp.sceneContext}\n` +
-                        `* **两难抉择**：${bp.dilemma}\n` +
-                        `* **选项 A**：${bp.choiceA?.text}（走向: ${aDest}，手段与代价: ${bp.choiceA?.approachAndCost}）\n` +
-                        `* **选项 B**：${bp.choiceB?.text}（走向: ${bDest}，手段与代价: ${bp.choiceB?.approachAndCost}）\n`
-                      );
-                    }
-                  )
+              `\n## 三、全剧幕末互动节点规划`,
+              ...(Array.isArray(output.interactions)
+                ? output.interactions.map((it: any) => {
+                    const modeTag = it.isBranching ? '命运分支' : '单线沉浸';
+                    const outcomeLines = Array.isArray(it.outcomes)
+                      ? it.outcomes
+                          .map((o: any) => {
+                            const dest =
+                              o.targetType === 'ENDING'
+                                ? `终局【${o.endingTitle || '终局'}】(${o.endingType || 'BE'})`
+                                : '推进主线';
+                            return `  * **[${o.key}] ${o.label}**（走向: ${dest}${o.stateTag ? `，状态: ${o.stateTag}` : ''}，手段与代价: ${o.approachAndCost}）`;
+                          })
+                          .join('\n')
+                      : '';
+                    return (
+                      `### 【互动节点 ${it.pointIndex}】（第 ${it.actNumber} 幕 | ${modeTag} | ${it.kind}${it.timeoutSec ? ` | 限时 ${it.timeoutSec}s` : ''}）\n` +
+                      `* **触发情境**：${it.sceneContext}\n` +
+                      `* **操作/抉择提示**：${it.prompt}\n` +
+                      (outcomeLines ? `${outcomeLines}\n` : '')
+                    );
+                  })
                 : []),
             ]
               .filter(Boolean)
@@ -107,7 +109,7 @@ export function syncTaskResultToProjectStore(task: TaskRecord): void {
               worldSetting: output.worldSetting,
               characters: output.characters,
               actOutlines: output.actOutlines,
-              branchPoints: output.branchPoints,
+              interactions: output.interactions,
             });
           }
 

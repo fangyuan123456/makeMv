@@ -119,9 +119,9 @@ ${assetDetails ? `\n${assetDetails}\n` : ''}
         .map((o: any) => `[${o.key}] ${o.label}`)
         .join(' ｜ ');
       return [
-        `节点类型：互动抉择点 (${interaction.id})`,
+        `节点类型：互动节点 (${interaction.id} | 类型: ${interaction.kind || 'CHOICE'}${interaction.isBranching === false ? ' · 单线沉浸' : ' · 命运分支'}${interaction.timeoutSec ? ` · 限时 ${interaction.timeoutSec}s` : ''})`,
         ...(interaction.prompt ? [`提示语：${interaction.prompt}`] : []),
-        ...(options ? [`分支选项：${options}`] : []),
+        ...(options ? [`结果与去向：${options}`] : []),
       ];
     }
 

@@ -159,29 +159,436 @@ class InteractiveGameCockpit {
     });
   }
 
+  clearInteractionTimers() {
+    if (this._timerId) {
+      clearInterval(this._timerId);
+      this._timerId = null;
+    }
+    if (this._rafId) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = null;
+    }
+  }
+
   onSceneEnded(scene) {
+    this.clearInteractionTimers();
     if (scene.ending) {
       this.renderEnding(scene.ending);
       return;
     }
 
-    const choices = scene.choices || [];
-    if (choices.length === 0) {
-      this.renderEnding({
-        type: 'NE',
-        title: '幕终',
-        verdict: '本幕故事已告一段落。'
-      });
+    if (scene.interaction && scene.interaction.kind) {
+      this.renderInteraction(scene.interaction);
       return;
     }
 
-    this.renderChoices(choices);
+    const choices = scene.choices || [];
+    if (choices.length > 0) {
+      this.renderChoices(choices, null, scene.interaction?.prompt);
+      return;
+    }
+
+    if (scene.next) {
+      this.playScene(scene.next);
+      return;
+    }
+
+    this.renderEnding({
+      type: 'NE',
+      title: '幕终',
+      verdict: '本幕故事已告一段落。'
+    });
   }
 
-  renderChoices(choices) {
+  completeOutcome(outcome, options = {}) {
+    this.clearInteractionTimers();
+    if (outcome?.stateChange) {
+      this.blackboard.applyChange(outcome.stateChange);
+      this.updateHud();
+    }
+
+    const nextFn = () => {
+      const targetSceneId = outcome?.to || outcome?.targetSceneId || outcome?.nextNodeId;
+      if (targetSceneId) {
+        this.playScene(targetSceneId);
+      } else if (outcome?.ending) {
+        this.renderEnding(outcome.ending);
+      } else {
+        this.renderEnding({ type: 'NE', title: '幕终', verdict: '剧情已推演结束。' });
+      }
+    };
+
+    if (options.flash) {
+      this.interactionEl.innerHTML = '<div class="impact-flash"></div>';
+      this.interactionEl.classList.add('is-active');
+      setTimeout(nextFn, 180);
+      return;
+    }
+
+    if (outcome?.feedback) {
+      this.interactionEl.innerHTML = \`<div class="feedback-toast">\${outcome.feedback}</div>\`;
+      this.interactionEl.classList.add('is-active');
+      setTimeout(nextFn, 650);
+      return;
+    }
+
+    nextFn();
+  }
+
+  startCountdown(timeoutSec, barEl, onTimeout) {
+    if (!timeoutSec || timeoutSec <= 0 || !barEl) return;
+    const totalMs = timeoutSec * 1000;
+    const startAt = Date.now();
+    this._timerId = setInterval(() => {
+      const elapsed = Date.now() - startAt;
+      const pct = Math.max(0, 100 - (elapsed / totalMs) * 100);
+      barEl.style.width = pct + '%';
+      if (elapsed >= totalMs) {
+        this.clearInteractionTimers();
+        onTimeout();
+      }
+    }, 50);
+  }
+
+  pickOutcome(interaction, preferredKeys) {
+    const outcomes = interaction.outcomes || [];
+    for (const k of preferredKeys) {
+      const found = outcomes.find((o) => String(o.key).toUpperCase() === k);
+      if (found) return found;
+    }
+    return outcomes[0] || null;
+  }
+
+  renderInteraction(inter) {
+    const kind = String(inter.kind || 'CHOICE').toUpperCase();
+    const outcomes = inter.outcomes || [];
+    const cfg = inter.config || {};
+
+    if (kind === 'SEARCH') {
+      this.renderSearch(inter, cfg, outcomes);
+      return;
+    }
+    if (kind === 'HOLD') {
+      this.renderHold(inter, cfg, outcomes);
+      return;
+    }
+    if (kind === 'QTE_TAP') {
+      this.renderQteTap(inter, cfg, outcomes);
+      return;
+    }
+    if (kind === 'TIMING') {
+      this.renderTiming(inter, cfg, outcomes);
+      return;
+    }
+    if (kind === 'CLICK') {
+      this.renderClick(inter, outcomes);
+      return;
+    }
+    if (kind === 'ACTION_ZONE') {
+      this.renderActionZones(inter, outcomes);
+      return;
+    }
+
+    const mappedChoices = outcomes.filter((o) => String(o.key).toUpperCase() !== 'TIMEOUT').map((o) => ({
+      text: o.label,
+      to: o.to,
+      ending: o.ending,
+      stateChange: o.stateChange,
+      feedback: o.feedback,
+    }));
+    const timeoutOutcome = outcomes.find((o) => String(o.key).toUpperCase() === 'TIMEOUT') || outcomes[outcomes.length - 1];
+    this.renderChoices(mappedChoices, kind === 'TIMED_CHOICE' ? inter.timeoutSec : null, inter.prompt, timeoutOutcome);
+  }
+
+  renderSearch(inter, cfg, outcomes) {
+    const targets = Array.isArray(cfg.targets) && cfg.targets.length > 0
+      ? cfg.targets
+      : [{ name: outcomes[0]?.label || '关键线索', feedback: outcomes[0]?.feedback || '找到了关键线索！' }];
+    const decoys = Array.isArray(cfg.decoys) ? cfg.decoys : [];
+    const items = [
+      ...targets.map((t, idx) => ({ ...t, isTarget: true, id: 't_' + idx })),
+      ...decoys.map((d, idx) => ({ ...d, isTarget: false, id: 'd_' + idx })),
+    ];
+    // 确定性安全散落位置（避开边缘与顶部任务栏）
+    const slots = [
+      { left: '22%', top: '38%' },
+      { left: '72%', top: '34%' },
+      { left: '48%', top: '62%' },
+      { left: '24%', top: '72%' },
+      { left: '76%', top: '68%' },
+    ];
+    const successOutcome = this.pickOutcome(inter, ['FOUND', 'SUCCESS', 'A']) || outcomes[0];
+    const timeoutOutcome = this.pickOutcome(inter, ['TIMEOUT', 'FAIL']) || successOutcome;
+
+    this.interactionEl.innerHTML = \`
+      <div class="search-stage">
+        <div class="hook-header">
+          <div class="hook-badge">场景搜证</div>
+          <div class="hook-prompt">\${inter.prompt || '在画面中寻找关键物品'}</div>
+          \${inter.timeoutSec ? '<div class="countdown-track"><div class="countdown-fill" id="hook-cd-fill"></div></div>' : ''}
+        </div>
+        <div class="search-field">
+          \${items.map((it, idx) => {
+            const pos = slots[idx % slots.length];
+            const imgHtml = it.imageUrl
+              ? \`<img class="search-item-img" src="\${it.imageUrl}" alt="\${it.name}" />\`
+              : \`<span class="search-item-icon">✦</span>\`;
+            return \`
+              <button class="search-hotspot" data-idx="\${idx}" style="left:\${pos.left};top:\${pos.top};">
+                \${imgHtml}
+                <span class="search-item-name">\${it.name}</span>
+              </button>
+            \`;
+          }).join('')}
+        </div>
+        <div class="search-clue-toast" id="search-clue-toast"></div>
+      </div>
+    \`;
+    this.interactionEl.classList.add('is-active');
+
+    const toastEl = document.getElementById('search-clue-toast');
+    let foundCount = 0;
+    const totalTargets = targets.length;
+    const collectedAdds = { ...(successOutcome?.stateChange?.add || {}) };
+
+    this.interactionEl.querySelectorAll('.search-hotspot').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (btn.classList.contains('is-found') || btn.classList.contains('is-checked')) return;
+        const it = items[Number(btn.getAttribute('data-idx'))];
+        if (!it) return;
+        if (it.isTarget) {
+          btn.classList.add('is-found');
+          foundCount += 1;
+          if (it.stateTag) {
+            String(it.stateTag).split(/[+,，\s]+/).map((s) => s.trim()).filter(Boolean).forEach((k) => {
+              collectedAdds[k] = 1;
+            });
+          }
+          if (foundCount >= totalTargets) {
+            this.completeOutcome({
+              ...successOutcome,
+              ...(Object.keys(collectedAdds).length > 0 ? { stateChange: { add: collectedAdds } } : {}),
+              feedback: it.feedback || successOutcome?.feedback || \`获得：\${it.name}\`,
+            });
+          } else if (toastEl) {
+            toastEl.textContent = (it.feedback || \`找到【\${it.name}】！\`) + \`（已找到 \${foundCount}/\${totalTargets}）\`;
+            toastEl.classList.add('is-visible');
+          }
+        } else {
+          btn.classList.add('is-checked');
+          if (toastEl) {
+            toastEl.textContent = it.feedback || \`只是【\${it.name}】，再找找别处。\`;
+            toastEl.classList.add('is-visible');
+          }
+        }
+      });
+    });
+
+    if (inter.timeoutSec) {
+      this.startCountdown(inter.timeoutSec, document.getElementById('hook-cd-fill'), () => {
+        this.completeOutcome(timeoutOutcome);
+      });
+    }
+  }
+
+  renderHold(inter, cfg, outcomes) {
+    const holdMs = Number(cfg.holdDurationMs) || 2000;
+    const successOutcome = this.pickOutcome(inter, ['SUCCESS', 'A']) || outcomes[0];
+    const failOutcome = this.pickOutcome(inter, ['FAIL', 'TIMEOUT', 'B']) || successOutcome;
+
+    this.interactionEl.innerHTML = \`
+      <div class="qte-dialog">
+        <div class="hook-badge">长按蓄力</div>
+        <div class="hook-prompt">\${inter.prompt || '按住屏幕保持动作'}</div>
+        \${inter.timeoutSec ? '<div class="countdown-track"><div class="countdown-fill" id="hook-cd-fill"></div></div>' : ''}
+        <button class="hold-trigger-btn" id="hold-btn">
+          <span class="hold-ring-fill" id="hold-fill"></span>
+          <span class="hold-label">按住不放</span>
+        </button>
+        <div class="qte-hint" id="hold-hint">长按以完成动作</div>
+      </div>
+    \`;
+    this.interactionEl.classList.add('is-active');
+
+    let progress = 0;
+    let holding = false;
+    let lastTs = 0;
+    const fillEl = document.getElementById('hold-fill');
+    const hintEl = document.getElementById('hold-hint');
+    const btnEl = document.getElementById('hold-btn');
+
+    const tick = (ts) => {
+      if (!lastTs) lastTs = ts;
+      const dt = ts - lastTs;
+      lastTs = ts;
+      if (holding) {
+        progress = Math.min(100, progress + (dt / holdMs) * 100);
+        if (fillEl) fillEl.style.height = progress + '%';
+        if (progress >= 100) {
+          this.completeOutcome(successOutcome);
+          return;
+        }
+      }
+      this._rafId = requestAnimationFrame(tick);
+    };
+    this._rafId = requestAnimationFrame(tick);
+
+    const startHold = (e) => {
+      e.preventDefault();
+      holding = true;
+      btnEl?.classList.add('is-holding');
+      if (hintEl) hintEl.textContent = '保持住……';
+    };
+    const endHold = () => {
+      holding = false;
+      btnEl?.classList.remove('is-holding');
+      if (progress < 100 && hintEl) {
+        hintEl.textContent = '松手了！请重新按住不放';
+      }
+    };
+    btnEl?.addEventListener('mousedown', startHold);
+    btnEl?.addEventListener('touchstart', startHold, { passive: false });
+    window.addEventListener('mouseup', endHold, { once: false });
+    window.addEventListener('touchend', endHold, { once: false });
+
+    if (inter.timeoutSec && inter.isBranching) {
+      this.startCountdown(inter.timeoutSec, document.getElementById('hook-cd-fill'), () => {
+        this.completeOutcome(failOutcome);
+      });
+    }
+  }
+
+  renderQteTap(inter, cfg, outcomes) {
+    const targetTaps = Number(cfg.targetTaps) || 10;
+    const successOutcome = this.pickOutcome(inter, ['SUCCESS', 'A']) || outcomes[0];
+    const failOutcome = this.pickOutcome(inter, ['FAIL', 'TIMEOUT', 'B']) || successOutcome;
+    let taps = 0;
+
+    this.interactionEl.innerHTML = \`
+      <div class="qte-dialog">
+        <div class="hook-badge">快速连点</div>
+        <div class="hook-prompt">\${inter.prompt || '连续点击完成破局'}</div>
+        \${inter.timeoutSec ? '<div class="countdown-track"><div class="countdown-fill" id="hook-cd-fill"></div></div>' : ''}
+        <div class="tap-bar"><div class="tap-bar-fill" id="tap-fill"></div></div>
+        <button class="tap-trigger-btn" id="tap-btn">连点响应！</button>
+      </div>
+    \`;
+    this.interactionEl.classList.add('is-active');
+
+    const fillEl = document.getElementById('tap-fill');
+    document.getElementById('tap-btn')?.addEventListener('click', () => {
+      taps += 1;
+      const pct = Math.min(100, (taps / targetTaps) * 100);
+      if (fillEl) fillEl.style.width = pct + '%';
+      if (taps >= targetTaps) {
+        this.completeOutcome(successOutcome, { flash: true });
+      }
+    });
+
+    if (inter.timeoutSec && inter.isBranching) {
+      this.startCountdown(inter.timeoutSec, document.getElementById('hook-cd-fill'), () => {
+        this.completeOutcome(failOutcome);
+      });
+    }
+  }
+
+  renderTiming(inter, cfg, outcomes) {
+    const [minPct, maxPct] = Array.isArray(cfg.sweetSpotPct) ? cfg.sweetSpotPct : [38, 62];
+    const successOutcome = this.pickOutcome(inter, ['SUCCESS', 'A']) || outcomes[0];
+    const failOutcome = this.pickOutcome(inter, ['FAIL', 'TIMEOUT', 'B']) || successOutcome;
+
+    this.interactionEl.innerHTML = \`
+      <div class="qte-dialog">
+        <div class="hook-badge">时机判定</div>
+        <div class="hook-prompt">\${inter.prompt || '指针进入高亮区时点击命中'}</div>
+        <div class="timing-track">
+          <div class="timing-zone" style="left:\${minPct}%;width:\${maxPct - minPct}%;"></div>
+          <div class="timing-cursor" id="timing-cursor"></div>
+        </div>
+        <button class="tap-trigger-btn" id="timing-btn">立即出手！</button>
+        <div class="qte-hint" id="timing-hint">找准时机点击</div>
+      </div>
+    \`;
+    this.interactionEl.classList.add('is-active');
+
+    let pos = 0;
+    let dir = 1;
+    let lastTs = 0;
+    const cursorEl = document.getElementById('timing-cursor');
+    const hintEl = document.getElementById('timing-hint');
+
+    const tick = (ts) => {
+      if (!lastTs) lastTs = ts;
+      const dt = ts - lastTs;
+      lastTs = ts;
+      pos += dir * (dt * 0.11);
+      if (pos >= 100) { pos = 100; dir = -1; }
+      if (pos <= 0) { pos = 0; dir = 1; }
+      if (cursorEl) cursorEl.style.left = pos + '%';
+      this._rafId = requestAnimationFrame(tick);
+    };
+    this._rafId = requestAnimationFrame(tick);
+
+    document.getElementById('timing-btn')?.addEventListener('click', () => {
+      if (pos >= minPct && pos <= maxPct) {
+        this.completeOutcome(successOutcome, { flash: true });
+      } else if (inter.isBranching) {
+        this.completeOutcome(failOutcome);
+      } else if (hintEl) {
+        hintEl.textContent = '差了一点，重新看准靶区！';
+      }
+    });
+  }
+
+  renderClick(inter, outcomes) {
+    const targetOutcome = outcomes[0];
+    this.interactionEl.innerHTML = \`
+      <div class="qte-dialog">
+        <button class="click-pulse-btn" id="click-btn">\${inter.prompt || '点击继续'}</button>
+      </div>
+    \`;
+    this.interactionEl.classList.add('is-active');
+    document.getElementById('click-btn')?.addEventListener('click', () => {
+      this.completeOutcome(targetOutcome);
+    });
+  }
+
+  renderActionZones(inter, outcomes) {
+    const validOutcomes = outcomes.filter((o) => String(o.key).toUpperCase() !== 'TIMEOUT');
+    const timeoutOutcome = outcomes.find((o) => String(o.key).toUpperCase() === 'TIMEOUT') || outcomes[outcomes.length - 1];
+    this.interactionEl.innerHTML = \`
+      <div class="action-zone-stage">
+        <div class="hook-header">
+          <div class="hook-badge">动作抉择</div>
+          <div class="hook-prompt">\${inter.prompt || '立即做出反应'}</div>
+          \${inter.timeoutSec ? '<div class="countdown-track"><div class="countdown-fill" id="hook-cd-fill"></div></div>' : ''}
+        </div>
+        <div class="action-zone-row">
+          \${validOutcomes.map((o, idx) => \`
+            <button class="action-zone-btn" data-idx="\${idx}">\${o.label}</button>
+          \`).join('')}
+        </div>
+      </div>
+    \`;
+    this.interactionEl.classList.add('is-active');
+    this.interactionEl.querySelectorAll('.action-zone-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const o = validOutcomes[Number(btn.getAttribute('data-idx'))];
+        if (o) this.completeOutcome(o);
+      });
+    });
+    if (inter.timeoutSec) {
+      this.startCountdown(inter.timeoutSec, document.getElementById('hook-cd-fill'), () => {
+        this.completeOutcome(timeoutOutcome);
+      });
+    }
+  }
+
+  renderChoices(choices, timeoutSec = null, promptText = '请做出你的抉择：', timeoutOutcome = null) {
     this.interactionEl.innerHTML = \`
       <div class="choices-dialog">
-        <div class="choices-prompt">请做出你的抉择：</div>
+        <div class="choices-prompt">\${promptText || '请做出你的抉择：'}</div>
+        \${timeoutSec ? '<div class="countdown-track"><div class="countdown-fill" id="choice-cd-fill"></div></div>' : ''}
         <div class="choices-list">
           \${choices.map((c, idx) => \`
             <button class="choice-btn" data-index="\${idx}">
@@ -196,7 +603,7 @@ class InteractiveGameCockpit {
 
     const buttons = this.interactionEl.querySelectorAll('.choice-btn');
     buttons.forEach((btn) => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', () => {
         const idx = Number(btn.getAttribute('data-index'));
         const choice = choices[idx];
         if (choice) {
@@ -204,19 +611,16 @@ class InteractiveGameCockpit {
         }
       });
     });
+
+    if (timeoutSec) {
+      this.startCountdown(timeoutSec, document.getElementById('choice-cd-fill'), () => {
+        this.completeOutcome(timeoutOutcome || choices[choices.length - 1]);
+      });
+    }
   }
 
   handleChoice(choice) {
-    if (choice.stateChange) {
-      this.blackboard.applyChange(choice.stateChange);
-      this.updateHud();
-    }
-    const targetSceneId = choice.to || choice.targetSceneId || choice.nextNodeId;
-    if (targetSceneId) {
-      this.playScene(targetSceneId);
-    } else if (choice.ending) {
-      this.renderEnding(choice.ending);
-    }
+    this.completeOutcome(choice);
   }
 
   renderEnding(ending) {
@@ -486,6 +890,276 @@ body, html {
   from { opacity: 0; transform: scale(0.95); }
   to { opacity: 1; transform: scale(1); }
 }
+
+.hook-header {
+  width: 100%;
+  max-width: 620px;
+  text-align: center;
+  margin-bottom: 18px;
+}
+
+.hook-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  margin-bottom: 8px;
+}
+
+.hook-prompt {
+  font-size: 16px;
+  font-weight: 600;
+  color: #f8fafc;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+}
+
+.countdown-track {
+  width: 100%;
+  height: 5px;
+  margin-top: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.countdown-fill {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, #ef4444, #f59e0b);
+  transition: width 0.05s linear;
+}
+
+.search-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px;
+}
+
+.search-field {
+  position: relative;
+  width: 100%;
+  flex: 1;
+}
+
+.search-hotspot {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  border-radius: 12px;
+  color: #f8fafc;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 0 18px rgba(245, 158, 11, 0.2);
+}
+
+.search-hotspot:hover {
+  transform: translate(-50%, -50%) scale(1.06);
+  border-color: #fbbf24;
+  box-shadow: 0 0 24px rgba(251, 191, 36, 0.45);
+}
+
+.search-hotspot.is-checked {
+  opacity: 0.45;
+  border-color: rgba(148, 163, 184, 0.4);
+  box-shadow: none;
+}
+
+.search-hotspot.is-found {
+  border-color: #10b981;
+  box-shadow: 0 0 26px rgba(16, 185, 129, 0.7);
+}
+
+.search-item-img {
+  width: 54px;
+  height: 54px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.search-item-icon {
+  font-size: 20px;
+  color: #fbbf24;
+}
+
+.search-item-name {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.search-clue-toast {
+  min-height: 28px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #e2e8f0;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.search-clue-toast.is-visible {
+  opacity: 1;
+}
+
+.qte-dialog {
+  width: 100%;
+  max-width: 440px;
+  text-align: center;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 16px;
+  padding: 24px;
+}
+
+.hold-trigger-btn {
+  position: relative;
+  overflow: hidden;
+  width: 132px;
+  height: 132px;
+  margin: 18px auto 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(245, 158, 11, 0.7);
+  background: rgba(30, 41, 59, 0.8);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hold-ring-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 0%;
+  background: rgba(245, 158, 11, 0.45);
+  transition: height 0.05s linear;
+}
+
+.hold-label {
+  position: relative;
+  z-index: 1;
+}
+
+.tap-bar, .timing-track {
+  position: relative;
+  width: 100%;
+  height: 14px;
+  margin: 18px 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.tap-bar-fill {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #f59e0b, #10b981);
+  transition: width 0.08s ease;
+}
+
+.timing-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(16, 185, 129, 0.45);
+  border-left: 2px solid #34d399;
+  border-right: 2px solid #34d399;
+}
+
+.timing-cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: #fbbf24;
+  transform: translateX(-50%);
+}
+
+.tap-trigger-btn, .click-pulse-btn, .action-zone-btn {
+  padding: 12px 24px;
+  border-radius: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.75);
+  background: rgba(245, 158, 11, 0.2);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tap-trigger-btn:hover, .click-pulse-btn:hover, .action-zone-btn:hover {
+  background: rgba(245, 158, 11, 0.35);
+}
+
+.qte-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.action-zone-stage {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.action-zone-row {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 18px;
+}
+
+.action-zone-btn {
+  flex: 1;
+  padding: 18px 20px;
+}
+
+.impact-flash {
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.85);
+  animation: fadeOut 0.18s ease forwards;
+}
+
+.feedback-toast {
+  padding: 14px 24px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(245, 158, 11, 0.55);
+  color: #f8fafc;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
 `;
 }
 
@@ -517,17 +1191,118 @@ export async function executeCodegenStep(
 
   let scenes: any[] = (input.scenes && input.scenes.length ? input.scenes : input.script?.scenes) || [];
   if (scenes.length === 0 && effectivePrd?.clips?.length) {
-    scenes = effectivePrd.clips.map((c: any) => ({
-      sceneId: c.id || c.clipId,
-      title: c.title,
-      text: c.narrativeText || c.title || '',
-      background: c.backgroundImageUrl || '',
-      choices: (c.choices || []).map((ch: any) => ({
-        text: ch.text || ch.label,
-        to: ch.to || ch.targetSceneId || ch.nextNodeId,
-      })),
-      ending: c.ending,
-    }));
+    const filmSpec: any = store.getArtifact(input.projectId, 'film_spec');
+    const lookdevEntities: any = store.getArtifact(input.projectId, 'lookdev_entities');
+    const storyData: any = store.getArtifact(input.projectId, 'story');
+
+    const itemImgByName = new Map<string, string>();
+    for (const item of lookdevEntities?.items || []) {
+      const img = item?.imageUrl || item?.url;
+      if (item?.name && img) itemImgByName.set(String(item.name).trim(), img);
+    }
+
+    const endingMap = new Map<string, any>();
+    for (const ed of effectivePrd.endings || []) {
+      endingMap.set(ed.id, {
+        type: ed.endingType,
+        title: ed.title,
+        verdict: ed.summary,
+        rewindTo: ed.rewindTargetClipId,
+      });
+    }
+
+    const interactionMap = new Map<string, any>();
+    for (const inter of effectivePrd.interactions || []) {
+      interactionMap.set(inter.id, inter);
+    }
+
+    const wiring = effectivePrd.wiring || [];
+    const clipScenes = effectivePrd.clips.map((c: any) => {
+      const clipId = c.id || c.clipId;
+      const filmAct = (filmSpec?.acts || []).find((a: any) => a.clipId === clipId);
+      const storySection = storyData?.[clipId];
+
+      // 寻找当前 clip 的出边
+      const clipOutEdge = wiring.find((w: any) => w.from === clipId);
+      let nextClipId: string | null = null;
+      let attachedInteraction: any = null;
+      let attachedChoices: any[] = [];
+      let attachedEnding: any = c.ending || null;
+
+      if (clipOutEdge) {
+        if (interactionMap.has(clipOutEdge.to)) {
+          const inter = interactionMap.get(clipOutEdge.to);
+          const interEdges = wiring.filter((w: any) => w.from === inter.id);
+          const mappedOutcomes = (inter.outcomes || []).map((o: any) => {
+            const edge = interEdges.find((w: any) => w.onOutcome === o.key);
+            const targetId = edge?.to;
+            const targetEnding = targetId ? endingMap.get(targetId) : undefined;
+            return {
+              key: o.key,
+              label: o.label,
+              ...(targetEnding ? { ending: targetEnding } : targetId ? { to: targetId } : {}),
+              ...(o.stateChange ? { stateChange: o.stateChange } : {}),
+              ...(o.feedback ? { feedback: o.feedback } : {}),
+            };
+          });
+
+          // 为 SEARCH 道具注入 lookdev 已生成的道具定妆图
+          const hydratedConfig = inter.config
+            ? {
+                ...inter.config,
+                targets: Array.isArray(inter.config.targets)
+                  ? inter.config.targets.map((t: any) => ({
+                      ...t,
+                      imageUrl: t.imageUrl || itemImgByName.get(String(t.name || '').trim()),
+                    }))
+                  : undefined,
+                decoys: Array.isArray(inter.config.decoys)
+                  ? inter.config.decoys.map((d: any) => ({
+                      ...d,
+                      imageUrl: d.imageUrl || itemImgByName.get(String(d.name || '').trim()),
+                    }))
+                  : undefined,
+              }
+            : undefined;
+
+          attachedInteraction = {
+            kind: inter.kind,
+            isBranching: inter.isBranching,
+            prompt: inter.prompt,
+            timeoutSec: inter.timeoutSec ?? null,
+            ...(hydratedConfig ? { config: hydratedConfig } : {}),
+            outcomes: mappedOutcomes,
+          };
+
+          attachedChoices = mappedOutcomes
+            .filter((o: any) => String(o.key).toUpperCase() !== 'TIMEOUT')
+            .map((o: any) => ({
+              text: o.label,
+              to: o.to,
+              ending: o.ending,
+              stateChange: o.stateChange,
+            }));
+        } else if (endingMap.has(clipOutEdge.to)) {
+          attachedEnding = endingMap.get(clipOutEdge.to);
+        } else {
+          nextClipId = clipOutEdge.to;
+        }
+      }
+
+      return {
+        sceneId: clipId,
+        title: c.title,
+        text: storySection?.narrativeText || c.narrativeText || c.title || '',
+        background: filmAct?.firstFrameUrl || c.backgroundImageUrl || '',
+        videoUrl: filmAct?.videoUrl || undefined,
+        ...(attachedInteraction ? { interaction: attachedInteraction } : {}),
+        ...(nextClipId ? { next: nextClipId } : {}),
+        ...(attachedChoices.length ? { choices: attachedChoices } : {}),
+        ...(attachedEnding ? { ending: attachedEnding } : {}),
+      };
+    });
+
+    scenes = clipScenes;
   }
 
   // 4. 写入 index.html

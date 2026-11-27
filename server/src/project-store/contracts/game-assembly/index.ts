@@ -5,6 +5,8 @@
 
 import { z } from 'zod';
 import {
+  InteractionConfigSchema,
+  InteractionKindSchema,
   PrdStateChangeSchema,
   PrdStateValueSchema,
 } from '../planner/index.js';
@@ -21,9 +23,22 @@ export const SingleSceneJsonSchema = z.object({
 
 export type SingleSceneJson = z.infer<typeof SingleSceneJsonSchema>;
 
+export const ScriptInteractionOutcomeSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  to: z.string().optional(),
+  ending: z.lazy(() => ScriptEndingSchema).optional(),
+  stateChange: PrdStateChangeSchema.optional(),
+  feedback: z.string().optional(),
+});
+
 export const ScriptInteractionSchema = z.object({
-  kind: z.string().describe('介入类型'),
+  kind: InteractionKindSchema.or(z.string()).describe('介入类型'),
+  isBranching: z.boolean().optional().describe('是否命运分支'),
   prompt: z.string().describe('给玩家看的一句操作提示'),
+  timeoutSec: z.number().nullable().optional().describe('限时秒数'),
+  config: InteractionConfigSchema.optional().describe('玩法专属参数'),
+  outcomes: z.array(ScriptInteractionOutcomeSchema).optional().describe('各结果与去向'),
   feedback: z.string().optional().describe('操作完成后的即时反馈文案'),
   stateChange: PrdStateChangeSchema.optional().describe('完成后的状态变更'),
 });

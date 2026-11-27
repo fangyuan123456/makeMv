@@ -23,7 +23,7 @@ function buildPrdSummary(prd: any): string {
   const titlePart = prd.gameTitle ? `《${prd.gameTitle}》` : '';
   const genrePart = prd.genre ? `（${prd.genre}）` : '';
   lines.push(
-    `已收敛 Universal PRD 拓扑策划案${titlePart}${genrePart}：共 ${clips.length} 个分幕/分支片段、${interactions.length} 个关键抉择点、${endings.length} 个结局。`
+    `已收敛 Universal PRD 拓扑策划案${titlePart}${genrePart}：共 ${clips.length} 个分幕/分支片段、${interactions.length} 个互动节点、${endings.length} 个结局。`
   );
 
   if (clips.length > 0) {
@@ -36,15 +36,17 @@ function buildPrdSummary(prd: any): string {
 
   if (interactions.length > 0) {
     const choiceList = interactions
-      .slice(0, 6)
+      .slice(0, 8)
       .map((inter: any) => {
         const opts = (inter.outcomes || [])
           .map((o: any) => `${o.key}:${String(o.label || '').slice(0, 28)}`)
           .join(' / ');
-        return `${inter.id}[${opts}]`;
+        const mode = inter.isBranching === false ? '单线' : '分支';
+        const kindTag = `${inter.kind || 'CHOICE'}·${mode}${inter.timeoutSec ? `·${inter.timeoutSec}s` : ''}`;
+        return `${inter.id}(${kindTag})[${opts}]`;
       })
       .join('；');
-    lines.push(`- 关键抉择：${choiceList}`);
+    lines.push(`- 互动节点：${choiceList}`);
   }
 
   if (endings.length > 0) {

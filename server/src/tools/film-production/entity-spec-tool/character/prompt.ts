@@ -39,8 +39,9 @@ ${prd ? `策划案大纲参考：\n\`\`\`json\n${JSON.stringify(prd, null, 2)}\n
    - 描写顺序：生理年龄与身材体格 -> 面部骨相五官与肤色特征 -> 发型发色 -> 标志性服装款式剪裁与真实面料材质（如粗棉布/亚麻/皮革的漫反射真实质感） -> 常驻穿戴佩饰（仅限静态佩戴，绝不手持任何外部道具）；
    - 保持常态母本纯净：严禁雨水湿发、伤口血污、环境彩色光污染等瞬时剧情状态，**严禁用“眼中映着火光/泛着光芒”等光影或文学修辞修饰眼瞳**；若存在单眼或面部生理特征，必须译为客观静态物理材质（如“左眼瞳孔灰白浑浊，右眼深色正常”）；
 3. appearanceSummary：供创作者阅读的极简外貌概括（15~35字）；
-4. identity：在剧作中的核心社会身份或角色定位；
-5. 输出严格符合 CharacterSpecSchema 的 JSON。`;
+4. voiceStyle：角色专属声色与说话风格（10~25字，如“低沉浑厚的老年男声，略带沧桑沙哑，语速沉稳缓慢”，专供视频台词配音保持一致，与画图用 promptZh 分离）；
+5. identity：在剧作中的核心社会身份或角色定位；
+6. 输出严格符合 CharacterSpecSchema 的 JSON。`;
 }
 
 export function buildCharacterSpecModifyPrompt(params: {
@@ -73,5 +74,6 @@ ${storyMarkdown ? `剧本上下文参考：\n\`\`\`markdown\n${storyMarkdown}\n\
 修改铁律：
 1. 增量继承：以既有设定为基准，仅根据创作者意见调整相关局部，未提及的核心骨相与服装特征必须无损保留；
 2. promptZh 必须保持纯净资产特性（80~120 汉字）：纯正面物理描述，只描写外貌身材与服装面料，严禁输出任何结构小标题或标号，严禁包含动作姿态（严禁立姿、A-Pose）与下游排版；
-3. 输出严格符合 CharacterSpecSchema 的 JSON。`;
+3. 继承或按需微调 voiceStyle（声色与说话风格），不把声音描写写入 promptZh；
+4. 输出严格符合 CharacterSpecSchema 的 JSON。`;
 }

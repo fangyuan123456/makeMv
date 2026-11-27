@@ -176,30 +176,48 @@ async function testSynthesizePrdStep() {
         id: 'c1',
         title: '冷冻舱惊魂',
         narrativeText: '警报声刺破寂静，冰霜从面罩上融化...',
-        choices: [
-          {
-            id: 'ch_1',
-            text: '强行破门',
-            targetNodeId: 'c2',
+        interaction: {
+          kind: 'SEARCH' as const,
+          isBranching: false,
+          prompt: '在冷冻舱控制台周围找出【应急门禁卡】',
+          timeoutSec: 12,
+          config: {
+            targets: [{ name: '应急门禁卡', stateTag: '+keycard', feedback: '找到了门禁卡！' }],
+            decoys: [{ name: '碎裂的护目镜', feedback: '只是旧护目镜，不是门禁卡。' }],
           },
-          {
-            id: 'ch_2',
-            text: '检查控制台日志',
-            targetEndingId: 'e_be_1',
-          },
-        ],
+          outcomes: [
+            {
+              key: 'FOUND',
+              label: '找到应急门禁卡并强行破门',
+              targetNodeId: 'c2',
+              stateTag: '+keycard',
+              feedback: '门禁卡刷开气闸！',
+            },
+          ],
+        },
       },
       {
         id: 'c2',
         title: '中央反应堆',
         narrativeText: '核心反应堆即将超载，必须做出最终决断。',
-        choices: [
-          {
-            id: 'ch_3',
-            text: '切断主供能并手动锁定',
-            targetEndingId: 'e_he_1',
-          },
-        ],
+        interaction: {
+          kind: 'TIMED_CHOICE' as const,
+          isBranching: true,
+          prompt: '反应堆 6 秒后过载，立即决断！',
+          timeoutSec: 6,
+          outcomes: [
+            {
+              key: 'A',
+              label: '切断主供能并手动锁定',
+              targetEndingId: 'e_he_1',
+            },
+            {
+              key: 'TIMEOUT',
+              label: '犹豫超时，反应堆引爆',
+              targetEndingId: 'e_be_1',
+            },
+          ],
+        },
       },
     ],
     endings: [
@@ -276,44 +294,59 @@ async function testTwoBranchPointsAndNoMergeContract() {
         suspense: '牺牲自我还是赌命双人超频发射',
       },
     ],
-    branchPoints: [
+    interactions: [
       {
         pointIndex: 1,
         actNumber: 1,
+        isBranching: true,
+        kind: 'TIMED_CHOICE' as const,
+        prompt: '中控水闸即将被异形生物撞破，立即决断！',
+        timeoutSec: 6,
         sceneContext: '中控水闸即将被异形生物撞破',
-        dilemma: '是引爆加压水闸强行阻隔，还是犹豫观望错失良机？',
-        choiceA: {
-          text: '引爆加压水闸强行阻隔',
-          targetType: 'CONTINUE_MAINLINE' as const,
-          approachAndCost: '消耗了高压气瓶，造成轻微震伤，但成功炸退异兽，主线由此推进至第 2 幕',
-        },
-        choiceB: {
-          text: '犹豫观望试图寻找应急维修手册',
-          targetType: 'ENDING' as const,
-          approachAndCost: '错失水闸闭合窗口，异兽破门而入，加压舱瞬间失压',
-          endingTitle: '窒息深渊',
-          endingType: 'BE' as const,
-        },
+        outcomes: [
+          {
+            key: 'A',
+            label: '引爆加压水闸强行阻隔',
+            targetType: 'CONTINUE_MAINLINE' as const,
+            approachAndCost: '消耗了高压气瓶，造成轻微震伤，但成功炸退异兽，主线由此推进至第 2 幕',
+            stateTag: '+sealed_gate',
+          },
+          {
+            key: 'B',
+            label: '犹豫观望试图寻找应急维修手册',
+            targetType: 'ENDING' as const,
+            approachAndCost: '错失水闸闭合窗口，异兽破门而入，加压舱瞬间失压',
+            endingTitle: '窒息深渊',
+            endingType: 'BE' as const,
+          },
+        ],
       },
       {
         pointIndex: 2,
         actNumber: 2,
+        isBranching: true,
+        kind: 'CHOICE' as const,
+        prompt: '手动留守过载舱门让逃生舱安全脱离，还是强行双人共乘赌反应堆不爆炸？',
+        timeoutSec: null,
         sceneContext: '主逃生舱前，能源核心超载倒计时 60 秒',
-        dilemma: '手动留守过载舱门让逃生舱安全脱离，还是强行双人共乘赌反应堆不爆炸？',
-        choiceA: {
-          text: '留守锁定舱门',
-          targetType: 'ENDING' as const,
-          approachAndCost: '牺牲自己，将样本与希望托付队友',
-          endingTitle: '孤胆牺牲',
-          endingType: 'TE' as const,
-        },
-        choiceB: {
-          text: '双人强行共乘启动超频',
-          targetType: 'ENDING' as const,
-          approachAndCost: '在生死一线间拼尽全力稳定推进器，成功冲出海面',
-          endingTitle: '破浪生还',
-          endingType: 'HE' as const,
-        },
+        outcomes: [
+          {
+            key: 'A',
+            label: '留守锁定舱门',
+            targetType: 'ENDING' as const,
+            approachAndCost: '牺牲自己，将样本与希望托付队友',
+            endingTitle: '孤胆牺牲',
+            endingType: 'TE' as const,
+          },
+          {
+            key: 'B',
+            label: '双人强行共乘启动超频',
+            targetType: 'ENDING' as const,
+            approachAndCost: '在生死一线间拼尽全力稳定推进器，成功冲出海面',
+            endingTitle: '破浪生还',
+            endingType: 'HE' as const,
+          },
+        ],
       },
     ],
   };
@@ -321,31 +354,46 @@ async function testTwoBranchPointsAndNoMergeContract() {
   // 1. 合法契约校验
   const parseResult = PremiseOutputSchema.safeParse(validPremise);
   assert.strictEqual(parseResult.success, true, '合法 2 分支点数据应成功通过校验');
-  assert.strictEqual(parseResult.data?.branchPoints[0].choiceA.targetType, 'CONTINUE_MAINLINE');
-  assert.strictEqual(parseResult.data?.branchPoints[0].choiceB.targetType, 'ENDING');
+  assert.strictEqual(parseResult.data?.interactions[0].outcomes[0].targetType, 'CONTINUE_MAINLINE');
+  assert.strictEqual(parseResult.data?.interactions[0].outcomes[1].targetType, 'ENDING');
 
-  // 2. 一个选择节点无需凑数；超过两个节点不符合契约
+  // 2. 单线互动不占分支名额；超过两个 isBranching=true 节点不符合契约
   const singleBranchPremise = {
     ...validPremise,
-    branchPoints: [validPremise.branchPoints[0]], // 仅 1 个分支点
+    interactions: [
+      {
+        ...validPremise.interactions[0],
+        isBranching: false,
+        kind: 'HOLD' as const,
+        outcomes: [validPremise.interactions[0].outcomes[0]],
+      },
+      validPremise.interactions[1],
+    ],
   };
   const singleResult = PremiseOutputSchema.safeParse(singleBranchPremise);
-  assert.strictEqual(singleResult.success, true, '一个分支点应合法，不强制凑满两个');
-  assert.strictEqual(PremiseOutputSchema.safeParse({
-    ...validPremise,
-    branchPoints: [...validPremise.branchPoints, validPremise.branchPoints[0]],
-  }).success, false, '全剧分支点总数不得超过两个');
+  assert.strictEqual(singleResult.success, true, '单线互动 + 1 个分支点应合法');
+  assert.strictEqual(
+    PremiseOutputSchema.safeParse({
+      ...validPremise,
+      interactions: [
+        ...validPremise.interactions,
+        { ...validPremise.interactions[0], pointIndex: 3 },
+      ],
+    }).success,
+    false,
+    '命运分支节点 (isBranching=true) 全剧不得超过两个'
+  );
   const singlePrompt = buildFullScriptPrompt({ premise: singleResult.data! });
-  assert.ok(singlePrompt.includes('大纲规划的 1 个互动分支抉择点'), '扩写应使用大纲实际选择节点数量');
+  assert.ok(singlePrompt.includes('命运分支 1 个，单线沉浸 1 个'), '扩写应准确注入单线与分支实际数量');
 
-  // 3. 验证 buildFullScriptPrompt 正确注入 2 个分支点及去向
+  // 3. 验证 buildFullScriptPrompt 正确注入 2 个互动节点及去向
   const prompt = buildFullScriptPrompt({
     premise: parseResult.data!,
     userPrompt: '深海生存故事',
   });
 
-  assert.ok(prompt.includes('【互动抉择点 1】'), '提示词中必须明确注入互动抉择点 1');
-  assert.ok(prompt.includes('【互动抉择点 2】'), '提示词中必须明确注入互动抉择点 2');
+  assert.ok(prompt.includes('【互动节点 1】'), '提示词中必须明确注入互动节点 1');
+  assert.ok(prompt.includes('【互动节点 2】'), '提示词中必须明确注入互动节点 2');
   assert.ok(prompt.includes('推进主线剧情进入下一幕'), '提示词中必须包含推进主线走向');
   assert.ok(prompt.includes('走向专有终局【窒息深渊】(BE)'), '提示词中必须包含走向专有终局');
   assert.ok(prompt.includes('普罗米修斯'), '提示词中必须包含世界观既定真相');

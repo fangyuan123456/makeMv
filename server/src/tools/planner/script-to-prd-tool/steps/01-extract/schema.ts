@@ -4,6 +4,10 @@
  */
 
 import { z } from 'zod';
+import {
+  InteractionConfigSchema,
+  InteractionKindSchema,
+} from '../../../../../project-store/contracts/planner/index.js';
 
 export const ScriptToPrdInputSchema = z.object({
   projectId: z.string().describe('项目唯一标识符 (SSOT 必填)'),
@@ -13,6 +17,24 @@ export const ScriptToPrdInputSchema = z.object({
 
 export type ScriptToPrdInput = z.infer<typeof ScriptToPrdInputSchema>;
 
+export const ExtractedClipInteractionOutcomeSchema = z.object({
+  key: z.string().describe('结果键名：如 A / B / FOUND / SUCCESS / FAIL / TIMEOUT'),
+  label: z.string().describe('选项文案或结果描述'),
+  targetNodeId: z.string().optional().describe('指向的下一个片段 ID（单线互动或推进主线时填写）'),
+  targetEndingId: z.string().optional().describe('指向的结局 ID（走向专有终局时填写）'),
+  stateTag: z.string().optional().describe('写入状态标签，如 +ledger'),
+  feedback: z.string().optional().describe('完成后的轻反馈文案'),
+});
+
+export const ExtractedClipInteractionSchema = z.object({
+  kind: InteractionKindSchema.describe('互动玩法类型：CHOICE / TIMED_CHOICE / SEARCH / HOLD / QTE_TAP / TIMING / CLICK / ACTION_ZONE'),
+  isBranching: z.boolean().describe('true=命运分支；false=单线沉浸互动（完成后推进同一幕后续）'),
+  prompt: z.string().describe('呈现给玩家的操作提示或抉择提示'),
+  timeoutSec: z.number().nullable().optional().describe('限时秒数（无倒计时可为 null）'),
+  config: InteractionConfigSchema.optional().describe('玩法专属参数（如 SEARCH 的 targets/decoys 等）'),
+  outcomes: z.array(ExtractedClipInteractionOutcomeSchema).min(1).describe('所有结果与去向列表'),
+});
+
 export const ExtractedScriptStructureSchema = z.object({
   title: z.string().describe('提取出的剧作标题'),
   clips: z.array(
@@ -20,14 +42,7 @@ export const ExtractedScriptStructureSchema = z.object({
       id: z.string().describe('切片规范 ID，如 c1, c2, b1_a'),
       title: z.string().describe('切片标题'),
       narrativeText: z.string().describe('切片对应的剧情台词文本'),
-      choices: z.array(
-        z.object({
-          id: z.string().describe('选项 ID，如 ch_1, ch_2'),
-          text: z.string().describe('选项文案'),
-          targetNodeId: z.string().optional().describe('选项指向的下一个片段 ID'),
-          targetEndingId: z.string().optional().describe('选项指向的结局 ID'),
-        })
-      ).default([]).describe('本片段呈现的选项列表'),
+      interaction: ExtractedClipInteractionSchema.nullable().optional().describe('本片段末尾触发的互动节点（含单线沉浸互动与命运分支）'),
     })
   ).describe('提取的剧情片段切片清单'),
   endings: z.array(

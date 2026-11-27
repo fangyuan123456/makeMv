@@ -108,8 +108,9 @@ export const synthesizePrdStep = createStep({
       const c = rawClips[i];
       const nextSequentialClip = rawClips[i + 1]?.id;
 
-      if (c.choices && c.choices.length > 0) {
+      if (c.interaction && c.interaction.outcomes.length > 0) {
         const interactionId = `I_${c.id}`;
+        const inter = c.interaction;
 
         // clip 播放结束后进入互动点
         wiring.push({
@@ -120,10 +121,10 @@ export const synthesizePrdStep = createStep({
           to: interactionId,
         });
 
-        const outcomes = c.choices.map((choice, cIdx) => {
-          const outcomeKey = String.fromCharCode(65 + cIdx); // A, B, C...
+        const outcomes = inter.outcomes.map((o, oIdx) => {
+          const outcomeKey = o.key || String.fromCharCode(65 + oIdx);
 
-          let targetNode = choice.targetEndingId || choice.targetNodeId;
+          let targetNode = o.targetEndingId || o.targetNodeId;
           // 若目标无效，优先走向下一幕；若无下一幕，兜底走向结局
           if (!targetNode || (!validClipIds.has(targetNode) && !validEndingIds.has(targetNode))) {
             targetNode = nextSequentialClip || fallbackEndingId;
@@ -137,21 +138,33 @@ export const synthesizePrdStep = createStep({
             to: targetNode,
           });
 
+          const tagKeys = (o.stateTag || '')
+            .split(/[+,，\s]+/)
+            .map((t) => t.trim())
+            .filter(Boolean);
+          const addRecord = tagKeys.reduce<Record<string, number>>((acc, k) => {
+            acc[k] = 1;
+            return acc;
+          }, {});
           return {
             key: outcomeKey,
-            label: choice.text,
+            label: o.label,
+            ...(tagKeys.length > 0 ? { stateChange: { add: addRecord } } : {}),
+            ...(o.feedback ? { feedback: o.feedback } : {}),
           };
         });
 
         interactions.push({
           id: interactionId,
-          kind: 'CHOICE',
-          prompt: '请做出你的抉择',
-          timeoutSec: null,
+          kind: inter.kind,
+          isBranching: inter.isBranching,
+          prompt: inter.prompt || '请做出你的选择',
+          timeoutSec: inter.timeoutSec ?? null,
+          ...(inter.config ? { config: inter.config } : {}),
           outcomes,
         });
       } else {
-        // 无选项的过渡片段，播放完毕直连下一幕或结局
+        // 无互动的过渡片段，播放完毕直连下一幕或结局
         wiring.push({
           from: c.id,
           onOutcome: 'onEnded',

@@ -667,6 +667,21 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
                         片段 {activeVideoIdx + 1}/{clipVideos.length} · {activeClipVideo.title}
                       </div>
                     )}
+                    {onEnlargeMedia && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onEnlargeMedia({
+                            title: `${node.title} · ${activeClipVideo.title}`,
+                            videoUrl: activeClipVideo.videoUrl,
+                          })
+                        }
+                        className="absolute top-2.5 right-2.5 px-2 py-1 rounded-lg bg-black/65 hover:bg-black/85 backdrop-blur-xs text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer z-10"
+                        title="全屏放大播放"
+                      >
+                        ⛶
+                      </button>
+                    )}
                   </>
                 ) : node.keyframeUrl ? (
                   <>
@@ -696,8 +711,13 @@ export const VisualInspectorPanel: React.FC<VisualInspectorPanelProps> = ({
                 )}
               </div>
 
-              {clipVideos.length > 1 && (
+              {(clipVideos.length > 1 || (shots.length > 0 && clipVideos.length < shots.length)) && (
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                  {shots.length > 0 && (
+                    <span className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">
+                      已生成 {clipVideos.length}/{shots.length}
+                    </span>
+                  )}
                   {clipVideos.map((cv, idx) => (
                     <button
                       key={`${cv.shotId}_${idx}`}
