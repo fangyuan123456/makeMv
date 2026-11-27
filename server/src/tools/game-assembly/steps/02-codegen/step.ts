@@ -320,10 +320,12 @@ class InteractiveGameCockpit {
     const successOutcome = this.pickOutcome(inter, ['FOUND', 'SUCCESS', 'A']) || outcomes[0];
     const timeoutOutcome = this.pickOutcome(inter, ['TIMEOUT', 'FAIL']) || successOutcome;
 
+    const isFlashlight = String(cfg.searchMode || '').toUpperCase() === 'FLASHLIGHT';
     this.interactionEl.innerHTML = \`
-      <div class="search-stage">
+      <div class="search-stage\${isFlashlight ? ' is-flashlight' : ''}" id="search-stage">
+        \${isFlashlight ? '<div class="flashlight-mask" id="flashlight-mask"></div>' : ''}
         <div class="hook-header">
-          <div class="hook-badge">场景搜证</div>
+          <div class="hook-badge">\${isFlashlight ? '暗室探照搜证' : '场景搜证'}</div>
           <div class="hook-prompt">\${inter.prompt || '在画面中寻找关键物品'}</div>
           \${inter.timeoutSec ? '<div class="countdown-track"><div class="countdown-fill" id="hook-cd-fill"></div></div>' : ''}
         </div>
@@ -345,6 +347,24 @@ class InteractiveGameCockpit {
       </div>
     \`;
     this.interactionEl.classList.add('is-active');
+
+    if (isFlashlight) {
+      const stageEl = document.getElementById('search-stage');
+      const maskEl = document.getElementById('flashlight-mask');
+      const updateSpot = (clientX, clientY) => {
+        if (!stageEl || !maskEl) return;
+        const rect = stageEl.getBoundingClientRect();
+        const x = ((clientX - rect.left) / Math.max(1, rect.width)) * 100;
+        const y = ((clientY - rect.top) / Math.max(1, rect.height)) * 100;
+        maskEl.style.setProperty('--fx', x.toFixed(1) + '%');
+        maskEl.style.setProperty('--fy', y.toFixed(1) + '%');
+      };
+      stageEl?.addEventListener('mousemove', (e) => updateSpot(e.clientX, e.clientY));
+      stageEl?.addEventListener('touchmove', (e) => {
+        const t = e.touches?.[0];
+        if (t) updateSpot(t.clientX, t.clientY);
+      }, { passive: true });
+    }
 
     const toastEl = document.getElementById('search-clue-toast');
     let foundCount = 0;
@@ -943,6 +963,20 @@ body, html {
   align-items: center;
   justify-content: space-between;
   padding: 20px;
+}
+
+.flashlight-mask {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  background: radial-gradient(circle 140px at var(--fx, 50%) var(--fy, 50%), transparent 0%, rgba(2, 6, 23, 0.92) 95%);
+}
+
+.search-stage.is-flashlight .hook-header,
+.search-stage.is-flashlight .search-clue-toast {
+  position: relative;
+  z-index: 5;
 }
 
 .search-field {

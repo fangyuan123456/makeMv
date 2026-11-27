@@ -86,7 +86,7 @@ export const ScreenplayActOutlineSchema = z.object({
 
 export type ScreenplayActOutline = z.infer<typeof ScreenplayActOutlineSchema>;
 
-export const PremiseOutputSchema = z.object({
+export const PremiseOutputBaseSchema = z.object({
   title: z.string().describe('互动影游中文标题'),
   genre: z.string().describe('题材分类'),
   logline: z.string().describe('一句话核心故事梗概'),
@@ -95,11 +95,47 @@ export const PremiseOutputSchema = z.object({
   actOutlines: z.array(ScreenplayActOutlineSchema).describe('结构严密、情节详实的分幕大纲清单'),
   interactions: z
     .array(PremiseInteractionSchema)
-    .refine(
-      (items) => items.filter((item) => item.isBranching).length <= 2,
-      '命运分支节点 (isBranching=true) 全剧最多 2 个'
-    )
     .describe('全剧幕末互动节点清单（统一包含单线沉浸互动与命运分支；其中 isBranching=true 的节点全剧严格不超过 2 个）'),
+});
+
+export const PremiseOutputSchema = PremiseOutputBaseSchema.superRefine((data, ctx) => {
+  const branchingCount = data.interactions.filter((item) => item.isBranching).length;
+  if (branchingCount > 2) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['interactions'],
+      message: `命运分支节点 (isBranching=true) 全剧最多 2 个，当前为 ${branchingCount} 个`,
+    });
+  }
+
+  const maxActNumber = data.actOutlines.reduce(
+    (max, act) => Math.max(max, act.actNumber || 0),
+    0
+  );
+  if (maxActNumber > 0) {
+    for (let i = 0; i < data.interactions.length; i++) {
+      const inter = data.interactions[i];
+      const continueCount = inter.outcomes.filter(
+        (o) => o.targetType === 'CONTINUE_MAINLINE'
+      ).length;
+
+      if (inter.actNumber < maxActNumber && continueCount !== 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['interactions', i, 'outcomes'],
+          message: `第 ${inter.actNumber} 幕不是最后一幕，其互动节点必须恰好有 1 个 CONTINUE_MAINLINE 结果推进下一幕（当前为 ${continueCount} 个），严禁全标成 ENDING 导致后续幕成不可达孤岛`,
+        });
+      }
+
+      if (inter.actNumber >= maxActNumber && continueCount > 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['interactions', i, 'outcomes'],
+          message: `第 ${inter.actNumber} 幕已是最后一幕，其互动节点不允许出现 CONTINUE_MAINLINE（当前为 ${continueCount} 个），所有结果必须走向 ENDING`,
+        });
+      }
+    }
+  }
 });
 
 export type PremiseOutput = z.infer<typeof PremiseOutputSchema>;

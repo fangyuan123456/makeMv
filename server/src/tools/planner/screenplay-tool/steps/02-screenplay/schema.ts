@@ -5,13 +5,13 @@
 
 import { z } from 'zod';
 import {
-  PremiseOutputSchema,
+  PremiseOutputBaseSchema,
   ScreenplayCharacterSchema,
   type PremiseOutput,
   type ScreenplayCharacter,
 } from '../01-premise/schema.js';
 
-export const ScreenplayOutputSchema = PremiseOutputSchema.extend({
+export const ScreenplayOutputSchema = PremiseOutputBaseSchema.extend({
   scriptMarkdown: z.string().describe('完整的 Markdown 格式互动影游全景剧本 (含分幕、台词、抉择选项与分支终局)'),
 });
 
@@ -23,7 +23,7 @@ export const FullScriptTextOutputSchema = z.object({
 
 export type FullScriptTextOutput = z.infer<typeof FullScriptTextOutputSchema>;
 
-export const ScreenplayStepInputSchema = PremiseOutputSchema.extend({
+export const ScreenplayStepInputSchema = PremiseOutputBaseSchema.extend({
   _context: z.any().optional(),
   userPrompt: z.string().optional(),
 });
